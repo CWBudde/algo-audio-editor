@@ -48,7 +48,7 @@ export function StatusBar({ kernel, sampleRate, stats, memory }: StatusBarProps)
       <Item label="Rate" value={`${sampleRate ?? hello?.sampleRate ?? "–"} Hz`} />
       <Item
         label="Memory"
-        value={memory ? formatBytes(memory.sampleBytes) : "–"}
+        value={memory ? formatBytes(memory.sampleBytes + memory.peakBytes) : "–"}
         testId="document-memory"
       />
       <Item

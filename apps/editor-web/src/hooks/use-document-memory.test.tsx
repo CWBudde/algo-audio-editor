@@ -35,6 +35,7 @@ class MemoryWorker implements WorkerLike {
 
 const emptyMemory: DocumentMemoryResult = {
   sampleBytes: 0,
+  peakBytes: 0,
   uniqueBlocks: 0,
   blockReferences: 0,
 };
@@ -65,7 +66,7 @@ describe("useDocumentMemory", () => {
     expect(result.current).toEqual(emptyMemory);
 
     await act(() => vi.advanceTimersByTimeAsync(1_000));
-    const memory = { sampleBytes: 16384, uniqueBlocks: 1, blockReferences: 2 };
+    const memory = { sampleBytes: 16384, peakBytes: 1024, uniqueBlocks: 1, blockReferences: 2 };
     await act(async () => worker.reply(1, memory));
     expect(result.current).toEqual(memory);
   });

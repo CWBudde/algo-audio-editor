@@ -35,6 +35,7 @@ type Engine struct {
 	channels   int
 	tone       *toneSource
 	document   audiobuf.Document
+	bulkData   []byte
 }
 
 // New returns an engine configured for 48 kHz stereo.
@@ -62,6 +63,9 @@ func (e *Engine) Channels() int { return e.channels }
 // protocol.Response. It never panics on bad input: every failure, including a
 // malformed payload or an unknown method, becomes an error envelope.
 func (e *Engine) Call(method string, payload []byte) []byte {
+	// Binary data belongs to exactly one call. A rejected or non-bulk call must
+	// never expose a previous request's result.
+	e.bulkData = nil
 	result, err := e.dispatch(method, payload)
 	if err != nil {
 		return encodeResponse(protocol.Response{Error: err.Error()})
@@ -73,6 +77,16 @@ func (e *Engine) Call(method string, payload []byte) []byte {
 	}
 
 	return encodeResponse(protocol.Response{OK: true, Result: raw})
+}
+
+// TakeData transfers ownership of the preceding call's binary result. Calling
+// it twice returns no data the second time. The JS bridge copies these bytes
+// into a transferable ArrayBuffer; bulk data never enters the JSON envelope.
+func (e *Engine) TakeData() []byte {
+	data := e.bulkData
+	e.bulkData = nil
+
+	return data
 }
 
 // Render fills dst with interleaved frames in the current channel layout and
@@ -91,6 +105,13 @@ func (e *Engine) dispatch(method string, payload []byte) (any, error) {
 		return e.hello(), nil
 	case protocol.MethodDocumentMemory:
 		return e.documentMemory(), nil
+	case protocol.MethodPeaksGet:
+		var p protocol.PeaksGetParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+
+		return e.getPeaks(p)
 	case protocol.MethodEngineConfigure:
 		var p protocol.EngineConfigureParams
 		if err := decode(method, payload, &p); err != nil {
@@ -114,7 +135,8 @@ func (e *Engine) documentMemory() protocol.DocumentMemoryResult {
 	stats := audiobuf.CountMemory(e.document)
 
 	return protocol.DocumentMemoryResult{
-		SampleBytes: stats.SampleBytes, UniqueBlocks: stats.UniqueBlocks, BlockReferences: stats.BlockReferences,
+		SampleBytes: stats.SampleBytes, PeakBytes: stats.PeakBytes,
+		UniqueBlocks: stats.UniqueBlocks, BlockReferences: stats.BlockReferences,
 	}
 }
 

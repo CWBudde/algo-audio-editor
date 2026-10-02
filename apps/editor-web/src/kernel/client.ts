@@ -10,7 +10,7 @@ import type { WorkerOp, WorkerReply, WorkerRequest } from "./messages";
 
 /** The subset of Worker the client needs; lets tests substitute a fake. */
 export interface WorkerLike {
-  postMessage(message: WorkerRequest): void;
+  postMessage(message: WorkerRequest, transfer?: Transferable[]): void;
   addEventListener(type: "message", listener: (event: MessageEvent<WorkerReply>) => void): void;
   terminate(): void;
 }

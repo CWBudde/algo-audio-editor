@@ -18,7 +18,7 @@ func NewChannel(samples []float32) Channel {
 	blocks := make([]*Block, 0, len(samples)/BlockFrames+1)
 	for start := 0; start < len(samples); start += BlockFrames {
 		end := min(start+BlockFrames, len(samples))
-		blocks = append(blocks, &Block{samples: slices.Clone(samples[start:end])})
+		blocks = append(blocks, newBlock(samples[start:end]))
 	}
 
 	return channelFromBlocks(blocks)
@@ -101,7 +101,7 @@ func (c Channel) Slice(start, end int64) (Channel, error) {
 		lo := int(max(start, c.offsets[i]) - c.offsets[i])
 		hi := int(min(end, c.offsets[i+1]) - c.offsets[i])
 		if lo != 0 || hi != block.Frames() {
-			block = &Block{samples: slices.Clone(block.samples[lo:hi])}
+			block = newBlock(block.samples[lo:hi])
 		}
 		blocks = append(blocks, block)
 	}

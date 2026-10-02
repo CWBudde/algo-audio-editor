@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION } from "@aae/protocol";
+import { type PeaksGetResult, PROTOCOL_VERSION } from "@aae/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KernelClient, KernelError, KernelTimeoutError, type WorkerLike } from "./client";
 import type { WorkerReply, WorkerRequest } from "./messages";
@@ -44,6 +44,28 @@ afterEach(() => {
 });
 
 describe("KernelClient", () => {
+  it("returns typed peak metadata and the received binary buffer without copying it", async () => {
+    const data = new ArrayBuffer(24);
+    new Float32Array(data, 0, 3).set([-0.5, 0.75, 0.25]);
+    new Uint32Array(data, 12, 1)[0] = 128;
+    new Float64Array(data, 16, 1)[0] = 256;
+    const peaks: PeaksGetResult = { count: 1, framesPerBucket: 256, dataBytes: 24, data };
+    const worker = new FakeWorker((req) => ({
+      kind: "reply",
+      id: req.id,
+      ok: true,
+      result: peaks,
+    }));
+    const client = new KernelClient(worker);
+    const params = { channel: 0, startFrame: 256, endFrame: 384, buckets: 1 };
+
+    const result = await client.call("peaks.get", params);
+    expect(result.count).toBe(1);
+    expect(result.data).toBe(data);
+    expect(new Float32Array(result.data, 0, 3)).toEqual(new Float32Array([-0.5, 0.75, 0.25]));
+    expect(worker.sent[0]).toMatchObject({ op: "call", method: "peaks.get", params });
+  });
+
   it("boots and checks the protocol version", async () => {
     const worker = new FakeWorker((req) =>
       req.op === "call"

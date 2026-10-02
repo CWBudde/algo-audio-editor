@@ -15,6 +15,7 @@ const BlockFrames = 65536
 // Read copies them into a caller-owned destination.
 type Block struct {
 	samples []float32
+	peaks   [3][]peakSummary
 }
 
 // NewBlock copies samples into a block. Empty and oversized blocks are rejected.
@@ -23,7 +24,15 @@ func NewBlock(samples []float32) (*Block, error) {
 		return nil, fmt.Errorf("block.new: frames %d must be in [1, %d]", len(samples), BlockFrames)
 	}
 
-	return &Block{samples: slices.Clone(samples)}, nil
+	return newBlock(samples), nil
+}
+
+// newBlock copies valid samples and calculates their immutable peak pyramid.
+func newBlock(samples []float32) *Block {
+	b := &Block{samples: slices.Clone(samples)}
+	b.buildPeaks()
+
+	return b
 }
 
 // Frames returns the number of frames in the block.

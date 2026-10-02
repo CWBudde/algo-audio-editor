@@ -59,7 +59,8 @@ func TestDocumentMemory(t *testing.T) {
 	}{
 		{"no document", audiobuf.Document{}, protocol.DocumentMemoryResult{}},
 		{"shared stereo", document, protocol.DocumentMemoryResult{
-			SampleBytes: (audiobuf.BlockFrames + 17) * 4, UniqueBlocks: 2, BlockReferences: 4,
+			SampleBytes: (audiobuf.BlockFrames + 17) * 4, PeakBytes: (256 + 16 + 1 + 3) * 16,
+			UniqueBlocks: 2, BlockReferences: 4,
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

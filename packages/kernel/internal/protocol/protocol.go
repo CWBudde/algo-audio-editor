@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 1
+const Version = 2
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -22,6 +22,8 @@ const (
 	MethodToneConfigure = "tone.configure"
 	// MethodDocumentMemory returns retained document sample storage statistics.
 	MethodDocumentMemory = "doc.memory"
+	// MethodPeaksGet returns peak metadata with data retrieved via takeData.
+	MethodPeaksGet = "peaks.get"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -67,10 +69,33 @@ type ToneConfigureResult struct {
 	Amplitude   float64 `json:"amplitude"`
 }
 
-// DocumentMemoryResult reports sample storage, excluding metadata, block lists
-// and runtime overhead. Shared blocks are counted only once.
+// DocumentMemoryResult reports sample and cached peak storage, excluding
+// metadata, block lists and runtime overhead. Shared blocks are counted once.
 type DocumentMemoryResult struct {
 	SampleBytes     int64 `json:"sampleBytes"`
+	PeakBytes       int64 `json:"peakBytes"`
 	UniqueBlocks    int   `json:"uniqueBlocks"`
 	BlockReferences int   `json:"blockReferences"`
+}
+
+// PeaksGetParams selects a channel and viewport. Buckets is the desired pixel
+// width, not an exact output count: the selected pyramid level supplies at
+// least one summary per pixel, unless there are fewer source frames.
+type PeaksGetParams struct {
+	Channel    int   `json:"channel"`
+	StartFrame int64 `json:"startFrame"`
+	EndFrame   int64 `json:"endFrame"`
+	Buckets    int   `json:"buckets"`
+}
+
+// PeaksGetInfo describes the transferable peak buffer. Cached buckets can
+// extend beyond the requested viewport; their true positions let the UI clip
+// them without sample processing. All fields in the buffer are little-endian:
+// Count min/max/RMS float32 triples, Count uint32 frame counts, then Count
+// float64 start frames. Total size is Count*24 bytes. JS wraps these regions in
+// typed-array views; no audio or peak arrays are serialized as JSON.
+type PeaksGetInfo struct {
+	FramesPerBucket int64 `json:"framesPerBucket"`
+	Count           int   `json:"count"`
+	DataBytes       int   `json:"dataBytes"`
 }

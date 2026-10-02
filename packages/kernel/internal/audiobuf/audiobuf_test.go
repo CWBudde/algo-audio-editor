@@ -370,7 +370,7 @@ func TestMemoryCountsSharedBlocksOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	stats := CountMemory(document, part, joined)
-	want := MemoryStats{SampleBytes: int64(2*BlockFrames+17) * 4, UniqueBlocks: 3, BlockReferences: 20}
+	want := MemoryStats{SampleBytes: int64(2*BlockFrames+17) * 4, PeakBytes: (2*(256+16+1) + 3) * peakSummaryBytes, UniqueBlocks: 3, BlockReferences: 20}
 	if stats != want {
 		t.Fatalf("CountMemory() = %+v, want %+v", stats, want)
 	}
@@ -379,11 +379,11 @@ func TestMemoryCountsSharedBlocksOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	stats = CountMemory(document, edge)
-	if stats.SampleBytes != want.SampleBytes+16 || stats.UniqueBlocks != 5 || stats.BlockReferences != 8 {
+	if stats.SampleBytes != want.SampleBytes+16 || stats.PeakBytes != want.PeakBytes+2*3*peakSummaryBytes || stats.UniqueBlocks != 5 || stats.BlockReferences != 8 {
 		t.Fatalf("partial edges not counted independently: %+v", stats)
 	}
 	stats = CountMemory(part)
-	if stats.SampleBytes != BlockFrames*4 || stats.UniqueBlocks != 1 || stats.BlockReferences != 2 {
+	if stats.SampleBytes != BlockFrames*4 || stats.PeakBytes != (256+16+1)*peakSummaryBytes || stats.UniqueBlocks != 1 || stats.BlockReferences != 2 {
 		t.Fatalf("unretained blocks still counted: %+v", stats)
 	}
 	if stats := CountMemory(Document{}); stats != (MemoryStats{}) {

@@ -7,10 +7,11 @@
 // The surface is deliberately tiny:
 //
 //	AAEKernel.call(method: string, paramsJSON?: string): string   // protocol.Response JSON
+//	AAEKernel.takeData(): Uint8Array                           // preceding call's bulk result
 //	AAEKernel.render(dst: Uint8Array, frames: number): number    // frames written
 //
 // Everything else is a protocol method behind call(), so adding features never
-// changes the bridge itself.
+// changes the control protocol; bulk results use takeData().
 package main
 
 import (
@@ -67,6 +68,8 @@ func main() {
 	api := js.Global().Get("Object").New()
 
 	api.Set("call", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		// Invalid bridge arguments also invalidate the preceding binary result.
+		eng.TakeData()
 		if len(args) < 1 || args[0].Type() != js.TypeString {
 			return `{"ok":false,"error":"call: method must be a string"}`
 		}
@@ -77,6 +80,14 @@ func main() {
 		}
 
 		return string(eng.Call(args[0].String(), payload))
+	}))
+
+	api.Set("takeData", js.FuncOf(func(_ js.Value, _ []js.Value) any {
+		data := eng.TakeData()
+		dst := js.Global().Get("Uint8Array").New(len(data))
+		js.CopyBytesToJS(dst, data)
+
+		return dst
 	}))
 
 	api.Set("render", js.FuncOf(func(_ js.Value, args []js.Value) any {

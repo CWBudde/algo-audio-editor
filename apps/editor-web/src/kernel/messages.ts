@@ -16,6 +16,12 @@ export type WorkerOp =
 
 export type WorkerRequest = { id: number } & WorkerOp;
 
+/** Worker-local reply plus buffers to move to the main thread without cloning. */
+export interface WorkerResult {
+  result: unknown;
+  transfer?: Transferable[];
+}
+
 export type WorkerReply =
   | { kind: "reply"; id: number; ok: true; result: unknown }
   | { kind: "reply"; id: number; ok: false; error: string }

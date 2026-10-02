@@ -3,9 +3,10 @@
  * Kernel worker: hosts the Go WASM kernel off the main thread and keeps the
  * playback ring buffer filled.
  */
-import type { KernelBridge, KernelResponse } from "@aae/protocol";
+import type { KernelBridge } from "@aae/protocol";
 import { FrameRingBuffer } from "@/audio/ring-buffer";
-import type { WorkerOp, WorkerReply, WorkerRequest } from "./messages";
+import { callKernel } from "./kernel-call";
+import type { WorkerOp, WorkerReply, WorkerRequest, WorkerResult } from "./messages";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -31,8 +32,8 @@ let ring: FrameRingBuffer | undefined;
 let pumpTimer: ReturnType<typeof setInterval> | undefined;
 let scratch = new Uint8Array(0);
 
-function post(msg: WorkerReply) {
-  self.postMessage(msg);
+function post(msg: WorkerReply, transfer: Transferable[] = []) {
+  self.postMessage(msg, transfer);
 }
 
 async function boot(wasmUrl: string, wasmExecUrl: string): Promise<unknown> {
@@ -71,16 +72,6 @@ function requireKernel(): KernelBridge {
   return kernel;
 }
 
-function call(method: string, params: unknown): unknown {
-  const json = requireKernel().call(
-    method,
-    params === undefined ? undefined : JSON.stringify(params),
-  );
-  const response = JSON.parse(json) as KernelResponse<unknown>;
-  if (!response.ok) throw new Error(response.error);
-  return response.result;
-}
-
 /** Renders kernel output into the ring until it is (nearly) full. */
 function pump() {
   if (!kernel || !ring) return;
@@ -109,31 +100,31 @@ function stopPump() {
   }
 }
 
-async function handle(req: WorkerOp): Promise<unknown> {
+async function handle(req: WorkerOp): Promise<WorkerResult> {
   switch (req.op) {
     case "init":
-      return boot(req.wasmUrl, req.wasmExecUrl);
+      return { result: await boot(req.wasmUrl, req.wasmExecUrl) };
     case "call":
-      return call(req.method, req.params);
+      return callKernel(requireKernel(), req.method, req.params);
     case "stream.attach":
       stopPump();
       ring = FrameRingBuffer.attach(req.ring);
-      return undefined;
+      return { result: undefined };
     case "stream.start":
       if (!ring) throw new Error("stream.start before stream.attach");
       pump();
       pumpTimer ??= setInterval(pump, PUMP_INTERVAL_MS);
-      return ring.stats();
+      return { result: ring.stats() };
     case "stream.stop":
       stopPump();
-      return undefined;
+      return { result: undefined };
   }
 }
 
 self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
   const { id } = event.data;
   handle(event.data).then(
-    (result) => post({ kind: "reply", id, ok: true, result }),
+    ({ result, transfer }) => post({ kind: "reply", id, ok: true, result }, transfer),
     (err: unknown) =>
       post({
         kind: "reply",
