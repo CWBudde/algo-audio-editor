@@ -407,6 +407,83 @@
 
 ---
 
+## Phase 13: Public Web Deployment (GitHub Pages)
+
+**Goal:** A live, linkable build of the editor on GitHub Pages that a visitor can open and use on a real file without installing anything — the project's public demo and the reference target for "does it work outside dev?".
+
+**Acceptance criterion:** `https://meko-tech.github.io/algo-audio-editor/` (or the chosen Pages URL) loads from a cold cache, reports `crossOriginIsolated === true`, imports a local WAV, plays it without underruns and exports it again — verified by a Playwright smoke run against the deployed URL in CI.
+
+**Status:** the plumbing from Phase 0 exists (`pages.yml` deploy workflow, `VITE_BASE` sub-path handling, `coi-serviceworker.js`). This phase turns it into a published, verified, documented site.
+
+### Enablement & verification
+
+- [ ] Enable Pages for the repo (source: GitHub Actions) and confirm the `github-pages` environment deploys from `main`
+- [ ] Verify cross-origin isolation in production: `coi-serviceworker.js` registers under the `/<repo>/` scope, reloads once, and SharedArrayBuffer is available. Ship a visible fallback (not a blank page) when isolation fails — e.g. browsers or extensions that block the service worker.
+- [ ] Verify the sub-path build end to end: `kernel.wasm`, `wasm_exec.js`, the worklet `?worker&url` asset and every `%BASE_URL%` reference resolve under `/<repo>/`
+- [ ] Playwright job against the deployed URL (`PLAYWRIGHT_BASE_URL`), run after deploy and on a schedule, reusing the Phase 0 smoke assertions
+- [ ] `404.html` fallback so deep links do not land on GitHub's 404
+
+### Delivery quality
+
+- [ ] Cache strategy: hashed assets cached long-term, `index.html` and `coi-serviceworker.js` never cached; a deploy must not leave a stale worker serving an old `kernel.wasm`
+- [ ] Kernel size budget: record the gzipped `kernel.wasm` size in CI and fail the build when it grows beyond an agreed threshold (`-ldflags="-s -w"`, consider `wasm-opt` if it stays in-tree)
+- [ ] Browser support matrix documented (Chromium, Firefox, Safari) with the known isolation and codec gaps per browser
+- [ ] A small bundled demo file the visitor can open with one click, so the demo needs no local audio
+
+### Presentation
+
+- [ ] Landing state explains what the app is, that everything runs locally (no upload), and links to the repo and PLAN.md
+- [ ] Build stamp visible in the status bar/About (kernel version from `git describe`, commit SHA, build date)
+- [ ] README: a "Try it" link to the live site, a screenshot and the browser matrix
+- [ ] Open-Graph/Twitter card metadata and a favicon/app icon set
+- [ ] Decide and document whether the Pages deploy tracks `main` or only tags; if it tracks `main`, label the site as a development build
+
+---
+
+## Phase 14: MCP Support (drive the editor from an LLM)
+
+**Goal:** Expose the kernel's operation model over the Model Context Protocol, so an LLM agent can inspect and edit audio with the same `Operation` values the UI uses — "normalize this to −16 LUFS, trim the silence at both ends and export 44.1 kHz/16-bit FLAC" as tool calls, not as DSP written by the model.
+
+**Acceptance criterion:** An MCP client (Claude Code or Claude Desktop) connects to the server, opens a WAV, queries its statistics, applies a chain of operations, exports the result, and the output is sample-for-sample identical to running the same chain through the UI and through `cmd/aae`. Every mutating tool is undoable via the kernel's history.
+
+**Depends on:** Phase 3 (processing infrastructure), Phase 5 (analysis), Phase 12's `Operation` serialization and native CLI — the MCP server is a third front-end over the same engine, next to the web UI and the CLI.
+
+### Server
+
+- [ ] `packages/kernel/cmd/aae-mcp`: a native Go MCP server (stdio transport first) linking `internal/engine` directly — no browser, no WASM, same code path as the CLI. HTTP/SSE transport behind a flag for remote use.
+- [ ] Session model: documents are opened by path and addressed by id; a session holds several documents, their selections and their undo history
+- [ ] Rule 5 holds: the MCP layer is a thin adapter: tool schema ⇄ `protocol` payloads. No DSP and no audio state in the adapter.
+- [ ] Tool schemas generated from or checked against `internal/protocol`, so an ABI change cannot silently skew the MCP surface (test that every exposed method exists)
+
+### Tool surface
+
+- [ ] **Read:** `open_document`, `document_info` (duration, rate, channels, format, metadata), `list_documents`, `get_statistics` (peak, true peak, RMS, LUFS, DC, clipping), `get_peaks` (downsampled, for a textual or image overview), `detect_silence`/`detect_clipping`
+- [ ] **Edit:** `select_range` (seconds or samples, per channel), `apply_operation` (the Phase 2/3 `Operation` union: trim, cut, insert, silence, fade, gain, normalize, resample, reverse, dc-offset), `apply_chain`, `undo`/`redo`, `history`
+- [ ] **Effects:** `apply_effect` with the Phase 4 effect descriptors, so parameters and ranges are discoverable instead of guessed
+- [ ] **Write:** `export_document` (format, bit depth, rate, dither), `save_document`, `render_region`
+- [ ] **Resources:** documents exposed as MCP resources (a waveform PNG the kernel rendered, plus a JSON summary), so a vision-capable model can *see* the waveform
+- [ ] **Prompts:** a few canned workflows (mastering check, podcast cleanup, batch convert) as MCP prompts
+
+### Safety & ergonomics
+
+- [ ] Read-only by default: writing outside an explicitly allowed root requires `--allow-write <dir>`; exports never overwrite without an explicit flag in the call
+- [ ] Every operation is dry-runnable: return the predicted change (new duration, resulting peak/LUFS) without mutating
+- [ ] Deterministic, token-frugal responses: numbers rounded sensibly, no sample arrays in JSON (Rule 4), long results paginated
+- [ ] Errors carry the kernel's wrapped message and a suggested correction (e.g. "selection exceeds document length (3.2 s > 2.8 s)")
+
+### Optional: the running editor as an MCP endpoint
+
+- [ ] Evaluate exposing the *desktop app's* live session over MCP (Electron main process hosting the stdio/HTTP server, forwarding to the kernel worker), so an agent can edit the document the user is looking at, with the UI updating live
+- [ ] If taken: a visible indicator and a per-session consent prompt while an agent is attached, and mutations land in the same undo stack as the user's
+
+### Tests & docs
+
+- [ ] Go tests driving the server through the MCP protocol (golden tool schemas, a full open → chain → export round-trip against the Phase 3 golden vectors)
+- [ ] Parity test: the same chain via MCP, via `cmd/aae` and via the UI operation path produces identical output
+- [ ] `docs/mcp.md`: install snippet for Claude Code (`claude mcp add`) and the Claude Desktop config, the tool reference, and the permission flags
+
+---
+
 ## Phase S: Quality, Testing, Build & Deployment (cross-cutting)
 
 ### Testing strategy
@@ -425,7 +502,7 @@
 
 ### Deployment & security headers
 
-- GitHub Pages via `pages.yml` with `VITE_BASE=/<repo>/`; COOP/COEP via `coi-serviceworker.js`
+- GitHub Pages via `pages.yml` with `VITE_BASE=/<repo>/`; COOP/COEP via `coi-serviceworker.js` (publishing and its verification: Phase 13)
 - Electron: COOP/COEP/CSP from the `app://` handler; `contextIsolation`, `sandbox`, no `nodeIntegration`; navigation locked to the app
 
 ### License audit
