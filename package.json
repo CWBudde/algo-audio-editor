@@ -1,0 +1,19 @@
+{
+  "name": "algo-audio-editor",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "just dev",
+    "build": "just build",
+    "test": "just test",
+    "lint": "just lint"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "lefthook": "^2.1.16"
+  }
+}

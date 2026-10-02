@@ -1,0 +1,35 @@
+# ── Node / Bun ───────────────────────────────────────────────────────────────
+node_modules/
+*.tsbuildinfo
+
+# ── Build output ─────────────────────────────────────────────────────────────
+apps/editor-web/dist/
+apps/desktop/dist/
+apps/desktop/release/
+apps/editor-web/public/kernel.wasm
+apps/editor-web/public/wasm_exec.js
+
+# ── Test output ──────────────────────────────────────────────────────────────
+**/test-results/
+**/playwright-report/
+packages/kernel/coverage.out
+packages/kernel/coverage.html
+*.test
+
+# ── OS / Editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.code-workspace
+
+# ── Env ──────────────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# Local-only Go workspace (e.g. pointing at a sibling ../algo-dsp checkout).
+go.work
+go.work.sum
+*.log

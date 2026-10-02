@@ -1,0 +1,125 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+export GOPRIVATE := "github.com/cwbudde"
+
+kernel := "packages/kernel"
+web := "apps/editor-web"
+desktop := "apps/desktop"
+
+# The -X path must equal the buildinfo package's import path, or the linker
+# silently ignores it and the kernel reports "dev".
+buildinfo := "github.com/cwbudde/algo-audio-editor/packages/kernel/internal/buildinfo"
+
+default:
+    @just --list
+
+# ── Setup ────────────────────────────────────────────────────────────────────
+
+# Install workspace dependencies, the Electron binary and git hooks
+install:
+    bun install
+    bun run --cwd {{desktop}} install-electron
+    bunx lefthook install
+
+# ── Kernel (Go → WASM) ───────────────────────────────────────────────────────
+
+# Build kernel.wasm and copy the matching wasm_exec.js into the web app
+wasm-build:
+    mkdir -p {{web}}/public
+    GOOS=js GOARCH=wasm go build -C {{kernel}} -trimpath \
+        -ldflags="-s -w -X {{buildinfo}}.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev) -X {{buildinfo}}.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        -o ../../{{web}}/public/kernel.wasm ./cmd/kernel
+    root=$(go env GOROOT); \
+    for f in "$root/lib/wasm/wasm_exec.js" "$root/misc/wasm/wasm_exec.js"; do \
+        if [ -f "$f" ]; then cp "$f" {{web}}/public/wasm_exec.js; exit 0; fi; \
+    done; \
+    echo "wasm_exec.js not found under $root" >&2; exit 1
+
+# ── Development ──────────────────────────────────────────────────────────────
+
+# Start the Vite dev server (rebuilds the kernel first)
+dev: wasm-build
+    bun run --cwd {{web}} dev
+
+# Production build of the web app into apps/editor-web/dist
+build: wasm-build
+    bun run --cwd {{web}} build
+
+# Serve the production build locally (COOP/COEP headers included)
+preview: build
+    bun run --cwd {{web}} preview
+
+# Build the web app and the Electron shell, then launch it
+desktop-dev: build desktop-build
+    bun run --cwd {{desktop}} start
+
+# Run the Electron shell against the Vite dev server (start `just dev` first)
+desktop-hot: desktop-build
+    AAE_DEV_URL=http://localhost:5173 bun run --cwd {{desktop}} start
+
+desktop-build:
+    bun run --cwd {{desktop}} build
+
+# ── Tests ────────────────────────────────────────────────────────────────────
+
+test: test-go test-web
+
+test-go:
+    cd {{kernel}} && go test ./...
+
+test-go-race:
+    cd {{kernel}} && go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+test-web:
+    bun run --cwd {{web}} test
+
+# Browser end-to-end tests against the production build
+e2e: build
+    bun run --cwd {{web}} e2e
+
+# Electron end-to-end tests (needs a display, or xvfb-run on CI)
+e2e-desktop: build desktop-build
+    bun run --cwd {{desktop}} e2e
+
+bench:
+    cd {{kernel}} && go test -run '^$' -bench . -benchmem ./...
+
+# ── Lint & format ────────────────────────────────────────────────────────────
+
+lint: lint-go lint-web
+
+lint-go:
+    cd {{kernel}} && golangci-lint run ./...
+    cd {{kernel}} && GOOS=js GOARCH=wasm go vet ./...
+
+lint-web:
+    bunx biome lint apps packages/protocol
+    bun run --cwd {{web}} typecheck
+    bun run --cwd {{desktop}} typecheck
+
+fmt:
+    treefmt
+
+check-formatted:
+    treefmt --fail-on-change
+
+check-tidy:
+    cd {{kernel}} && go mod tidy -diff
+
+# ── Family hygiene (see AGENTS.md) ───────────────────────────────────────────
+
+# Are all github.com/cwbudde/* deps at their latest tags?
+check-deps:
+    cd {{kernel}} && ../../scripts/release-guard.sh deps
+
+# How much work is sitting on main past the latest tag?
+check-unreleased:
+    ./scripts/release-guard.sh unreleased
+
+# ── Aggregate ────────────────────────────────────────────────────────────────
+
+ci: check-formatted lint test-go-race test-web check-tidy build
+
+clean:
+    rm -rf {{web}}/dist {{desktop}}/dist {{web}}/public/kernel.wasm {{web}}/public/wasm_exec.js
+    rm -f {{kernel}}/coverage.out
