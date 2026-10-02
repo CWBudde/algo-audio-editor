@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <!-- Must run first: on hosts that cannot send COOP/COEP headers (GitHub
+         Pages) it installs a service worker that adds them, so
+         SharedArrayBuffer becomes available. A no-op when already isolated. -->
+    <script src="%BASE_URL%coi-serviceworker.js"></script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>algo-audio-editor</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
