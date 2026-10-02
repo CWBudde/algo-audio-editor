@@ -1,0 +1,29 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - revive
+  settings:
+    revive:
+      rules:
+        - name: file-length-limit
+          arguments:
+            - max: 1500
+              skip-comments: false
+              skip-blank-lines: false
+  exclusions:
+    rules:
+      # Long table-driven test files are fine; the limit targets production code.
+      - path: _test\.go$
+        linters: [revive]
+
+formatters:
+  enable:
+    - gofumpt
+    - gci
