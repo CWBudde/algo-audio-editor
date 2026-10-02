@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AudioEngine } from "@/audio/audio-engine";
 import type { RingBufferStats } from "@/audio/ring-buffer";
@@ -8,6 +8,7 @@ import { TransportBar } from "@/components/transport-bar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WaveformPlaceholder } from "@/components/waveform-placeholder";
+import { useDocument } from "@/hooks/use-document";
 import { useDocumentMemory } from "@/hooks/use-document-memory";
 import { useKernel } from "@/hooks/use-kernel";
 
@@ -29,8 +30,47 @@ export default function App() {
   const [frequencyHz, setFrequencyHz] = useState(440);
   const [amplitude, setAmplitude] = useState(0.2);
   const [stats, setStats] = useState<RingBufferStats>();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const currentEngine = useRef(engine);
+  currentEngine.current = engine;
 
-  useEffect(() => () => void engine?.dispose(), [engine]);
+  useEffect(() => {
+    currentEngine.current = engine;
+    return () => {
+      currentEngine.current = undefined;
+      void engine?.dispose();
+    };
+  }, [engine]);
+
+  const doc = useDocument(client, {
+    async beforeOpen() {
+      await engine?.stop();
+      if (currentEngine.current === engine) {
+        setPlaying(false);
+        setStats(engine?.stats());
+      }
+    },
+    fallbackOpen: () => fileInput.current?.click(),
+    reportError: (action, error) => reportError(action)(error),
+  });
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || !client || doc.busy) return;
+      if (event.key.toLowerCase() === "o") {
+        event.preventDefault();
+        doc.open();
+      } else if (event.key.toLowerCase() === "s" && doc.info) {
+        event.preventDefault();
+        doc.save();
+      } else if (event.key.toLowerCase() === "e" && event.shiftKey && doc.info) {
+        event.preventDefault();
+        doc.save();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [client, doc.busy, doc.info, doc.open, doc.save]);
 
   useEffect(() => {
     if (!client) return;
@@ -73,10 +113,14 @@ export default function App() {
       <div className="flex h-dvh flex-col bg-background text-foreground">
         <header className="flex h-9 items-center gap-3 border-b px-2">
           <span className="px-1 text-sm font-semibold tracking-tight">algo-audio-editor</span>
-          <AppMenubar aboutText={about} />
+          <AppMenubar
+            aboutText={about}
+            onOpen={client && !doc.busy ? doc.open : undefined}
+            onSave={doc.info && !doc.busy ? doc.save : undefined}
+          />
         </header>
         <TransportBar
-          ready={engine !== undefined}
+          ready={engine !== undefined && !doc.busy}
           playing={playing}
           frequencyHz={frequencyHz}
           amplitude={amplitude}
@@ -85,10 +129,44 @@ export default function App() {
           onFrequencyChange={setFrequencyHz}
           onAmplitudeChange={setAmplitude}
         />
-        <main className="min-h-0 flex-1 overflow-auto">
-          <WaveformPlaceholder />
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".wav,audio/wav,audio/x-wav"
+          className="hidden"
+          data-testid="audio-file-input"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            if (file) doc.openFile(file);
+          }}
+        />
+        <main
+          className="relative min-h-0 flex-1 overflow-auto"
+          data-testid="document-drop-zone"
+          aria-busy={doc.busy}
+          onDragOver={(event) => {
+            if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            const file = event.dataTransfer.files[0];
+            if (file) doc.openFile(file);
+          }}
+        >
+          {doc.busy && (
+            <p role="status" className="absolute right-3 top-3 text-sm text-muted-foreground">
+              Working on audio file…
+            </p>
+          )}
+          <WaveformPlaceholder info={doc.info} />
         </main>
-        <StatusBar kernel={kernel} sampleRate={engine?.sampleRate} stats={stats} memory={memory} />
+        <StatusBar
+          kernel={kernel}
+          sampleRate={doc.info?.sampleRate ?? engine?.sampleRate}
+          stats={stats}
+          memory={memory}
+        />
       </div>
       <Toaster theme="dark" />
     </TooltipProvider>

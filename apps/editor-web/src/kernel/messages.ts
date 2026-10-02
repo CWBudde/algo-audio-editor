@@ -8,7 +8,7 @@ import type { RingBufferInit } from "@/audio/ring-buffer";
  */
 export type WorkerOp =
   | { op: "init"; wasmUrl: string; wasmExecUrl: string }
-  | { op: "call"; method: KernelMethod; params: unknown }
+  | { op: "call"; method: KernelMethod; params: unknown; data?: ArrayBuffer }
   | { op: "stream.attach"; ring: RingBufferInit }
   /** Fills the ring completely, then replies and keeps it topped up. */
   | { op: "stream.start" }

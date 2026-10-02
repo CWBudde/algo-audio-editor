@@ -1,4 +1,9 @@
-import { type PeaksGetResult, PROTOCOL_VERSION } from "@aae/protocol";
+import {
+  type DocumentInfoResult,
+  type ExportResult,
+  type PeaksGetResult,
+  PROTOCOL_VERSION,
+} from "@aae/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KernelClient, KernelError, KernelTimeoutError, type WorkerLike } from "./client";
 import type { WorkerReply, WorkerRequest } from "./messages";
@@ -6,6 +11,7 @@ import type { WorkerReply, WorkerRequest } from "./messages";
 /** In-memory worker whose replies are scripted by the test. */
 class FakeWorker implements WorkerLike {
   sent: WorkerRequest[] = [];
+  transfers: (Transferable[] | undefined)[] = [];
   terminated = false;
   private listener?: (event: MessageEvent<WorkerReply>) => void;
   private readonly respond?: (req: WorkerRequest) => WorkerReply | undefined;
@@ -14,9 +20,11 @@ class FakeWorker implements WorkerLike {
     this.respond = respond;
   }
 
-  postMessage(message: WorkerRequest) {
-    this.sent.push(message);
-    const reply = this.respond?.(message);
+  postMessage(message: WorkerRequest, transfer?: Transferable[]) {
+    this.transfers.push(transfer);
+    const received = transfer ? structuredClone(message, { transfer }) : message;
+    this.sent.push(received);
+    const reply = this.respond?.(received);
     if (reply) queueMicrotask(() => this.emit(reply));
   }
   addEventListener(_type: "message", listener: (event: MessageEvent<WorkerReply>) => void) {
@@ -44,6 +52,70 @@ afterEach(() => {
 });
 
 describe("KernelClient", () => {
+  it("moves binary WAV input to the worker outside the JSON params", async () => {
+    const info: DocumentInfoResult = {
+      name: "test.wav",
+      sampleRate: 44100,
+      channels: 1,
+      frames: 2,
+      bitDepth: 16,
+      float: false,
+    };
+    const worker = new FakeWorker((req) => ({ kind: "reply", id: req.id, ok: true, result: info }));
+    const client = new KernelClient(worker);
+    const bytes = new Uint8Array([82, 73, 70, 70]).buffer;
+    const pending = client.openDocument(info.name, bytes);
+    expect(bytes.byteLength).toBe(0);
+    expect(worker.transfers[0]).toEqual([bytes]);
+    expect(worker.sent[0]).toMatchObject({ method: "doc.open", params: { name: "test.wav" } });
+    if (worker.sent[0].op !== "call") throw new Error("expected call");
+    expect(Array.from(new Uint8Array(worker.sent[0].data as ArrayBuffer))).toEqual([
+      82, 73, 70, 70,
+    ]);
+    await expect(pending).resolves.toEqual(info);
+  });
+
+  it("returns exported WAV bytes with the received buffer identity", async () => {
+    const result: ExportResult = {
+      name: "test.wav",
+      mimeType: "audio/wav",
+      dataBytes: 4,
+      data: new ArrayBuffer(4),
+    };
+    const worker = new FakeWorker((req) => ({ kind: "reply", id: req.id, ok: true, result }));
+    const client = new KernelClient(worker);
+    const received = await client.call("doc.export", { format: "wav", bitDepth: 32, float: true });
+    expect(received.data).toBe(result.data);
+    expect(received.mimeType).toBe("audio/wav");
+  });
+
+  it("allows long imports and exports to finish after the normal RPC timeout", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const client = new KernelClient(worker, { timeoutMs: 10 });
+    const pending = client.openDocument("long.wav", new ArrayBuffer(0));
+    vi.advanceTimersByTime(1_000);
+    worker.emit({ kind: "reply", id: worker.sent[0].id, ok: true, result: undefined });
+    await expect(pending).resolves.toBeUndefined();
+    const exported = client.call("doc.export", { format: "wav", bitDepth: 16, float: false });
+    vi.advanceTimersByTime(1_000);
+    worker.emit({ kind: "reply", id: worker.sent[1].id, ok: true, result: undefined });
+    await expect(exported).resolves.toBeUndefined();
+  });
+
+  it("cleans up pending requests when posting a transfer throws", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    vi.spyOn(worker, "postMessage").mockImplementation(() => {
+      throw new DOMException("invalid transfer", "DataCloneError");
+    });
+    const client = new KernelClient(worker);
+    await expect(client.openDocument("test.wav", new ArrayBuffer(0))).rejects.toThrow(
+      "invalid transfer",
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("returns typed peak metadata and the received binary buffer without copying it", async () => {
     const data = new ArrayBuffer(24);
     new Float32Array(data, 0, 3).set([-0.5, 0.75, 0.25]);

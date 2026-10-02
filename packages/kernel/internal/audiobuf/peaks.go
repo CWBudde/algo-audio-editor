@@ -32,21 +32,17 @@ type PeakData struct {
 	Data            []byte
 }
 
-func calculatePeak(samples []float32, scratch []float64) peakSummary {
-	for i, sample := range samples {
-		scratch[i] = float64(sample)
-	}
-	stats := timestats.Calculate(scratch[:len(samples)])
+func calculatePeak(samples []float32) peakSummary {
+	stats := timestats.Summary(samples)
 
 	return peakSummary{min: float32(stats.Min), max: float32(stats.Max), energy: stats.Energy}
 }
 
 func (b *Block) buildPeaks() {
-	var scratch [256]float64
 	b.peaks[0] = make([]peakSummary, (b.Frames()+255)/256)
 	for i := range b.peaks[0] {
 		start, end := i*256, min((i+1)*256, b.Frames())
-		b.peaks[0][i] = calculatePeak(b.samples[start:end], scratch[:])
+		b.peaks[0][i] = calculatePeak(b.samples[start:end])
 	}
 	for level := 1; level < len(peakFrames); level++ {
 		size := int(peakFrames[level])
@@ -67,10 +63,10 @@ func (b *Block) buildPeaks() {
 				nanExtrema = nanExtrema || math.IsNaN(float64(child.min)) || math.IsNaN(float64(child.max))
 			}
 			if nanExtrema {
-				// Calculate's extrema depend on whether the first sample is NaN.
+				// Summary's extrema depend on whether the first sample is NaN.
 				// Recalculate affected ranges once to preserve that exact behavior.
 				start, end := i*size, min((i+1)*size, b.Frames())
-				summary = calculatePeak(b.samples[start:end], make([]float64, end-start))
+				summary = calculatePeak(b.samples[start:end])
 			}
 			b.peaks[level][i] = summary
 		}
@@ -79,7 +75,7 @@ func (b *Block) buildPeaks() {
 
 // Peaks returns all per-block buckets intersecting [start, end). It chooses the
 // coarsest cached level no wider than the requested frames per display bucket.
-// Below 256 frames per bucket, it calculates raw summaries with bounded scratch.
+// Below 256 frames per bucket, it calculates raw summaries without scratch.
 // Neither cached nor raw requests mutate sample or summary storage.
 func (c Channel) Peaks(start, end int64, buckets int) (PeakData, error) {
 	if start < 0 || end < start || end > c.Frames() || end > maxSafeFrame {
@@ -114,7 +110,6 @@ func (c Channel) Peaks(start, end int64, buckets int) (PeakData, error) {
 		count += int(hi - lo)
 	}
 	result := PeakData{FramesPerBucket: size, Count: count, Data: make([]byte, count*24)}
-	var scratch [256]float64
 	record := 0
 	for i := first; i <= last; i++ {
 		block := c.blocks[i]
@@ -126,7 +121,7 @@ func (c Channel) Peaks(start, end int64, buckets int) (PeakData, error) {
 			if level >= 0 {
 				summary = block.peaks[level][bucket]
 			} else {
-				summary = calculatePeak(block.samples[localStart:localStart+frames], scratch[:])
+				summary = calculatePeak(block.samples[localStart : localStart+frames])
 			}
 			result.put(record, summary, c.offsets[i]+localStart, frames)
 			record++

@@ -20,6 +20,7 @@ export class AudioEngine {
   private ctx: AudioContext | undefined;
   private ring: FrameRingBuffer | undefined;
   private setup: Promise<void> | undefined;
+  private playbackGeneration = 0;
 
   constructor(kernel: KernelClient) {
     this.kernel = kernel;
@@ -30,12 +31,19 @@ export class AudioEngine {
   }
 
   async play(): Promise<void> {
+    const generation = ++this.playbackGeneration;
     await this.ensureSetup();
+    if (generation !== this.playbackGeneration) return;
     await this.kernel.startStream();
+    if (generation !== this.playbackGeneration) return;
     await this.ctx?.resume();
   }
 
   async stop(): Promise<void> {
+    this.playbackGeneration++;
+    // An import can stop playback while the first play is still setting up.
+    // Wait for the ring to exist before suspending and resetting it.
+    await this.setup;
     if (!this.ctx || !this.ring) return;
     await this.ctx.suspend();
     await this.kernel.stopStream();

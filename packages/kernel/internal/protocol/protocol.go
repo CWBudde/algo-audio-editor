@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 2
+const Version = 3
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -24,6 +24,12 @@ const (
 	MethodDocumentMemory = "doc.memory"
 	// MethodPeaksGet returns peak metadata with data retrieved via takeData.
 	MethodPeaksGet = "peaks.get"
+	// MethodDocumentOpen imports WAV bytes supplied separately from the JSON payload.
+	MethodDocumentOpen = "doc.open"
+	// MethodDocumentInfo returns the active document's format and dimensions.
+	MethodDocumentInfo = "doc.info"
+	// MethodDocumentExport encodes WAV bytes retrieved via takeData.
+	MethodDocumentExport = "doc.export"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -98,4 +104,33 @@ type PeaksGetInfo struct {
 	FramesPerBucket int64 `json:"framesPerBucket"`
 	Count           int   `json:"count"`
 	DataBytes       int   `json:"dataBytes"`
+}
+
+// DocumentOpenParams names WAV bytes passed as the bridge's binary argument.
+type DocumentOpenParams struct {
+	Name string `json:"name"`
+}
+
+// DocumentInfoResult describes the active document and its source encoding.
+type DocumentInfoResult struct {
+	Name       string `json:"name"`
+	SampleRate int    `json:"sampleRate"`
+	Channels   int    `json:"channels"`
+	Frames     int64  `json:"frames"`
+	BitDepth   int    `json:"bitDepth"`
+	Float      bool   `json:"float"`
+}
+
+// DocumentExportParams selects the output encoding; Format must be "wav".
+type DocumentExportParams struct {
+	Format   string `json:"format"`
+	BitDepth int    `json:"bitDepth"`
+	Float    bool   `json:"float"`
+}
+
+// DocumentExportInfo describes a WAV binary result supplied through takeData.
+type DocumentExportInfo struct {
+	Name      string `json:"name"`
+	MimeType  string `json:"mimeType"`
+	DataBytes int    `json:"dataBytes"`
 }

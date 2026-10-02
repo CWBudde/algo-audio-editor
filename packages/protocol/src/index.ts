@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -73,6 +73,36 @@ export interface PeaksGetResult extends PeaksGetInfo {
   data: ArrayBuffer;
 }
 
+/** File contents accompany the control payload as transferable bytes. */
+export interface DocumentOpenParams {
+  name: string;
+}
+
+export interface DocumentInfoResult {
+  name: string;
+  sampleRate: number;
+  channels: number;
+  frames: number;
+  bitDepth: number;
+  float: boolean;
+}
+
+export interface DocumentExportParams {
+  format: "wav";
+  bitDepth: number;
+  float: boolean;
+}
+
+export interface ExportInfo {
+  name: string;
+  mimeType: string;
+  dataBytes: number;
+}
+
+export interface ExportResult extends ExportInfo {
+  data: ArrayBuffer;
+}
+
 /** Every kernel method with its params and result types. */
 export interface KernelMethods {
   hello: { params: undefined; result: HelloResult };
@@ -80,6 +110,9 @@ export interface KernelMethods {
   "tone.configure": { params: ToneConfigureParams; result: ToneConfigureResult };
   "doc.memory": { params: undefined; result: DocumentMemoryResult };
   "peaks.get": { params: PeaksGetParams; result: PeaksGetResult };
+  "doc.open": { params: DocumentOpenParams; result: DocumentInfoResult };
+  "doc.info": { params: undefined; result: DocumentInfoResult };
+  "doc.export": { params: DocumentExportParams; result: ExportResult };
 }
 
 export type KernelMethod = keyof KernelMethods;
@@ -89,7 +122,7 @@ export type ResultOf<M extends KernelMethod> = KernelMethods[M]["result"];
 /** The object the Go program installs as `globalThis.AAEKernel`. */
 export interface KernelBridge {
   /** Returns a JSON-encoded {@link KernelResponse}. */
-  call(method: string, paramsJSON?: string): string;
+  call(method: string, paramsJSON?: string, data?: Uint8Array): string;
   /** Takes the binary result of the preceding call; returns empty data otherwise. */
   takeData(): Uint8Array;
   /**

@@ -70,6 +70,15 @@ test-go:
 test-go-race:
     cd {{kernel}} && go test -race -covermode=atomic -coverprofile=coverage.out ./...
 
+# Verify native golden vectors and immutable storage under the actual WASM build.
+test-go-wasm:
+    cd {{kernel}} && GOOS=js GOARCH=wasm go test \
+        -exec="env -i $(command -v node) --stack-size=8192 $(go env GOROOT)/lib/wasm/wasm_exec_node.js" ./...
+
+# Exercise malformed container inputs in the native, shared WAV import path.
+fuzz-wav duration="10s":
+    cd {{kernel}} && go test -run '^$' -fuzz '^FuzzWAVOpen$' -fuzztime='{{duration}}' -parallel=2 ./internal/engine
+
 test-web:
     bun run --cwd {{web}} test
 
@@ -83,6 +92,18 @@ e2e-desktop: build desktop-build
 
 bench:
     cd {{kernel}} && go test -run '^$' -bench . -benchmem ./...
+
+# Run the kernel benchmarks in V8 through Go's WASM runner (Node required).
+# A clean runner environment avoids Go WASM's 4 KiB argv/environment limit.
+bench-wasm:
+    cd {{kernel}} && GOOS=js GOARCH=wasm go test \
+        -exec="env -i $(command -v node) --stack-size=8192 $(go env GOROOT)/lib/wasm/wasm_exec_node.js" \
+        -run '^$' -bench . -benchtime=1x -benchmem ./internal/audiobuf ./internal/engine
+
+# Opt-in hardware timing gate: full ten-minute import, including file read and UI.
+# Run in isolation on the target laptop; this is not part of shared-runner CI.
+bench-import-browser: build
+    AAE_IMPORT_BENCHMARK=1 bun run --cwd {{web}} e2e e2e/import-benchmark.spec.ts --workers=1
 
 # ── Lint & format ────────────────────────────────────────────────────────────
 

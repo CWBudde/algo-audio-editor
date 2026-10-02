@@ -1,4 +1,5 @@
 import {
+  type DocumentInfoResult,
   type HelloResult,
   type KernelMethod,
   type ParamsOf,
@@ -71,7 +72,17 @@ export class KernelClient {
   }
 
   call<M extends KernelMethod>(method: M, ...params: CallArgs<M>): Promise<ResultOf<M>> {
-    return this.request({ op: "call", method, params: params[0] }) as Promise<ResultOf<M>>;
+    return this.request(
+      { op: "call", method, params: params[0] },
+      method === "doc.export" ? 60_000 : this.timeoutMs,
+    ) as Promise<ResultOf<M>>;
+  }
+
+  /** Ownership of bytes moves to the worker; the caller's buffer is detached. */
+  openDocument(name: string, bytes: ArrayBuffer): Promise<DocumentInfoResult> {
+    return this.request({ op: "call", method: "doc.open", params: { name }, data: bytes }, 60_000, [
+      bytes,
+    ]) as Promise<DocumentInfoResult>;
   }
 
   attachStream(ring: RingBufferInit): Promise<void> {
@@ -100,7 +111,11 @@ export class KernelClient {
     this.failAll(new KernelError("kernel terminated"));
   }
 
-  private request(op: WorkerOp, timeoutMs = this.timeoutMs): Promise<unknown> {
+  private request(
+    op: WorkerOp,
+    timeoutMs = this.timeoutMs,
+    transfer?: Transferable[],
+  ): Promise<unknown> {
     if (this.fatal !== undefined) {
       return Promise.reject(new KernelError(`kernel unavailable: ${this.fatal}`));
     }
@@ -112,7 +127,13 @@ export class KernelClient {
         reject(new KernelTimeoutError(`${describe(op)} timed out after ${timeoutMs} ms`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.worker.postMessage({ id, ...op });
+      try {
+        this.worker.postMessage({ id, ...op }, transfer);
+      } catch (err) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 

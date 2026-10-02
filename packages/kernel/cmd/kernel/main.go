@@ -6,7 +6,7 @@
 //
 // The surface is deliberately tiny:
 //
-//	AAEKernel.call(method: string, paramsJSON?: string): string   // protocol.Response JSON
+//	AAEKernel.call(method: string, paramsJSON?: string, data?: Uint8Array): string // protocol.Response JSON
 //	AAEKernel.takeData(): Uint8Array                           // preceding call's bulk result
 //	AAEKernel.render(dst: Uint8Array, frames: number): number    // frames written
 //
@@ -24,6 +24,10 @@ import (
 )
 
 const bytesPerFloat32 = 4
+
+// Keep byte lengths representable on wasm32. Phase 10 adds paged storage and
+// streaming file input instead of copying a whole multi-gigabyte source.
+const maxBinaryInputBytes = math.MaxInt32
 
 // renderBridge carries a block of audio from Go to JS with a single
 // js.CopyBytesToJS per call. Writing a Float32Array element by element would
@@ -79,7 +83,20 @@ func main() {
 			payload = []byte(args[1].String())
 		}
 
-		return string(eng.Call(args[0].String(), payload))
+		var input []byte
+		if len(args) > 2 && args[2].Type() != js.TypeUndefined {
+			if args[2].Type() != js.TypeObject || !args[2].InstanceOf(js.Global().Get("Uint8Array")) {
+				return `{"ok":false,"error":"call: binary data must be a Uint8Array"}`
+			}
+			n := args[2].Get("byteLength").Float()
+			if n > maxBinaryInputBytes {
+				return `{"ok":false,"error":"call: file exceeds the 2 GiB whole-file import limit"}`
+			}
+			input = make([]byte, int(n))
+			js.CopyBytesToGo(input, args[2])
+		}
+
+		return string(eng.CallWithData(args[0].String(), payload, input))
 	}))
 
 	api.Set("takeData", js.FuncOf(func(_ js.Value, _ []js.Value) any {

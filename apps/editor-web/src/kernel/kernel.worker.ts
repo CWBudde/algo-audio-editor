@@ -105,7 +105,7 @@ async function handle(req: WorkerOp): Promise<WorkerResult> {
     case "init":
       return { result: await boot(req.wasmUrl, req.wasmExecUrl) };
     case "call":
-      return callKernel(requireKernel(), req.method, req.params);
+      return callKernel(requireKernel(), req.method, req.params, req.data);
     case "stream.attach":
       stopPump();
       ring = FrameRingBuffer.attach(req.ring);

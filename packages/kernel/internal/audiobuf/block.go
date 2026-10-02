@@ -27,6 +27,32 @@ func NewBlock(samples []float32) (*Block, error) {
 	return newBlock(samples), nil
 }
 
+// NewBlockFromInterleaved copies one channel of whole interleaved frames into
+// an immutable block. Deinterleaving writes directly to private sample storage,
+// avoiding an intermediate mono buffer. The caller retains its input ownership.
+func NewBlockFromInterleaved(samples []float32, channel, channels int) (*Block, error) {
+	if channels < 1 || channel < 0 || channel >= channels {
+		return nil, fmt.Errorf("block.newInterleaved: channel %d outside a positive channel layout of %d", channel, channels)
+	}
+	if len(samples)%channels != 0 {
+		return nil, fmt.Errorf("block.newInterleaved: %d samples do not form whole %d-channel frames", len(samples), channels)
+	}
+	frames := len(samples) / channels
+	if frames == 0 || frames > BlockFrames {
+		return nil, fmt.Errorf("block.newInterleaved: frames %d must be in [1, %d]", frames, BlockFrames)
+	}
+	b := &Block{samples: make([]float32, frames)}
+	if channels == 1 {
+		copy(b.samples, samples)
+	} else {
+		for i := range b.samples {
+			b.samples[i] = samples[i*channels+channel]
+		}
+	}
+	b.buildPeaks()
+	return b, nil
+}
+
 // newBlock copies valid samples and calculates their immutable peak pyramid.
 func newBlock(samples []float32) *Block {
 	b := &Block{samples: slices.Clone(samples)}

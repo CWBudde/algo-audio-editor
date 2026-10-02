@@ -31,11 +31,13 @@ const (
 // Engine holds the kernel state. It is not safe for concurrent use; the
 // kernel runs on a single worker thread and is driven from one event loop.
 type Engine struct {
-	sampleRate float64
-	channels   int
-	tone       *toneSource
-	document   audiobuf.Document
-	bulkData   []byte
+	sampleRate     float64
+	channels       int
+	tone           *toneSource
+	document       audiobuf.Document
+	bulkData       []byte
+	sourceBitDepth int
+	sourceFloat    bool
 }
 
 // New returns an engine configured for 48 kHz stereo.
@@ -63,10 +65,16 @@ func (e *Engine) Channels() int { return e.channels }
 // protocol.Response. It never panics on bad input: every failure, including a
 // malformed payload or an unknown method, becomes an error envelope.
 func (e *Engine) Call(method string, payload []byte) []byte {
+	return e.CallWithData(method, payload, nil)
+}
+
+// CallWithData supplies binary input separately from JSON control parameters.
+// Import consumes the bytes during the call without retaining the input file.
+func (e *Engine) CallWithData(method string, payload, input []byte) []byte {
 	// Binary data belongs to exactly one call. A rejected or non-bulk call must
 	// never expose a previous request's result.
 	e.bulkData = nil
-	result, err := e.dispatch(method, payload)
+	result, err := e.dispatch(method, payload, input)
 	if err != nil {
 		return encodeResponse(protocol.Response{Error: err.Error()})
 	}
@@ -99,12 +107,28 @@ func (e *Engine) Render(dst []float32) int {
 	return frames
 }
 
-func (e *Engine) dispatch(method string, payload []byte) (any, error) {
+func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 	switch method {
 	case protocol.MethodHello:
 		return e.hello(), nil
 	case protocol.MethodDocumentMemory:
 		return e.documentMemory(), nil
+	case protocol.MethodDocumentInfo:
+		return e.documentInfo()
+	case protocol.MethodDocumentOpen:
+		var p protocol.DocumentOpenParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+
+		return e.openDocument(p, input)
+	case protocol.MethodDocumentExport:
+		var p protocol.DocumentExportParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+
+		return e.exportDocument(p)
 	case protocol.MethodPeaksGet:
 		var p protocol.PeaksGetParams
 		if err := decode(method, payload, &p); err != nil {

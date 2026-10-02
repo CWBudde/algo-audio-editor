@@ -41,9 +41,16 @@ const PLANNED: Record<string, (PlannedItem | "-")[]> = {
 
 interface AppMenubarProps {
   aboutText: string;
+  onOpen?: () => void;
+  onSave?: () => void;
 }
 
-export function AppMenubar({ aboutText }: AppMenubarProps) {
+export function AppMenubar({ aboutText, onOpen, onSave }: AppMenubarProps) {
+  const actions: Record<string, (() => void) | undefined> = {
+    "Open…": onOpen,
+    Save: onSave,
+    "Export…": onSave,
+  };
   return (
     <Menubar className="h-8 rounded-none border-0 bg-transparent p-0 shadow-none">
       {Object.entries(PLANNED).map(([menu, items]) => (
@@ -55,7 +62,11 @@ export function AppMenubar({ aboutText }: AppMenubarProps) {
                 // biome-ignore lint/suspicious/noArrayIndexKey: static list, separators have no identity
                 <MenubarSeparator key={`sep-${i}`} />
               ) : (
-                <MenubarItem key={item.label} disabled>
+                <MenubarItem
+                  key={item.label}
+                  disabled={!actions[item.label]}
+                  onClick={actions[item.label]}
+                >
                   {item.label}
                   {item.shortcut && <MenubarShortcut>{item.shortcut}</MenubarShortcut>}
                 </MenubarItem>

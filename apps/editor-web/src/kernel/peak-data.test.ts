@@ -94,7 +94,7 @@ describe("callKernel bulk replies", () => {
     const params = { channel: 0, startFrame: 1100, endFrame: 1300, buckets: 1 };
     const reply = callKernel(bridge, "peaks.get", params);
     expect(order).toEqual(["call", "takeData"]);
-    expect(bridge.call).toHaveBeenCalledWith("peaks.get", JSON.stringify(params));
+    expect(bridge.call).toHaveBeenCalledWith("peaks.get", JSON.stringify(params), undefined);
     expect(reply.result).toEqual(result);
     expect(reply.transfer).toEqual([result.data]);
 
@@ -136,7 +136,7 @@ describe("callKernel bulk replies", () => {
       JSON.stringify({ ok: true, result: { sampleRate: 48000 } }),
     );
     expect(callKernel(bridge, "hello", undefined)).toEqual({ result: { sampleRate: 48000 } });
-    expect(bridge.call).toHaveBeenCalledWith("hello", undefined);
+    expect(bridge.call).toHaveBeenCalledWith("hello", undefined, undefined);
     expect(bridge.takeData).not.toHaveBeenCalled();
   });
 

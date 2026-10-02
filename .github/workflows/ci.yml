@@ -36,6 +36,8 @@ jobs:
           GOOS=js GOARCH=wasm go vet ./...
       - name: go test
         run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - name: WAV decoder fuzz smoke
+        run: go test -run '^$' -fuzz '^FuzzWAVOpen$' -fuzztime=10s -parallel=2 ./internal/engine
       - name: Coverage summary
         run: |
           {
