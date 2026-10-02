@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
 
@@ -41,6 +42,40 @@ func TestHello(t *testing.T) {
 
 	if !strings.HasPrefix(got.GoVersion, "go") {
 		t.Errorf("GoVersion = %q", got.GoVersion)
+	}
+}
+
+func TestDocumentMemory(t *testing.T) {
+	e := New()
+	channel := audiobuf.NewChannel(make([]float32, audiobuf.BlockFrames+17))
+	document, err := audiobuf.NewDocument([]audiobuf.Channel{channel, channel}, 48000, audiobuf.Metadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name string
+		doc  audiobuf.Document
+		want protocol.DocumentMemoryResult
+	}{
+		{"no document", audiobuf.Document{}, protocol.DocumentMemoryResult{}},
+		{"shared stereo", document, protocol.DocumentMemoryResult{
+			SampleBytes: (audiobuf.BlockFrames + 17) * 4, UniqueBlocks: 2, BlockReferences: 4,
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e.document = tt.doc
+			resp := call(t, e, protocol.MethodDocumentMemory, "")
+			if !resp.OK {
+				t.Fatalf("doc.memory: %s", resp.Error)
+			}
+			var got protocol.DocumentMemoryResult
+			if err := json.Unmarshal(resp.Result, &got); err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Fatalf("doc.memory = %+v, want %+v", got, tt.want)
+			}
+		})
 	}
 }
 

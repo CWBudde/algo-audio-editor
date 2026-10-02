@@ -102,13 +102,15 @@
 - The waveform renders at any zoom level from the peak pyramid without touching raw samples.
 - Playback position drawn on screen matches the audible position within one audio quantum.
 
-### Phase 1.1: Block-based audio storage (`internal/audiobuf`)
+### Phase 1.1: Block-based audio storage (`internal/audiobuf`) — ✅ DONE (2026-10-02)
 
-- [ ] `Block`: an immutable float32 slice, about 64k frames, one channel. Blocks are shared, never mutated.
-- [ ] `Channel` = ordered `[]*Block` with prefix frame offsets. `Read(dst, start)` spans blocks; `Slice(start, end)` returns a new block list that shares the interior blocks and copies only the two partial edge blocks.
-- [ ] `Document` = channels + sample rate + metadata. It is a value type; edits return a new `Document` that shares structure with the old one, which is the basis for cheap undo in Phase 2.
-- [ ] Memory accounting: total bytes held, and live blocks counted by reference. The status bar shows memory use.
-- [ ] Property tests: random sequences of slice/concat reproduce a reference `[]float32` exactly.
+- [x] `internal/audiobuf/block.go`: immutable mono float32 blocks capped at 65536 frames. `NewBlock` copies caller samples; `Read` only copies out. `TestBlockValidationAndOwnership` checks size limits and alias isolation.
+- [x] `internal/audiobuf/channel.go`: immutable block lists with int64 prefix offsets, zero-allocation `Read`, `Slice` sharing whole blocks and copying only partial boundaries, and `Concat` sharing all samples. `NewChannelFromBlocks` supports block-by-block import. `TestChannelRead` and `TestChannelSliceSharing` cover boundaries, invalid ranges and pointer sharing.
+- [x] `internal/audiobuf/document.go`: value-type `Document` with equal-length channels, sample rate and defensively copied metadata. `Slice`, `Concat` and `WithMetadata` return snapshots sharing unchanged storage. `TestDocumentValidation` and `TestDocumentSnapshots` check format validation and immutable snapshots.
+- [x] `internal/audiobuf/memory.go`: `CountMemory` deduplicates blocks by pointer across supplied documents, history and clipboard snapshots, reporting sample bytes, unique blocks and references. Go GC owns block lifetimes; block-list, metadata and runtime overhead are excluded. `TestMemoryCountsSharedBlocksOnce` covers repeated references, copied edges and dropped snapshots.
+- [x] `doc.memory` exposes current-document sample bytes, unique blocks and references through the mirrored kernel ABI. `useDocumentMemory` serializes refreshes and discards stale replies; `StatusBar` displays B/KiB/MiB values (0 B without a document). Engine, hook lifecycle, formatting and status-bar tests plus the browser smoke test cover the path.
+- [x] `TestRandomChannelEdits`: deterministic random slice/concat sequences reproduce a flat reference buffer bit for bit, including NaN payloads, signed zero and infinity. `BenchmarkChannelRead` checks the playback read path; `BenchmarkChannelSlice` measures partial-edge slicing on a one-hour block list.
+- [x] `TestChannelOffsetsBeyondInt32` validates reads, slices and concatenation beyond 2³¹ frames using shared blocks. Verified with Go race tests (99.1% storage coverage), lint/native and WASM vet, 28 frontend tests, formatting checks and production browser e2e. Reads allocate zero bytes; partial-edge slicing of a one-hour block list takes approximately 0.1–0.16 ms on an i7-1255U.
 
 ### Phase 1.2: Peak pyramid
 

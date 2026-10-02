@@ -16,6 +16,7 @@ test("boots the kernel in a cross-origin isolated page", async ({ page }) => {
 
   await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
   await expect(page.getByTestId("kernel-version")).toContainText("go1.");
+  await expect(page.getByTestId("document-memory")).toHaveText("0 B");
   await expect(page.getByTestId("cross-origin-isolated")).toHaveText("yes");
   await expect(page.getByTestId("platform")).toHaveText("Browser");
   expect(errors).toEqual([]);

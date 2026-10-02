@@ -8,6 +8,7 @@ import { TransportBar } from "@/components/transport-bar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WaveformPlaceholder } from "@/components/waveform-placeholder";
+import { useDocumentMemory } from "@/hooks/use-document-memory";
 import { useKernel } from "@/hooks/use-kernel";
 
 const STATS_INTERVAL_MS = 200;
@@ -21,6 +22,7 @@ function reportError(action: string) {
 export default function App() {
   const kernel = useKernel();
   const client = kernel.status === "ready" ? kernel.client : undefined;
+  const memory = useDocumentMemory(client);
   const engine = useMemo(() => (client ? new AudioEngine(client) : undefined), [client]);
 
   const [playing, setPlaying] = useState(false);
@@ -86,7 +88,7 @@ export default function App() {
         <main className="min-h-0 flex-1 overflow-auto">
           <WaveformPlaceholder />
         </main>
-        <StatusBar kernel={kernel} sampleRate={engine?.sampleRate} stats={stats} />
+        <StatusBar kernel={kernel} sampleRate={engine?.sampleRate} stats={stats} memory={memory} />
       </div>
       <Toaster theme="dark" />
     </TooltipProvider>

@@ -20,6 +20,8 @@ const (
 	MethodEngineConfigure = "engine.configure"
 	// MethodToneConfigure sets the test-tone frequency and amplitude.
 	MethodToneConfigure = "tone.configure"
+	// MethodDocumentMemory returns retained document sample storage statistics.
+	MethodDocumentMemory = "doc.memory"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -63,4 +65,12 @@ type ToneConfigureParams struct {
 type ToneConfigureResult struct {
 	FrequencyHz float64 `json:"frequencyHz"`
 	Amplitude   float64 `json:"amplitude"`
+}
+
+// DocumentMemoryResult reports sample storage, excluding metadata, block lists
+// and runtime overhead. Shared blocks are counted only once.
+type DocumentMemoryResult struct {
+	SampleBytes     int64 `json:"sampleBytes"`
+	UniqueBlocks    int   `json:"uniqueBlocks"`
+	BlockReferences int   `json:"blockReferences"`
 }

@@ -9,6 +9,7 @@ import (
 	"math"
 	"runtime"
 
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/buildinfo"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
@@ -33,6 +34,7 @@ type Engine struct {
 	sampleRate float64
 	channels   int
 	tone       *toneSource
+	document   audiobuf.Document
 }
 
 // New returns an engine configured for 48 kHz stereo.
@@ -87,6 +89,8 @@ func (e *Engine) dispatch(method string, payload []byte) (any, error) {
 	switch method {
 	case protocol.MethodHello:
 		return e.hello(), nil
+	case protocol.MethodDocumentMemory:
+		return e.documentMemory(), nil
 	case protocol.MethodEngineConfigure:
 		var p protocol.EngineConfigureParams
 		if err := decode(method, payload, &p); err != nil {
@@ -103,6 +107,14 @@ func (e *Engine) dispatch(method string, payload []byte) (any, error) {
 		return e.configureTone(p)
 	default:
 		return nil, fmt.Errorf("unknown method %q", method)
+	}
+}
+
+func (e *Engine) documentMemory() protocol.DocumentMemoryResult {
+	stats := audiobuf.CountMemory(e.document)
+
+	return protocol.DocumentMemoryResult{
+		SampleBytes: stats.SampleBytes, UniqueBlocks: stats.UniqueBlocks, BlockReferences: stats.BlockReferences,
 	}
 }
 

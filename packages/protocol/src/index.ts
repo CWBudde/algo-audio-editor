@@ -42,11 +42,19 @@ export interface ToneConfigureResult {
   amplitude: number;
 }
 
+/** Retained sample storage; excludes metadata, block lists and runtime overhead. */
+export interface DocumentMemoryResult {
+  sampleBytes: number;
+  uniqueBlocks: number;
+  blockReferences: number;
+}
+
 /** Every kernel method with its params and result types. */
 export interface KernelMethods {
   hello: { params: undefined; result: HelloResult };
   "engine.configure": { params: EngineConfigureParams; result: EngineConfigureResult };
   "tone.configure": { params: ToneConfigureParams; result: ToneConfigureResult };
+  "doc.memory": { params: undefined; result: DocumentMemoryResult };
 }
 
 export type KernelMethod = keyof KernelMethods;
