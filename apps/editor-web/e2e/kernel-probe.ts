@@ -7,6 +7,14 @@ declare global {
       workers: Worker[];
       transfers: { before: number; after: number }[];
       openTimings: { bytes: number; rpcMs: number }[];
+      peakCalls: {
+        id: number;
+        channel: number;
+        startFrame: number;
+        endFrame: number;
+        buckets: number;
+      }[];
+      peakReplies: { id: number; count: number; bytes: number; isBuffer: boolean }[];
       request(method: string, params?: unknown): Promise<unknown>;
     };
   }
@@ -19,11 +27,15 @@ export async function captureKernelWorker(page: Page) {
     const workers: Worker[] = [];
     const transfers: { before: number; after: number }[] = [];
     const openTimings: { bytes: number; rpcMs: number }[] = [];
+    const peakCalls: NonNullable<Window["__aaeTest"]>["peakCalls"] = [];
+    const peakReplies: NonNullable<Window["__aaeTest"]>["peakReplies"] = [];
     let nextId = -100;
     window.__aaeTest = {
       workers,
       transfers,
       openTimings,
+      peakCalls,
+      peakReplies,
       async request(method, params) {
         const createdWorker = workers[0];
         if (!createdWorker) throw new Error("kernel worker missing");
@@ -55,9 +67,30 @@ export async function captureKernelWorker(page: Page) {
         message: unknown,
         transfer?: Transferable[] | StructuredSerializeOptions,
       ) {
-        const request = message as { id?: number; method?: string; data?: ArrayBuffer };
+        const request = message as {
+          id?: number;
+          method?: string;
+          data?: ArrayBuffer;
+          params?: { channel: number; startFrame: number; endFrame: number; buckets: number };
+        };
         const before = request.data?.byteLength ?? 0;
         const started = performance.now();
+        if (request.method === "peaks.get" && request.id !== undefined && request.params) {
+          peakCalls.push({ id: request.id, ...request.params });
+          const onReply = (event: MessageEvent) => {
+            if (event.data.kind !== "reply" || event.data.id !== request.id) return;
+            this.removeEventListener("message", onReply);
+            if (!event.data.ok) return;
+            const result = event.data.result;
+            peakReplies.push({
+              id: event.data.id,
+              count: result.count,
+              bytes: result.data?.byteLength ?? 0,
+              isBuffer: result.data instanceof ArrayBuffer,
+            });
+          };
+          this.addEventListener("message", onReply);
+        }
         if (request.method === "doc.open" && request.data) {
           const onReply = (event: MessageEvent) => {
             if (event.data.kind !== "reply" || event.data.id !== request.id) return;

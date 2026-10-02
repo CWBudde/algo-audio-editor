@@ -36,6 +36,8 @@ const PLANNED: Record<string, (PlannedItem | "-")[]> = {
   View: [
     { label: "Zoom In", shortcut: "Ctrl+=" },
     { label: "Zoom Out", shortcut: "Ctrl+-" },
+    { label: "Zoom to Fit", shortcut: "Ctrl+0" },
+    { label: "Zoom to Selection" },
   ],
 };
 
@@ -43,13 +45,29 @@ interface AppMenubarProps {
   aboutText: string;
   onOpen?: () => void;
   onSave?: () => void;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onZoomFit?: () => void;
+  onZoomSelection?: () => void;
 }
 
-export function AppMenubar({ aboutText, onOpen, onSave }: AppMenubarProps) {
+export function AppMenubar({
+  aboutText,
+  onOpen,
+  onSave,
+  onZoomIn,
+  onZoomOut,
+  onZoomFit,
+  onZoomSelection,
+}: AppMenubarProps) {
   const actions: Record<string, (() => void) | undefined> = {
     "Open…": onOpen,
     Save: onSave,
     "Export…": onSave,
+    "Zoom In": onZoomIn,
+    "Zoom Out": onZoomOut,
+    "Zoom to Fit": onZoomFit,
+    "Zoom to Selection": onZoomSelection,
   };
   return (
     <Menubar className="h-8 rounded-none border-0 bg-transparent p-0 shadow-none">

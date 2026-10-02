@@ -25,6 +25,37 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
       .poll(async () => Number(await page.getByTestId("frames-played").textContent()))
       .toBeGreaterThan(48_000);
     await page.getByTestId("stop").click();
+
+    // Drive the shared production file and peak path inside the Electron shell,
+    // not just its unloaded app frame. Native dialogs arrive in Phase 9.
+    const wav = Buffer.alloc(44 + 16 * 4);
+    wav.write("RIFF", 0);
+    wav.writeUInt32LE(wav.length - 8, 4);
+    wav.write("WAVEfmt ", 8);
+    wav.writeUInt32LE(16, 16);
+    wav.writeUInt16LE(1, 20);
+    wav.writeUInt16LE(2, 22);
+    wav.writeUInt32LE(48000, 24);
+    wav.writeUInt32LE(192000, 28);
+    wav.writeUInt16LE(4, 32);
+    wav.writeUInt16LE(16, 34);
+    wav.write("data", 36);
+    wav.writeUInt32LE(wav.length - 44, 40);
+    for (let frame = 0; frame < 16; frame++) {
+      wav.writeInt16LE(16384, 44 + frame * 4);
+      wav.writeInt16LE(-8192, 46 + frame * 4);
+    }
+    await page.getByTestId("audio-file-input").setInputFiles({
+      name: "desktop-waveform.wav",
+      mimeType: "audio/wav",
+      buffer: wav,
+    });
+    await expect(page.getByTestId("document-name")).toHaveText("desktop-waveform.wav");
+    await expect(page.getByTestId("waveform-channel-0")).toHaveAttribute("data-rendered", "true");
+    await expect(page.getByTestId("waveform-channel-1")).toHaveAttribute("data-rendered", "true");
+    await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-start-frame", "4");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-end-frame", "12");
     expect(errors).toEqual([]);
   } finally {
     await app.close();

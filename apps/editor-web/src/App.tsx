@@ -8,6 +8,7 @@ import { TransportBar } from "@/components/transport-bar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WaveformPlaceholder } from "@/components/waveform-placeholder";
+import { WaveformView, type WaveformViewHandle } from "@/components/waveform-view";
 import { useDocument } from "@/hooks/use-document";
 import { useDocumentMemory } from "@/hooks/use-document-memory";
 import { useKernel } from "@/hooks/use-kernel";
@@ -31,6 +32,7 @@ export default function App() {
   const [amplitude, setAmplitude] = useState(0.2);
   const [stats, setStats] = useState<RingBufferStats>();
   const fileInput = useRef<HTMLInputElement>(null);
+  const waveformView = useRef<WaveformViewHandle>(null);
   const currentEngine = useRef(engine);
   currentEngine.current = engine;
 
@@ -66,6 +68,15 @@ export default function App() {
       } else if (event.key.toLowerCase() === "e" && event.shiftKey && doc.info) {
         event.preventDefault();
         doc.save();
+      } else if (doc.info && (event.key === "+" || event.key === "=")) {
+        event.preventDefault();
+        waveformView.current?.zoomIn();
+      } else if (doc.info && event.key === "-") {
+        event.preventDefault();
+        waveformView.current?.zoomOut();
+      } else if (doc.info && event.key === "0") {
+        event.preventDefault();
+        waveformView.current?.zoomFit();
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -117,6 +128,12 @@ export default function App() {
             aboutText={about}
             onOpen={client && !doc.busy ? doc.open : undefined}
             onSave={doc.info && !doc.busy ? doc.save : undefined}
+            onZoomIn={doc.info && !doc.busy ? () => waveformView.current?.zoomIn() : undefined}
+            onZoomOut={doc.info && !doc.busy ? () => waveformView.current?.zoomOut() : undefined}
+            onZoomFit={doc.info && !doc.busy ? () => waveformView.current?.zoomFit() : undefined}
+            onZoomSelection={
+              doc.info && !doc.busy ? () => waveformView.current?.zoomSelection() : undefined
+            }
           />
         </header>
         <TransportBar
@@ -159,7 +176,15 @@ export default function App() {
               Working on audio file…
             </p>
           )}
-          <WaveformPlaceholder info={doc.info} />
+          {doc.info && client ? (
+            <WaveformView
+              ref={waveformView}
+              client={doc.busy ? undefined : client}
+              info={doc.info}
+            />
+          ) : (
+            <WaveformPlaceholder />
+          )}
         </main>
         <StatusBar
           kernel={kernel}
