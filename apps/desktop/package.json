@@ -1,0 +1,20 @@
+{
+  "name": "@aae/desktop",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Electron shell for algo-audio-editor",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "bun build src/main.ts src/preload.ts --target=node --format=cjs --external electron --outdir dist",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit",
+    "e2e": "playwright test",
+    "install-electron": "install-electron"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24",
+    "electron": "^44.5.1",
+    "typescript": "~6.0.2"
+  }
+}
