@@ -17,12 +17,13 @@ import { SelectionBar } from "@/components/selection-bar";
 import { TimelinePanel } from "@/components/timeline-panel";
 import type { PlaybackFollow } from "@/components/transport-bar";
 import { Button } from "@/components/ui/button";
-import { type PeaksState, usePeaks } from "@/hooks/use-peaks";
+import { type PeaksState, usePeaks, useWaveformPeaks } from "@/hooks/use-peaks";
 import { type SelectionOptions, useSelection } from "@/hooks/use-selection";
 import type { KernelClient } from "@/kernel/client";
 import type { PeakViews } from "@/kernel/peak-data";
+import { resolveEditorPalette } from "@/lib/editor-theme";
 import { snapSelectionFrame } from "@/lib/selection";
-import { drawWaveform, resizeCanvas } from "@/lib/waveform-drawing";
+import { drawSampleWaveform, drawWaveform, resizeCanvas } from "@/lib/waveform-drawing";
 import {
   type AmplitudeScale,
   clampViewport,
@@ -35,6 +36,7 @@ import {
   xToFrame,
   zoomViewport,
 } from "@/lib/waveform-geometry";
+import { type SampleDisplayMode, sampleViewportRange } from "@/lib/waveform-samples";
 
 const RULER_WIDTH = 56;
 const LANE_HEIGHT = 160;
@@ -118,6 +120,7 @@ interface PeakCanvasProps {
   dpr: number;
   overview?: boolean;
   peaks?: PeaksState;
+  sampleMode?: SampleDisplayMode;
   onPointerDown?: (event: PointerEvent<HTMLCanvasElement>) => void;
   onPointerMove?: (event: PointerEvent<HTMLCanvasElement>) => void;
   onPointerUp?: (event: PointerEvent<HTMLCanvasElement>) => void;
@@ -136,24 +139,34 @@ function PeakCanvas({
   dpr,
   overview = false,
   peaks,
+  sampleMode = "linear",
   ...events
 }: PeakCanvasProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const ownPeaks = usePeaks(
+  const sampleRange = overview ? undefined : sampleViewportRange(viewport, info.frames, width);
+  const ownPeaks = useWaveformPeaks(
     client,
     info,
-    !peaks && info.frames > 0
-      ? {
-          channel,
-          startFrame: viewport.start,
-          endFrame: viewport.end,
-          buckets: Math.max(1, Math.min(8192, Math.ceil(width * dpr))),
-        }
-      : undefined,
+    sampleRange
+      ? { channel, startFrame: sampleRange.start, endFrame: sampleRange.end, buckets: 1 }
+      : !peaks && info.frames > 0
+        ? {
+            channel,
+            startFrame: viewport.start,
+            endFrame: viewport.end,
+            buckets: Math.max(1, Math.min(8192, Math.ceil(width * dpr))),
+          }
+        : undefined,
+    Boolean(sampleRange),
   );
-  const { data, loading, error } = peaks ?? ownPeaks;
+  const data = sampleRange ? undefined : (peaks?.data ?? ownPeaks.pages?.[0]);
+  const pages = sampleRange ? ownPeaks.pages : undefined;
+  const { loading, error } = !sampleRange && peaks ? peaks : ownPeaks;
+  const source = pages ?? data;
+  const displayMode = sampleRange ? sampleMode : "envelope";
   const [paint, setPaint] = useState<{
-    data: PeakViews;
+    source: PeakViews | readonly PeakViews[];
+    mode: typeof displayMode;
     start: number;
     end: number;
     width: number;
@@ -161,17 +174,33 @@ function PeakCanvas({
   }>();
 
   useLayoutEffect(() => {
+    // Paint bookkeeping must not keep obsolete sample pages alive after a request clears.
+    if (!source) setPaint(undefined);
     const element = canvas.current;
     if (!element) return;
     const context = resizeCanvas(element, width, height, dpr);
     if (!context) return;
-    drawWaveform(context, data ?? null, viewport, width, height, { showRMS: !overview });
-    if (data) setPaint({ data, start: viewport.start, end: viewport.end, width, dpr });
-  }, [data, viewport, width, height, dpr, overview]);
+    const palette = resolveEditorPalette(element);
+    const colors = {
+      background: palette.waveformBackground,
+      peakColor: palette.waveformPeak,
+      sampleColor: palette.waveformSample,
+      rmsColor: palette.waveformRms,
+      showRMS: !overview,
+    };
+    if (displayMode === "envelope") {
+      drawWaveform(context, data ?? null, viewport, width, height, colors);
+    } else {
+      drawSampleWaveform(context, pages, viewport, width, height, displayMode, colors);
+    }
+    if (source)
+      setPaint({ source, mode: displayMode, start: viewport.start, end: viewport.end, width, dpr });
+  }, [source, data, pages, displayMode, viewport, width, height, dpr, overview]);
 
   const rendered = Boolean(
-    data &&
-      paint?.data === data &&
+    source &&
+      paint?.source === source &&
+      paint.mode === displayMode &&
       paint.start === viewport.start &&
       paint.end === viewport.end &&
       paint.width === width &&
@@ -191,6 +220,9 @@ function PeakCanvas({
         aria-busy={loading}
         data-testid={overview ? "waveform-overview" : `waveform-channel-${channel}`}
         data-rendered={String(rendered)}
+        data-display-mode={displayMode}
+        data-sample-start={sampleRange?.start}
+        data-sample-end={sampleRange?.end}
         {...events}
       >
         {overview ? "Document overview" : `Channel ${channel + 1} waveform`}
@@ -255,6 +287,7 @@ export function WaveformView({
   );
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("seconds");
   const [amplitudeScale, setAmplitudeScale] = useState<AmplitudeScale>("linear");
+  const [sampleMode, setSampleMode] = useState<SampleDisplayMode>("linear");
   const scrollbar = useRef<HTMLDivElement>(null);
   const currentViewport = useRef(viewport);
   currentViewport.current = viewport;
@@ -699,6 +732,19 @@ export function WaveformView({
             <option value="db">dB</option>
           </select>
         </label>
+        <label className="flex items-center gap-1 text-xs">
+          Sample display
+          <select
+            aria-label="Sample display"
+            data-testid="waveform-display-mode"
+            className="rounded border bg-background p-1"
+            value={sampleMode}
+            onChange={(event) => setSampleMode(event.target.value as SampleDisplayMode)}
+          >
+            <option value="linear">Linear</option>
+            <option value="steps">Steps</option>
+          </select>
+        </label>
         <span className="ml-auto text-xs text-muted-foreground">Peak / RMS</span>
       </div>
       <SelectionBar
@@ -927,6 +973,7 @@ export function WaveformView({
                     width={width}
                     height={LANE_HEIGHT}
                     dpr={dpr}
+                    sampleMode={sampleMode}
                     peaks={
                       channel === 0 && viewport.start === 0 && viewport.end === info.frames
                         ? fullPeaks
@@ -946,7 +993,7 @@ export function WaveformView({
                         data-testid={
                           channel === 0 ? "waveform-selection" : `waveform-selection-${channel}`
                         }
-                        className="pointer-events-none absolute inset-y-0 border border-blue-400 bg-blue-400/15"
+                        className="pointer-events-none absolute inset-y-0 border border-selection bg-selection-fill"
                         style={{
                           left: frameToX(selectionStart, viewport, width),
                           width: Math.max(
@@ -969,7 +1016,7 @@ export function WaveformView({
                             aria-label={`Selection ${edge} edge channel ${channel + 1}`}
                             disabled={disabled}
                             data-testid={`selection-${edge}-edge-${channel}`}
-                            className="absolute inset-y-0 z-10 w-2 cursor-ew-resize touch-none border-x border-blue-400 bg-blue-400/20"
+                            className="absolute inset-y-0 z-10 w-2 cursor-ew-resize touch-none border-x border-selection bg-selection-fill"
                             style={{
                               left: Math.max(
                                 0,
@@ -1015,7 +1062,7 @@ export function WaveformView({
                       aria-hidden="true"
                       data-testid={`play-cursor-${channel}`}
                       data-frame={position}
-                      className="pointer-events-none absolute inset-y-0 border-l border-amber-300"
+                      className="pointer-events-none absolute inset-y-0 border-l border-playhead"
                       style={{ left: Math.min(width - 1, frameToX(position, viewport, width)) }}
                     />
                   )}
@@ -1087,7 +1134,7 @@ export function WaveformView({
           />
           <div
             data-testid="waveform-overview-viewport"
-            className="absolute inset-y-0 cursor-grab border-2 border-blue-400 bg-blue-400/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+            className="absolute inset-y-0 cursor-grab border-2 border-selection bg-selection-fill focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
             style={{ left: overviewLeft, width: Math.max(2, overviewWidth) }}
             role="slider"
             aria-label="Visible time range"
@@ -1121,7 +1168,7 @@ export function WaveformView({
               aria-hidden="true"
               data-testid="play-cursor-overview"
               data-frame={position}
-              className="pointer-events-none absolute inset-y-0 border-l border-amber-300"
+              className="pointer-events-none absolute inset-y-0 border-l border-playhead"
               style={{ left: Math.min(width - 1, (position / info.frames) * width) }}
             />
           )}

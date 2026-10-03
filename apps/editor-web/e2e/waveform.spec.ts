@@ -1,6 +1,8 @@
 /// <reference lib="dom" />
+
 import { expect, type Page, test } from "@playwright/test";
 import { captureKernelWorker } from "./kernel-probe.ts";
+import { revealControl } from "./ui-disclosures.ts";
 
 const RATE = 48_000;
 const FRAMES = RATE * 20;
@@ -33,7 +35,7 @@ function waveformFixture(): Buffer {
 async function openWaveform(page: Page, name = "waveform.wav") {
   await captureKernelWorker(page);
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
   await page.getByTestId("audio-file-input").setInputFiles({
     name,
     mimeType: "audio/wav",
@@ -72,7 +74,7 @@ test.describe("high-DPI waveform rendering", () => {
         let waveformPixels = 0;
         for (let offset = 0; offset < pixels.length; offset += 4) {
           const [r, g, b] = pixels.subarray(offset, offset + 3);
-          if (g > 70 && g > r * 1.3 && b > r * 1.2) waveformPixels++;
+          if (r > 170 && g > 65 && r > g * 1.2 && b < g * 0.8) waveformPixels++;
         }
         return {
           width: canvas.width,
@@ -220,8 +222,8 @@ test("scrollbar and overview move the viewport, and a dragged selection can be f
   const selected = await viewport(page);
   expect(selected.start).toBeGreaterThan(moved.start);
   expect(selected.end).toBeLessThan(moved.end);
-  await page.getByLabel("Time format").selectOption("samples");
-  await page.getByLabel("Amplitude scale").selectOption("db");
+  await (await revealControl(page.getByLabel("Time format"))).selectOption("samples");
+  await (await revealControl(page.getByLabel("Amplitude scale"))).selectOption("db");
   await expect(page.getByTestId("waveform-channel-0")).toHaveAttribute("data-rendered", "true");
 });
 

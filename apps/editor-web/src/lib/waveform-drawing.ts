@@ -1,11 +1,102 @@
 import type { PeakViews } from "@/kernel/peak-data";
 import { amplitudeToY, type FrameRange, frameToX } from "./waveform-geometry";
+import type { SampleDisplayMode } from "./waveform-samples";
 
 export interface WaveformColors {
   background?: string;
   peakColor?: string;
   rmsColor?: string;
+  sampleColor?: string;
   showRMS?: boolean;
+}
+
+/** Draw exact single-frame kernel summaries as geometry, never audio DSP.
+ * Linear joins actual adjacent points; steps holds each value for its frame.
+ * Pages may contain one offscreen neighbor at each boundary. */
+export function drawSampleWaveform(
+  ctx: CanvasRenderingContext2D,
+  pages: readonly PeakViews[] | null | undefined,
+  range: FrameRange,
+  width: number,
+  height: number,
+  mode: SampleDisplayMode = "linear",
+  colors: WaveformColors = {},
+): void {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+  ctx.clearRect(0, 0, width, height);
+  if (colors.background) {
+    ctx.fillStyle = colors.background;
+    ctx.fillRect(0, 0, width, height);
+  }
+  if (
+    !pages ||
+    !Number.isSafeInteger(range.start) ||
+    !Number.isSafeInteger(range.end) ||
+    range.start < 0 ||
+    range.end <= range.start
+  )
+    return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, width, height);
+  ctx.clip();
+  ctx.strokeStyle = colors.peakColor ?? "#2dd4bf";
+  ctx.fillStyle = colors.peakColor ?? "#2dd4bf";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  let previousFrame = Number.NaN;
+  for (const page of pages) {
+    for (let index = 0; index < page.frameCounts.length; index++) {
+      const frame = page.startFrames[index];
+      // An aggregate bucket is NEVER an inferred sample. NaNs break the path;
+      // infinities follow the existing display-only full-scale clipping rule.
+      const value = page.peaks[index * 3];
+      if (
+        page.frameCounts[index] !== 1 ||
+        !Number.isSafeInteger(frame) ||
+        frame < 0 ||
+        !Number.isSafeInteger(frame + 1) ||
+        typeof value !== "number" ||
+        Number.isNaN(value)
+      ) {
+        previousFrame = Number.NaN;
+        continue;
+      }
+      const x = frameToX(frame, range, width);
+      const y = amplitudeToY(value, height);
+      if (frame === previousFrame + 1) ctx.lineTo(x, y);
+      else ctx.moveTo(x, y);
+      if (mode === "steps") ctx.lineTo(frameToX(frame + 1, range, width), y);
+      previousFrame = frame;
+    }
+  }
+  ctx.stroke();
+  // One fill path for visible dots, independent of page seams or DPR. Context
+  // neighbors contribute connections but never phantom offscreen sample dots.
+  const radius = Math.min(2.5, Math.max(0.75, (width / (range.end - range.start)) * 0.25));
+  ctx.fillStyle = colors.sampleColor ?? colors.peakColor ?? "#2dd4bf";
+  ctx.beginPath();
+  for (const page of pages) {
+    for (let index = 0; index < page.frameCounts.length; index++) {
+      const frame = page.startFrames[index];
+      const value = page.peaks[index * 3];
+      if (
+        page.frameCounts[index] !== 1 ||
+        !Number.isSafeInteger(frame) ||
+        frame < range.start ||
+        frame >= range.end ||
+        typeof value !== "number" ||
+        Number.isNaN(value)
+      )
+        continue;
+      const x = frameToX(frame, range, width);
+      const y = amplitudeToY(value, height);
+      ctx.moveTo(x + radius, y);
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+    }
+  }
+  ctx.fill();
+  ctx.restore();
 }
 
 /** Size the backing bitmap for DPR while all drawing continues in CSS pixels. */

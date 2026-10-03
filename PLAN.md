@@ -45,16 +45,16 @@
 - [ ] Disclose snapping, display settings and marker/region naming/color controls; retain active-state indicators and quick annotation icons, and place marker management in the view band.
 - [ ] Verify default controls above the ruler occupy at most 160 CSS pixels at 1920-pixel desktop width, with narrow layouts that do not overlap or lose actions. History is already optional through U.2.
 
-### Phase U.4: Purple and warm-color theme
+### Phase U.4: Purple and warm-color theme — ✅ DONE (2026-10-03)
 
 - [x] `index.css` centralizes dark semantic roles: purple primary/focus/selection, orange waveform peaks/dots, subdued purple RMS, yellow playhead/warnings and red destructive/errors. `editor-theme.ts` resolves immutable palette snapshots for canvas consumers, including scoped overrides; ten tests cover CSS defaults/aliases, contrast, fresh snapshots and missing/unresolved styles. User marker colors remain independent.
-- [ ] Apply the resolved palette to waveform canvases and replace selection/playhead color classes during U.5 integration.
+- [x] Both waveform painters now receive resolved palette colors; DOM selection/edge handles and playheads use semantic selection/playhead classes rather than blue/teal. Canvas and sample component regressions pass; actual painted-pixel checks follow in U.6.
 
-### Phase U.5: Sample dots and connecting lines
+### Phase U.5: Sample dots and connecting lines — ✅ DONE (2026-10-03)
 
-- [ ] Above one CSS pixel per sample (independent of DPR), draw actual signed sample dots with default linear connections and optional sample-and-hold steps; suppress bars/RMS in this mode.
-- [ ] Reuse binary `peaks.get` one-frame records in pages of at most 8192 frames, including clamped neighboring samples. Preserve exact frame coordinates, NaN gaps, infinity clipping, EOF, chunk continuity and stale-safe coalescing; line changes redraw without RPC/history/audio mutation. No ABI change or JS DSP.
-- [ ] Leave overview and ≤1 CSS pixel/sample envelopes unchanged; sinc interpolation and the undecided zoomed-out redesign are explicitly outside this phase.
+- [x] `waveform-samples.ts`, `drawSampleWaveform` and `PeakCanvas` switch above one CSS pixel per sample (not physical/DPR pixels) to actual signed dots with default linear connections and selectable sample-and-hold steps. Bars and RMS are absent in detail mode; linear/steps redraw cached views without RPC or source/history changes.
+- [x] `useWaveformPeaks` reuses binary one-frame `peaks.get` records in ≤8192-frame pages with clamped boundary context and one physical in-flight request across envelope/detail switches. It publishes complete current pages only, rejects aggregate/missing records and clears obsolete snapshot/paint references. Ninety-four focused tests cover threshold/DPR, signed geometry, page seams, EOF, NaN/infinity display, safe offsets, stale partial replies and all existing waveform interactions; TypeScript and scoped Biome pass. ABI v10 and Go/audio processing are unchanged.
+- [x] Overview and ≤1 CSS pixel/sample envelopes retain their existing geometry. Sinc interpolation and the undecided zoomed-out redesign remain explicitly outside this phase.
 
 ### Phase U.6: Integration and acceptance
 

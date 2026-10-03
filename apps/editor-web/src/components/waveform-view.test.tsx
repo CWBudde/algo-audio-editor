@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SelectionOptions } from "@/hooks/use-selection";
 import { KernelClient, type WorkerLike } from "@/kernel/client";
 import type { WorkerReply, WorkerRequest } from "@/kernel/messages";
+import { EDITOR_THEME_PROPERTIES } from "@/lib/editor-theme";
 import { WaveformView, type WaveformViewHandle } from "./waveform-view";
 
 const info: DocumentInfoResult = {
@@ -184,10 +185,19 @@ class PeakWorker implements WorkerLike {
       return;
     }
     const params = request.params as PeaksGetParams;
-    const data = new ArrayBuffer(24);
-    new Float32Array(data, 0, 3).set([-0.75, 0.75, 0.25]);
-    new Uint32Array(data, 12, 1)[0] = params.endFrame - params.startFrame;
-    new Float64Array(data, 16, 1)[0] = params.startFrame;
+    const span = params.endFrame - params.startFrame;
+    const exact = params.buckets === span;
+    const count = exact ? span : 1;
+    const data = new ArrayBuffer(24 * count);
+    const values = new Float32Array(data, 0, 3 * count);
+    const counts = new Uint32Array(data, 12 * count, count);
+    const starts = new Float64Array(data, 16 * count, count);
+    for (let index = 0; index < count; index++) {
+      const value = (params.startFrame + index) % 2 === 0 ? -0.75 : 0.5;
+      values.set(exact ? [value, value, Math.abs(value)] : [-0.75, 0.75, 0.25], index * 3);
+      counts[index] = exact ? 1 : span;
+      starts[index] = params.startFrame + (exact ? index : 0);
+    }
     queueMicrotask(() =>
       this.listener?.({
         data: {
@@ -195,9 +205,9 @@ class PeakWorker implements WorkerLike {
           id: request.id,
           ok: true,
           result: {
-            count: 1,
-            framesPerBucket: params.endFrame - params.startFrame,
-            dataBytes: 24,
+            count,
+            framesPerBucket: exact ? 1 : span,
+            dataBytes: data.byteLength,
             data,
           },
         },
@@ -230,6 +240,10 @@ function context() {
     lineTo: vi.fn(),
     moveTo: vi.fn(),
     stroke: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    fillStyle: "",
+    strokeStyle: "",
     restore: vi.fn(),
   };
 }
@@ -244,8 +258,19 @@ const observers: {
 }[] = [];
 const mediaListeners = new Set<() => void>();
 let matchMedia: ReturnType<typeof vi.fn>;
+let rootStyle: string | null;
+const testPalette = Object.fromEntries(
+  Object.keys(EDITOR_THEME_PROPERTIES).map((key, index) => [
+    key,
+    `#${(0x123400 + index).toString(16)}`,
+  ]),
+);
 
 beforeEach(() => {
+  rootStyle = document.documentElement.getAttribute("style");
+  for (const [key, property] of Object.entries(EDITOR_THEME_PROPERTIES)) {
+    document.documentElement.style.setProperty(property, testPalette[key]);
+  }
   hostWidth = 800;
   tracksWidth = 800;
   contexts.clear();
@@ -318,6 +343,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  if (rootStyle === null) document.documentElement.removeAttribute("style");
+  else document.documentElement.setAttribute("style", rootStyle);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -407,6 +434,90 @@ async function painted(getByTestId: (id: string) => HTMLElement, channel = 0) {
 }
 
 describe("WaveformView", () => {
+  it("draws exact samples with CSS palette roles and changes geometry without another RPC", async () => {
+    const smallInfo = { ...info, frames: 4 };
+    const { getByTestId, getByLabelText, worker } = mounted(smallInfo);
+    await painted(getByTestId, 1);
+    const canvas = getByTestId("waveform-channel-0") as HTMLCanvasElement;
+    const drawing = contexts.get(canvas);
+    expect(canvas.dataset.displayMode).toBe("linear");
+    expect([canvas.dataset.sampleStart, canvas.dataset.sampleEnd]).toEqual(["0", "4"]);
+    expect(drawing?.arc).toHaveBeenCalledTimes(4);
+    expect(drawing?.strokeStyle).toBe(testPalette.waveformPeak);
+    expect(drawing?.fillStyle).toBe(testPalette.waveformSample);
+    expect(drawing?.lineTo.mock.calls).toEqual([
+      [186, 40],
+      [372, 140],
+      [558, 40],
+    ]);
+    expect(getByTestId("waveform-overview").dataset.displayMode).toBe("envelope");
+    const requests = worker.peaks.map((request) => request.params as PeaksGetParams);
+    expect(
+      requests.filter((params) => params.buckets === 4).map((params) => params.channel),
+    ).toEqual([0, 1]);
+    const before = worker.sent.length;
+    drawing?.lineTo.mockClear();
+    fireEvent.change(getByLabelText("Sample display"), { target: { value: "steps" } });
+    await painted(getByTestId);
+    expect(canvas.dataset.displayMode).toBe("steps");
+    expect(drawing?.lineTo.mock.calls).toEqual([
+      [186, 140],
+      [186, 40],
+      [372, 40],
+      [372, 140],
+      [558, 140],
+      [558, 40],
+      [744, 40],
+    ]);
+    expect(worker.sent).toHaveLength(before);
+  });
+
+  it.each([1, 2])("uses strict CSS sample spacing regardless of DPR %s", async (dpr) => {
+    vi.stubGlobal("devicePixelRatio", dpr);
+    tracksWidth = 60;
+    const { getByTestId, worker } = mounted({ ...info, frames: 4 });
+    await painted(getByTestId, 1);
+    expect(getByTestId("waveform-channel-0").dataset.displayMode).toBe("envelope");
+    expect(getByTestId("waveform-channel-1").dataset.displayMode).toBe("envelope");
+    tracksWidth = 61;
+    act(() =>
+      observers
+        .filter((observer) => !observer.disconnected)
+        .forEach((observer) => {
+          observer.callback();
+        }),
+    );
+    await waitFor(() =>
+      expect(getByTestId("waveform-channel-1").dataset.displayMode).toBe("linear"),
+    );
+    await painted(getByTestId, 1);
+    const canvas = getByTestId("waveform-channel-1") as HTMLCanvasElement;
+    expect(canvas.width).toBe(5 * dpr);
+    expect(contexts.get(canvas)?.arc).toHaveBeenCalledTimes(4);
+    expect(
+      worker.peaks.some(
+        (request) =>
+          (request.params as PeaksGetParams).channel === 1 &&
+          (request.params as PeaksGetParams).buckets === 4,
+      ),
+    ).toBe(true);
+    expect(getByTestId("waveform-overview").dataset.displayMode).toBe("envelope");
+  });
+
+  it("uses theme roles for envelope and DOM overlays while retaining marker colors", async () => {
+    const { getByTestId, container } = mounted(info, {
+      selection: { start: 100, end: 200 },
+      timeline: { markers: [{ id: 1, frame: 100, name: "Cue", color: "#ff0000" }] },
+    });
+    await painted(getByTestId, 1);
+    const drawing = contexts.get(getByTestId("waveform-channel-1") as HTMLCanvasElement);
+    expect(drawing?.fillStyle).toBe(testPalette.waveformRms);
+    expect(getByTestId("waveform-overview-viewport").className).toContain("bg-selection-fill");
+    expect(container.querySelectorAll(".border-selection").length).toBeGreaterThan(1);
+    expect(container.querySelectorAll(".border-playhead").length).toBe(3);
+    expect(getByTestId("timeline-marker-1").style.borderColor).toBe("rgb(255, 0, 0)");
+  });
+
   it("publishes command readiness when a preview commits identical coordinates", async () => {
     const onCommandStateChange = vi.fn();
     const { getByTestId, handle } = mounted(info, {
@@ -1134,7 +1245,7 @@ describe("WaveformView", () => {
       color: "#123456",
       selection: { start: 12000, end: 24000, channelMask: 2 },
     });
-    const details = container.querySelector("details") as HTMLDetailsElement;
+    const details = container.querySelector('[data-testid="timeline-panel"]') as HTMLDetailsElement;
     details.open = true;
     fireEvent(details, new Event("toggle"));
     fireEvent.click(getByRole("button", { name: "Edit marker Cue" }));
@@ -1175,7 +1286,7 @@ describe("WaveformView", () => {
     });
     await painted(getByTestId);
     expect(getByTestId("timeline-region-9").style.backgroundColor).toBe("rgba(255, 0, 0, 0.5)");
-    const details = container.querySelector("details") as HTMLDetailsElement;
+    const details = container.querySelector('[data-testid="timeline-panel"]') as HTMLDetailsElement;
     details.open = true;
     fireEvent(details, new Event("toggle"));
     fireEvent.click(getByRole("button", { name: "Jump to region Verse" }));
@@ -1194,7 +1305,7 @@ describe("WaveformView", () => {
       timeline: { markers: [{ id: 1, frame: 12000, name: "Cue", color: "#a78bfa" }] },
     });
     await painted(getByTestId);
-    const details = container.querySelector("details") as HTMLDetailsElement;
+    const details = container.querySelector('[data-testid="timeline-panel"]') as HTMLDetailsElement;
     details.open = true;
     fireEvent(details, new Event("toggle"));
     fireEvent.click(getByLabelText("Zero crossings"));
