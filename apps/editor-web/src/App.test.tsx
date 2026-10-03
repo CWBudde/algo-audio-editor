@@ -49,6 +49,7 @@ vi.mock("@/hooks/use-document", () => {
     busy: false,
     info: {
       name: "play.wav",
+      documentId: "doc-1",
       sampleRate: 48000,
       channels: 2,
       frames: 48000,
@@ -114,6 +115,19 @@ it("Home and End seek, while text and select controls keep their keyboard events
   fireEvent.keyDown(getByLabelText("Follow playback"), { key: "End" });
   fireEvent.keyDown(getByLabelText("Loop"), { code: "Space", key: " " });
   expect(fake.seek).toHaveBeenCalledTimes(2);
+  expect(fake.play).not.toHaveBeenCalled();
+});
+
+it("keeps Space on focused buttons available for native button activation", async () => {
+  const { getByTestId } = render(<App />);
+  const event = new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    code: "Space",
+    key: " ",
+  });
+  await act(async () => getByTestId("play").dispatchEvent(event));
+  expect(event.defaultPrevented).toBe(false);
   expect(fake.play).not.toHaveBeenCalled();
 });
 

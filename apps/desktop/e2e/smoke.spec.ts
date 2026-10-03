@@ -65,6 +65,19 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await page.getByRole("button", { name: "Zoom in", exact: true }).click();
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-start-frame", "4");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-end-frame", "12");
+    await page.getByLabel("Time format", { exact: true }).selectOption("samples");
+    await page.getByLabel("Selection end", { exact: true }).fill("8");
+    await page.getByLabel("Selection end", { exact: true }).press("Enter");
+    await page.getByLabel("Selection start", { exact: true }).fill("4");
+    await page.getByLabel("Selection start", { exact: true }).press("Enter");
+    await page.getByRole("button", { name: "Right", exact: true }).click();
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-channel-mask", "2");
+    await expect(page.getByTestId("waveform-selection")).toHaveCount(0);
+    await page.getByLabel("Marker or region name").fill("Desktop region");
+    await page.getByRole("button", { name: "Add region", exact: true }).click();
+    await expect(page.getByTestId("timeline-region-1")).toBeVisible();
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
     expect(errors).toEqual([]);
   } finally {
     await app.close();

@@ -5,9 +5,9 @@ An audio editor that runs in the browser and as a desktop app. All audio work
 WebAssembly** on top of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp)
 family. The UI is **React + TypeScript + shadcn**.
 
-> **Status:** Phase 1 of [PLAN.md](PLAN.md): WAV import/export, interactive
-> waveforms and document playback in the browser and Electron. Destructive
-> editing and undo/redo start in Phase 2.
+> **Status:** Phases 1 and 2.1 of [PLAN.md](PLAN.md): WAV import/export,
+> interactive waveforms, playback and channel-aware selections in the browser
+> and Electron. Destructive editing and undo/redo are next.
 
 ## Architecture
 
@@ -45,6 +45,24 @@ reading, the kernel and drawn waveforms. Run it in isolation on the target
 laptop. For native CPU profiling, pass an existing absolute temporary-directory
 path to `just bench-import-profile`; it stores the test binary and CPU profile
 there and prints the import hotspots.
+
+## Selecting audio
+
+Click a waveform to place the cursor; drag to select time, Shift-click to extend
+the nearest edge, or drag either edge handle (arrow keys move it one sample).
+Double-click selects the smallest named region under the pointer, otherwise
+the interval between adjacent markers, or the whole file if there are none.
+Choose All, Left, Right or individual channels to target later edits; this does
+not mute playback channels.
+
+Enter exact start, end or length in the current ruler format and press Enter or
+leave the field to apply it. Escape discards a draft. Invalid or out-of-document
+ranges leave the selection unchanged. Optional snapping targets markers/region
+edges, displayed ruler ticks and kernel-computed zero crossings within six CSS
+pixels. The zero-crossing search radius is also capped at approximately 20 ms
+and 8192 frames. Add
+named markers at the selection start or regions from a nonempty selection;
+their full management, persistence and edit shifting are planned in Phase 2.4.
 
 ## Repository layout
 

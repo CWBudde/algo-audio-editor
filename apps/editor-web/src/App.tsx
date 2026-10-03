@@ -148,6 +148,7 @@ export default function App() {
         return;
       if (!event.ctrlKey && !event.metaKey && !event.altKey && doc.info && !doc.busy) {
         if (event.code === "Space" && !event.repeat) {
+          if (target instanceof HTMLElement && target.closest("button, [role='button']")) return;
           event.preventDefault();
           if (playing) stop();
           else play();
@@ -155,7 +156,7 @@ export default function App() {
         }
         if (event.key === "Home" || event.key === "End") {
           event.preventDefault();
-          waveformView.current?.clearSelection();
+          waveformView.current?.clearSelection(event.key === "Home" ? 0 : doc.info.frames);
           seek(event.key === "Home" ? 0 : doc.info.frames);
           return;
         }
@@ -279,13 +280,14 @@ export default function App() {
           {doc.info && client ? (
             <WaveformView
               ref={waveformView}
-              client={doc.busy ? undefined : client}
+              client={client}
               info={doc.info}
               position={position}
               playing={playing}
               follow={follow}
               onSeek={seek}
               readPosition={readPosition}
+              disabled={doc.busy}
             />
           ) : (
             <WaveformPlaceholder />

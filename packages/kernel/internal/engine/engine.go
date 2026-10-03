@@ -31,15 +31,17 @@ const (
 // Engine holds the kernel state. It is not safe for concurrent use; the
 // kernel runs on a single worker thread and is driven from one event loop.
 type Engine struct {
-	sampleRate     float64
-	channels       int
-	tone           *toneSource
-	document       audiobuf.Document
-	bulkData       []byte
-	sourceBitDepth int
-	sourceFloat    bool
-	source         renderSource
-	transport      *documentTransport
+	sampleRate       float64
+	channels         int
+	tone             *toneSource
+	document         audiobuf.Document
+	bulkData         []byte
+	sourceBitDepth   int
+	sourceFloat      bool
+	source           renderSource
+	transport        *documentTransport
+	documentSequence uint64
+	editor           editorState
 }
 
 // New returns an engine configured for 48 kHz stereo.
@@ -114,6 +116,9 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 		return e.documentMemory(), nil
 	case protocol.MethodDocumentInfo:
 		return e.documentInfo()
+	case protocol.MethodSelectionGet, protocol.MethodSelectionSet, protocol.MethodSelectionSnap,
+		protocol.MethodTimelineGet, protocol.MethodMarkersAdd, protocol.MethodRegionsAdd:
+		return e.dispatchEditor(method, payload)
 	case protocol.MethodDocumentOpen:
 		var p protocol.DocumentOpenParams
 		if err := decode(method, payload, &p); err != nil {

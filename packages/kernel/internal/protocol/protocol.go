@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 4
+const Version = 5
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -36,6 +36,12 @@ const (
 	MethodTransportStop = "transport.stop"
 	// MethodTransportSeek changes the document playback cursor.
 	MethodTransportSeek = "transport.seek"
+	MethodSelectionGet  = "selection.get"
+	MethodSelectionSet  = "selection.set"
+	MethodSelectionSnap = "selection.snap"
+	MethodTimelineGet   = "timeline.get"
+	MethodMarkersAdd    = "markers.add"
+	MethodRegionsAdd    = "regions.add"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -119,12 +125,81 @@ type DocumentOpenParams struct {
 
 // DocumentInfoResult describes the active document and its source encoding.
 type DocumentInfoResult struct {
+	DocumentID string `json:"documentId"`
 	Name       string `json:"name"`
 	SampleRate int    `json:"sampleRate"`
 	Channels   int    `json:"channels"`
 	Frames     int64  `json:"frames"`
 	BitDepth   int    `json:"bitDepth"`
 	Float      bool   `json:"float"`
+}
+
+// SelectionRange is a document-frame range and a nonzero channel bit mask.
+// Equal endpoints represent a cursor; bit zero selects the first channel.
+type SelectionRange struct {
+	Start       int64 `json:"start"`
+	End         int64 `json:"end"`
+	ChannelMask int   `json:"channelMask"`
+}
+
+type SelectionResult struct {
+	DocumentID string `json:"documentId"`
+	SelectionRange
+}
+
+type SelectionSetParams = SelectionResult
+
+type SelectionGetParams struct {
+	DocumentID string `json:"documentId"`
+}
+
+// SelectionSnapParams queries a nearest zero crossing without changing selection.
+// Radius is inclusive and limited to 8192 document frames.
+type SelectionSnapParams struct {
+	DocumentID  string `json:"documentId"`
+	Frame       int64  `json:"frame"`
+	Radius      int64  `json:"radius"`
+	ChannelMask int    `json:"channelMask"`
+}
+
+type SelectionSnapResult struct {
+	DocumentID string `json:"documentId"`
+	Frame      int64  `json:"frame"`
+	Found      bool   `json:"found"`
+}
+
+type TimelineMarker struct {
+	ID    int    `json:"id"`
+	Frame int64  `json:"frame"`
+	Name  string `json:"name"`
+}
+
+type TimelineRegion struct {
+	ID    int    `json:"id"`
+	Start int64  `json:"start"`
+	End   int64  `json:"end"`
+	Name  string `json:"name"`
+}
+
+type TimelineResult struct {
+	DocumentID string           `json:"documentId"`
+	Markers    []TimelineMarker `json:"markers"`
+	Regions    []TimelineRegion `json:"regions"`
+}
+
+type TimelineGetParams = SelectionGetParams
+
+type MarkerAddParams struct {
+	DocumentID string `json:"documentId"`
+	Frame      int64  `json:"frame"`
+	Name       string `json:"name"`
+}
+
+type RegionAddParams struct {
+	DocumentID string `json:"documentId"`
+	Start      int64  `json:"start"`
+	End        int64  `json:"end"`
+	Name       string `json:"name"`
 }
 
 // DocumentExportParams selects the output encoding; Format must be "wav".

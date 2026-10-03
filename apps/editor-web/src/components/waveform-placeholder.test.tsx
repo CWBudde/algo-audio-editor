@@ -9,6 +9,7 @@ it("shows opened file metadata instead of the empty-document prompt", () => {
     <WaveformPlaceholder
       info={{
         name: "empty.wav",
+        documentId: "doc-1",
         sampleRate: 44100,
         channels: 2,
         frames: 0,

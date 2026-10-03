@@ -13,6 +13,7 @@ vi.mock("@/lib/file-access", async (importOriginal) => ({
 }));
 
 const info: DocumentInfoResult = {
+  documentId: "doc-1",
   name: "stereo.wav",
   sampleRate: 44100,
   channels: 2,

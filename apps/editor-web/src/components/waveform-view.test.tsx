@@ -1,4 +1,10 @@
-import type { DocumentInfoResult, PeaksGetParams } from "@aae/protocol";
+import type {
+  DocumentInfoResult,
+  PeaksGetParams,
+  SelectionResult,
+  SelectionSnapParams,
+  TimelineResult,
+} from "@aae/protocol";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +13,7 @@ import type { WorkerReply, WorkerRequest } from "@/kernel/messages";
 import { WaveformView, type WaveformViewHandle } from "./waveform-view";
 
 const info: DocumentInfoResult = {
+  documentId: "doc-1",
   name: "stereo.wav",
   sampleRate: 48000,
   channels: 2,
@@ -17,10 +24,102 @@ const info: DocumentInfoResult = {
 
 class PeakWorker implements WorkerLike {
   sent: WorkerRequest[] = [];
+  selection: SelectionResult;
+  timeline: TimelineResult;
+  zeroFrame?: number;
+  deferSnaps = false;
+  pendingSnaps: Extract<WorkerRequest, { op: "call" }>[] = [];
+  calls(method: string) {
+    return this.sent.filter(
+      (request): request is Extract<WorkerRequest, { op: "call" }> =>
+        request.op === "call" && request.method === method,
+    );
+  }
+  get peaks() {
+    return this.calls("peaks.get");
+  }
+  resolveSnaps(frame = this.zeroFrame, found = frame !== undefined) {
+    for (const request of this.pendingSnaps.splice(0)) {
+      const params = request.params as SelectionSnapParams;
+      this.listener?.({
+        data: {
+          kind: "reply",
+          id: request.id,
+          ok: true,
+          result: { documentId: params.documentId, frame: frame ?? params.frame, found },
+        },
+      } as MessageEvent<WorkerReply>);
+    }
+  }
+  rejectSnaps() {
+    for (const request of this.pendingSnaps.splice(0)) {
+      this.listener?.({
+        data: { kind: "reply", id: request.id, ok: false, error: "snap rejected" },
+      } as MessageEvent<WorkerReply>);
+    }
+  }
+  constructor(documentInfo = info) {
+    this.selection = {
+      documentId: documentInfo.documentId,
+      start: 0,
+      end: 0,
+      channelMask: (1 << documentInfo.channels) - 1,
+    };
+    this.timeline = { documentId: documentInfo.documentId, markers: [], regions: [] };
+  }
   private listener?: (event: MessageEvent<WorkerReply>) => void;
   postMessage(request: WorkerRequest) {
     this.sent.push(request);
     if (request.op !== "call") return;
+    if (request.method !== "peaks.get") {
+      const params = request.params as SelectionResult & { frame: number; name: string };
+      let result: unknown;
+      switch (request.method) {
+        case "selection.set":
+          this.selection = params;
+          result = params;
+          break;
+        case "selection.get":
+          result = { ...this.selection, documentId: params.documentId };
+          break;
+        case "selection.snap":
+          if (this.deferSnaps) {
+            this.pendingSnaps.push(request);
+            return;
+          }
+          result = {
+            documentId: params.documentId,
+            frame: this.zeroFrame ?? params.frame,
+            found: this.zeroFrame !== undefined,
+          };
+          break;
+        case "markers.add":
+          this.timeline.markers.push({
+            id: 1,
+            frame: params.frame,
+            name: params.name || "Marker 1",
+          });
+          result = { ...this.timeline };
+          break;
+        case "regions.add":
+          this.timeline.regions.push({
+            id: 2,
+            start: params.start,
+            end: params.end,
+            name: params.name || "Region 2",
+          });
+          result = { ...this.timeline };
+          break;
+        default:
+          result = { ...this.timeline, documentId: params.documentId };
+      }
+      queueMicrotask(() =>
+        this.listener?.({
+          data: { kind: "reply", id: request.id, ok: true, result },
+        } as MessageEvent<WorkerReply>),
+      );
+      return;
+    }
     const params = request.params as PeaksGetParams;
     const data = new ArrayBuffer(24);
     new Float32Array(data, 0, 3).set([-0.75, 0.75, 0.25]);
@@ -115,7 +214,7 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
     this: HTMLElement,
   ) {
-    const canvas = this instanceof HTMLCanvasElement;
+    const canvas = this instanceof HTMLCanvasElement || this.dataset.testid === "waveform-track";
     const width = canvas ? Number.parseFloat(this.style.width) || tracksWidth - 56 : hostWidth;
     const left = canvas ? 56 : 0;
     return {
@@ -160,12 +259,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mounted(documentInfo = info) {
-  const worker = new PeakWorker();
+function mounted(
+  documentInfo = info,
+  options: {
+    selection?: Partial<SelectionResult>;
+    timeline?: Partial<TimelineResult>;
+    onSeek?: (frame: number) => void;
+  } = {},
+) {
+  const worker = new PeakWorker(documentInfo);
+  worker.selection = { ...worker.selection, ...options.selection };
+  worker.timeline = { ...worker.timeline, ...options.timeline };
   const client = new KernelClient(worker);
   const handle = createRef<WaveformViewHandle>();
   return {
-    ...render(<WaveformView client={client} info={documentInfo} ref={handle} />),
+    ...render(
+      <WaveformView client={client} info={documentInfo} ref={handle} onSeek={options.onSeek} />,
+    ),
     worker,
     client,
     handle,
@@ -176,6 +286,44 @@ function range(view: HTMLElement) {
   return [Number(view.dataset.startFrame), Number(view.dataset.endFrame)];
 }
 
+function selectionState(view: HTMLElement) {
+  return {
+    start: Number(view.dataset.selectionStart),
+    end: Number(view.dataset.selectionEnd),
+    channelMask: Number(view.dataset.channelMask),
+  };
+}
+
+function frameX(frame: number, documentInfo = info) {
+  return 56 + ((tracksWidth - 56) * frame) / documentInfo.frames;
+}
+
+function dragRange(
+  canvas: HTMLElement,
+  start: number,
+  end: number,
+  options: {
+    pointerId?: number;
+    shiftKey?: boolean;
+    documentInfo?: DocumentInfoResult;
+  } = {},
+) {
+  const pointerId = options.pointerId ?? 1;
+  const documentInfo = options.documentInfo ?? info;
+  fireEvent.pointerDown(canvas, {
+    button: 0,
+    pointerId,
+    shiftKey: options.shiftKey,
+    clientX: frameX(start, documentInfo),
+  });
+  fireEvent.pointerMove(canvas, { pointerId, clientX: frameX(end, documentInfo) });
+  fireEvent.pointerUp(canvas, { pointerId, clientX: frameX(end, documentInfo) });
+}
+
+async function flushReplies() {
+  await act(async () => {});
+}
+
 async function painted(getByTestId: (id: string) => HTMLElement, channel = 0) {
   await waitFor(() =>
     expect(getByTestId(`waveform-channel-${channel}`).dataset.rendered).toBe("true"),
@@ -183,10 +331,301 @@ async function painted(getByTestId: (id: string) => HTMLElement, channel = 0) {
 }
 
 describe("WaveformView", () => {
+  it.each([
+    { frame: 6000, start: 6000, end: 24000 },
+    { frame: 30000, start: 12000, end: 30000 },
+    { frame: 18000, start: 12000, end: 18000 },
+  ])("extends the nearest edge with Shift-click at $frame", async ({ frame, start, end }) => {
+    const onSeek = vi.fn();
+    const { getByTestId, worker } = mounted(info, {
+      selection: { start: 12000, end: 24000, channelMask: 2 },
+      onSeek,
+    });
+    await painted(getByTestId);
+    dragRange(getByTestId("waveform-channel-0"), frame, frame, { shiftKey: true });
+    expect(selectionState(getByTestId("waveform-view"))).toEqual({ start, end, channelMask: 2 });
+    expect(onSeek).toHaveBeenLastCalledWith(start);
+    await flushReplies();
+    expect(worker.selection).toMatchObject({ start, end, channelMask: 2 });
+  });
+
+  it("normalizes reverse drags and preserves the fixed edge when dragged across it", async () => {
+    const { getByTestId, worker } = mounted();
+    await painted(getByTestId);
+    dragRange(getByTestId("waveform-channel-0"), 24000, 12000);
+    await flushReplies();
+    expect(selectionState(getByTestId("waveform-view"))).toEqual({
+      start: 12000,
+      end: 24000,
+      channelMask: 3,
+    });
+    const edge = getByTestId("selection-start-edge-0");
+    fireEvent.pointerDown(edge, { button: 0, pointerId: 4, clientX: frameX(12000) + 2 });
+    fireEvent.pointerMove(edge, { pointerId: 4, clientX: frameX(30000) + 2 });
+    fireEvent.pointerUp(edge, { pointerId: 4, clientX: frameX(30000) + 2 });
+    await flushReplies();
+    expect(worker.selection).toMatchObject({ start: 24000, end: 30000, channelMask: 3 });
+  });
+
+  it.each(["start", "end"] as const)(
+    "does not move the %s boundary edge on a stationary grab",
+    async (edge) => {
+      const { getByTestId, worker } = mounted(info, { selection: { start: 0, end: info.frames } });
+      await painted(getByTestId);
+      const handle = getByTestId(`selection-${edge}-edge-0`);
+      const x = edge === "start" ? 56 + 4 : tracksWidth - 4;
+      fireEvent.pointerDown(handle, { button: 0, pointerId: 3, clientX: x });
+      expect(selectionState(getByTestId("waveform-view"))).toEqual({
+        start: 0,
+        end: info.frames,
+        channelMask: 3,
+      });
+      fireEvent.pointerUp(handle, { pointerId: 3, clientX: x });
+      await flushReplies();
+      expect(worker.selection).toMatchObject({ start: 0, end: info.frames });
+    },
+  );
+
+  it("changes selected channels and subset overlays without seeking playback", async () => {
+    const onSeek = vi.fn();
+    const { getByTestId, queryByTestId, getByRole, getByLabelText, worker } = mounted(info, {
+      selection: { start: 12000, end: 24000 },
+      onSeek,
+    });
+    await painted(getByTestId);
+    fireEvent.click(getByRole("button", { name: /^Left$/ }));
+    expect(getByTestId("waveform-selection")).toBeTruthy();
+    expect(queryByTestId("waveform-selection-1")).toBeNull();
+    expect((getByLabelText("Channel 1 selected") as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(getByRole("button", { name: /^Right$/ }));
+    expect(queryByTestId("waveform-selection")).toBeNull();
+    expect(getByTestId("waveform-selection-1")).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: /^All$/ }));
+    expect(getByTestId("waveform-selection")).toBeTruthy();
+    expect(getByTestId("waveform-selection-1")).toBeTruthy();
+    expect(onSeek).not.toHaveBeenCalled();
+    await flushReplies();
+    expect(worker.selection).toMatchObject({ start: 12000, end: 24000, channelMask: 3 });
+  });
+
+  it("creates a named region and double-clicks the smallest overlapping region", async () => {
+    const onSeek = vi.fn();
+    const { getByTestId, getByLabelText, getByRole, worker, handle } = mounted(info, {
+      selection: { start: 12000, end: 24000, channelMask: 1 },
+      timeline: { regions: [{ id: 10, start: 0, end: 36000, name: "Outer" }] },
+      onSeek,
+    });
+    await painted(getByTestId);
+    fireEvent.change(getByLabelText("Marker or region name"), { target: { value: "Verse" } });
+    fireEvent.click(getByRole("button", { name: /^Add region$/ }));
+    await flushReplies();
+    expect(worker.calls("regions.add")[0].params).toEqual({
+      documentId: info.documentId,
+      start: 12000,
+      end: 24000,
+      name: "Verse",
+    });
+    expect(getByTestId("timeline-region-2")).toBeTruthy();
+    act(() => handle.current?.clearSelection(0));
+    fireEvent.doubleClick(getByTestId("waveform-channel-0"), { clientX: frameX(18000) });
+    expect(selectionState(getByTestId("waveform-view"))).toEqual({
+      start: 12000,
+      end: 24000,
+      channelMask: 1,
+    });
+    expect(onSeek).toHaveBeenLastCalledWith(12000);
+  });
+
+  it("double-clicks the interval between markers when no region contains the frame", async () => {
+    const { getByTestId } = mounted(info, {
+      timeline: {
+        markers: [
+          { id: 1, frame: 12000, name: "Start" },
+          { id: 2, frame: 24000, name: "End" },
+        ],
+      },
+    });
+    await painted(getByTestId);
+    fireEvent.doubleClick(getByTestId("waveform-channel-0"), { clientX: frameX(18000) });
+    expect(selectionState(getByTestId("waveform-view"))).toEqual({
+      start: 12000,
+      end: 24000,
+      channelMask: 3,
+    });
+  });
+
+  it("snaps endpoints to marker and region boundaries without sample RPCs", async () => {
+    const { getByTestId, getByLabelText, worker } = mounted(info, {
+      timeline: {
+        markers: [{ id: 1, frame: 12000, name: "Cue" }],
+        regions: [{ id: 2, start: 18000, end: 24000, name: "Verse" }],
+      },
+    });
+    await painted(getByTestId);
+    fireEvent.click(getByLabelText("Markers / regions"));
+    dragRange(getByTestId("waveform-channel-0"), 11900, 23900);
+    expect(selectionState(getByTestId("waveform-view"))).toEqual({
+      start: 12000,
+      end: 24000,
+      channelMask: 3,
+    });
+    expect(worker.calls("selection.snap")).toHaveLength(0);
+  });
+
+  it("snaps to visible ruler ticks only within the pixel threshold", async () => {
+    const { getByTestId, getByLabelText } = mounted();
+    await painted(getByTestId);
+    fireEvent.click(getByLabelText("Ruler ticks"));
+    dragRange(getByTestId("waveform-channel-0"), 9700, 18800);
+    expect(selectionState(getByTestId("waveform-view"))).toEqual({
+      start: 9600,
+      end: 18800,
+      channelMask: 3,
+    });
+  });
+
+  it("uses bounded zero-crossing RPCs with the selected mask on long files", async () => {
+    const longInfo = { ...info, sampleRate: 384000, frames: 100_000_000 };
+    const { getByTestId, getByLabelText, worker } = mounted(longInfo, {
+      selection: { channelMask: 2 },
+    });
+    await painted(getByTestId);
+    worker.zeroFrame = 50_000_100;
+    fireEvent.click(getByLabelText("Zero crossings"));
+    dragRange(getByTestId("waveform-channel-0"), 50_000_000, 50_000_000, {
+      documentInfo: longInfo,
+    });
+    await flushReplies();
+    const calls = worker.calls("selection.snap");
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      const params = call.params as SelectionSnapParams;
+      expect(params).toEqual({
+        documentId: info.documentId,
+        frame: 50_000_000,
+        radius: 7680,
+        channelMask: 2,
+      });
+      expect(params.radius).toBeLessThanOrEqual(8192);
+    }
+    expect(selectionState(getByTestId("waveform-view"))).toEqual({
+      start: 50_000_100,
+      end: 50_000_100,
+      channelMask: 2,
+    });
+  });
+
+  it("preserves the committed range and displays an error when zero analysis fails", async () => {
+    const onSeek = vi.fn();
+    const { getByTestId, getByLabelText, getByRole, worker } = mounted(info, {
+      selection: { start: 12000, end: 24000 },
+      onSeek,
+    });
+    await painted(getByTestId);
+    worker.deferSnaps = true;
+    fireEvent.click(getByLabelText("Zero crossings"));
+    dragRange(getByTestId("waveform-channel-0"), 6000, 30000);
+    await act(async () => worker.rejectSnaps());
+    await flushReplies();
+    expect(selectionState(getByTestId("waveform-view"))).toEqual({
+      start: 12000,
+      end: 24000,
+      channelMask: 3,
+    });
+    expect(getByRole("alert").textContent).toBe("snap rejected");
+    expect(worker.calls("selection.set")).toHaveLength(0);
+    expect(onSeek).not.toHaveBeenCalled();
+  });
+
+  it.each(["numeric", "channels", "document", "client", "busy"] as const)(
+    "drops delayed zero-snap finalization after a newer %s action",
+    async (action) => {
+      const onSeek = vi.fn();
+      const { getByTestId, getByLabelText, getByRole, worker, client, rerender, handle } = mounted(
+        info,
+        { onSeek },
+      );
+      await painted(getByTestId);
+      worker.deferSnaps = true;
+      fireEvent.click(getByLabelText("Zero crossings"));
+      dragRange(getByTestId("waveform-channel-0"), 12000, 24000);
+      expect(worker.pendingSnaps).toHaveLength(2);
+      if (action === "numeric") {
+        fireEvent.change(getByLabelText("Time format"), { target: { value: "samples" } });
+        fireEvent.change(getByLabelText("Selection end"), { target: { value: "30000" } });
+        fireEvent.keyDown(getByLabelText("Selection end"), { key: "Enter" });
+      } else if (action === "channels") {
+        fireEvent.click(getByRole("button", { name: /^Right$/ }));
+      } else if (action === "document") {
+        rerender(
+          <WaveformView
+            client={client}
+            info={{ ...info, documentId: "doc-2" }}
+            ref={handle}
+            onSeek={onSeek}
+          />,
+        );
+      } else if (action === "client") {
+        rerender(
+          <WaveformView
+            client={new KernelClient(new PeakWorker())}
+            info={info}
+            ref={handle}
+            onSeek={onSeek}
+          />,
+        );
+      } else {
+        rerender(
+          <WaveformView client={client} info={info} ref={handle} onSeek={onSeek} disabled />,
+        );
+      }
+      await flushReplies();
+      const before = selectionState(getByTestId("waveform-view"));
+      const seeks = onSeek.mock.calls.length;
+      const writes = worker.calls("selection.set").length;
+      await act(async () => worker.resolveSnaps(12050));
+      expect(selectionState(getByTestId("waveform-view"))).toEqual(before);
+      expect(onSeek).toHaveBeenCalledTimes(seeks);
+      expect(worker.calls("selection.set")).toHaveLength(writes);
+    },
+  );
+
+  it.each(["cancel", "lostCapture"] as const)(
+    "rolls back only the matching pointer on %s and ignores later completion",
+    async (ending) => {
+      const onSeek = vi.fn();
+      const { getByTestId, worker } = mounted(info, {
+        selection: { start: 12000, end: 24000 },
+        onSeek,
+      });
+      await painted(getByTestId);
+      const canvas = getByTestId("waveform-channel-0");
+      fireEvent.pointerDown(canvas, { button: 0, pointerId: 7, clientX: frameX(6000) });
+      fireEvent.pointerMove(canvas, { pointerId: 7, clientX: frameX(30000) });
+      const finish = ending === "cancel" ? fireEvent.pointerCancel : fireEvent.lostPointerCapture;
+      finish(canvas, { pointerId: 8 });
+      expect(selectionState(getByTestId("waveform-view"))).toEqual({
+        start: 6000,
+        end: 30000,
+        channelMask: 3,
+      });
+      finish(canvas, { pointerId: 7 });
+      expect(selectionState(getByTestId("waveform-view"))).toEqual({
+        start: 12000,
+        end: 24000,
+        channelMask: 3,
+      });
+      fireEvent.pointerMove(canvas, { pointerId: 7, clientX: frameX(36000) });
+      fireEvent.pointerUp(canvas, { pointerId: 7, clientX: frameX(36000) });
+      expect(worker.calls("selection.set")).toHaveLength(0);
+      expect(onSeek).not.toHaveBeenCalled();
+    },
+  );
+
   it("paints RAF cursor positions immediately and refreshes the clock on unrelated React commits", async () => {
     const { getByTestId, handle, rerender, client, worker } = mounted();
     await painted(getByTestId, 1);
-    const requests = worker.sent.length;
+    const requests = worker.peaks.length;
     // The position prop intentionally remains zero: no React state update is
     // needed to paint the current shared-clock position at an animation frame.
     handle.current?.updatePlayback(24000);
@@ -195,17 +634,17 @@ describe("WaveformView", () => {
     rerender(<WaveformView client={client} info={info} position={0} readPosition={() => 36000} />);
     expect(getByTestId("play-cursor-0").style.left).toBe("558px");
     expect(getByTestId("play-cursor-overview").dataset.frame).toBe("36000");
-    expect(worker.sent.length).toBe(requests);
+    expect(worker.peaks.length).toBe(requests);
   });
   it("draws the consumed-frame cursor in every channel without fetching new peaks", async () => {
     const { getByTestId, rerender, client, worker } = mounted();
     await painted(getByTestId, 1);
-    const requests = worker.sent.length;
+    const requests = worker.peaks.length;
     rerender(<WaveformView client={client} info={info} position={24000} playing />);
     expect(getByTestId("play-cursor-0").style.left).toBe("372px");
     expect(getByTestId("play-cursor-1").dataset.frame).toBe("24000");
     expect(getByTestId("play-cursor-overview").style.left).toBe("372px");
-    expect(worker.sent.length).toBe(requests);
+    expect(worker.peaks.length).toBe(requests);
   });
 
   it("seeks at completed pointer ranges but not cancelled drags", () => {
@@ -246,7 +685,7 @@ describe("WaveformView", () => {
     expect(getByTestId("document-details").textContent).toBe(
       "48000 Hz · 2 channels · 48000 frames · 1.000 s · 16-bit PCM",
     );
-    const requests = worker.sent
+    const requests = worker.peaks
       .filter((request) => request.op === "call")
       .map((request) => (request.params as PeaksGetParams).channel);
     expect(requests.sort()).toEqual([0, 1]);
@@ -286,16 +725,16 @@ describe("WaveformView", () => {
     const { getByTestId, worker, handle } = mounted();
     await painted(getByTestId, 1);
     await waitFor(() => expect(getByTestId("waveform-overview").dataset.rendered).toBe("true"));
-    expect(worker.sent).toHaveLength(2);
+    expect(worker.peaks).toHaveLength(2);
     act(() => handle.current?.zoomIn());
     await painted(getByTestId, 1);
-    expect(worker.sent).toHaveLength(4);
+    expect(worker.peaks).toHaveLength(4);
     act(() => handle.current?.zoomFit());
     await painted(getByTestId, 1);
     // Channel 1 requests its fitted range; channel 0 shares the overview's
     // existing zero-copy views instead of recomputing the full-file summary.
-    expect(worker.sent).toHaveLength(5);
-    const fullFirstLane = worker.sent.filter(
+    expect(worker.peaks).toHaveLength(5);
+    const fullFirstLane = worker.peaks.filter(
       (request) =>
         request.op === "call" &&
         (request.params as PeaksGetParams).channel === 0 &&
@@ -309,13 +748,13 @@ describe("WaveformView", () => {
     const { getByTestId, worker, client, handle, rerender } = mounted();
     await painted(getByTestId, 1);
     await waitFor(() => expect(getByTestId("waveform-overview").dataset.rendered).toBe("true"));
-    expect(worker.sent).toHaveLength(2);
+    expect(worker.peaks).toHaveLength(2);
     rerender(<WaveformView client={client} info={{ ...info }} ref={handle} />);
     expect(getByTestId("waveform-channel-0").dataset.rendered).toBe("false");
     expect(getByTestId("waveform-overview").dataset.rendered).toBe("false");
     await painted(getByTestId, 1);
     await waitFor(() => expect(getByTestId("waveform-overview").dataset.rendered).toBe("true"));
-    expect(worker.sent).toHaveLength(4);
+    expect(worker.peaks).toHaveLength(4);
   });
 
   it("uses the actual eight-channel scroll area width for every canvas and ruler", async () => {
@@ -365,11 +804,13 @@ describe("WaveformView", () => {
     expect(vertical.defaultPrevented).toBe(false);
   });
 
-  it("zooms to the dragged frame range and stops selecting after pointer cancellation", () => {
+  it("zooms to the committed frame range and restores it after pointer cancellation", () => {
     const { getByTestId, getByRole } = mounted();
     const canvas = getByTestId("waveform-channel-0");
     fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 56 + 100 });
     fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 56 + 300 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 56 + 300 });
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 56 + 400 });
     fireEvent.pointerCancel(canvas, { pointerId: 1 });
     fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 56 + 650 });
     expect(getByTestId("waveform-selection")).toBeTruthy();
@@ -423,7 +864,7 @@ describe("WaveformView", () => {
     expect(range(getByTestId("waveform-view"))).toEqual([0, 0]);
     expect((getByRole("button", { name: "Zoom in" }) as HTMLButtonElement).disabled).toBe(true);
     expect(getByText("No audio frames in this document.")).toBeTruthy();
-    expect(worker.sent).toHaveLength(0);
+    expect(worker.peaks).toHaveLength(0);
     expect(getByTestId("document-name").textContent).toBe("stereo.wav");
   });
 });

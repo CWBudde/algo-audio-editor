@@ -54,6 +54,7 @@ afterEach(() => {
 describe("KernelClient", () => {
   it("moves binary WAV input to the worker outside the JSON params", async () => {
     const info: DocumentInfoResult = {
+      documentId: "doc-1",
       name: "test.wav",
       sampleRate: 44100,
       channels: 1,

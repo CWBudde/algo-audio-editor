@@ -1,5 +1,6 @@
-import type { DocumentInfoResult } from "@aae/protocol";
+import type { DocumentInfoResult, SelectionRange } from "@aae/protocol";
 import {
+  type MouseEvent,
   type PointerEvent,
   type Ref,
   type RefObject,
@@ -12,11 +13,14 @@ import {
   useRef,
   useState,
 } from "react";
+import { SelectionBar } from "@/components/selection-bar";
 import type { PlaybackFollow } from "@/components/transport-bar";
 import { Button } from "@/components/ui/button";
 import { type PeaksState, usePeaks } from "@/hooks/use-peaks";
+import { useSelection } from "@/hooks/use-selection";
 import type { KernelClient } from "@/kernel/client";
 import type { PeakViews } from "@/kernel/peak-data";
+import { snapSelectionFrame } from "@/lib/selection";
 import { drawWaveform, resizeCanvas } from "@/lib/waveform-drawing";
 import {
   type AmplitudeScale,
@@ -42,7 +46,7 @@ export interface WaveformViewHandle {
   zoomFit(): void;
   zoomSelection(): void;
   selection(): FrameRange | undefined;
-  clearSelection(): void;
+  clearSelection(frame?: number): void;
   updatePlayback(frame: number): void;
 }
 
@@ -55,12 +59,12 @@ interface WaveformViewProps {
   follow?: PlaybackFollow;
   onSeek?(frame: number): void;
   readPosition?(): number;
+  disabled?: boolean;
 }
 
 interface ViewState {
   document: DocumentInfoResult;
   viewport: FrameRange;
-  selection: FrameRange | undefined;
 }
 
 /** CSS geometry and backing-store resolution are tracked independently. */
@@ -109,6 +113,7 @@ interface PeakCanvasProps {
   onPointerUp?: (event: PointerEvent<HTMLCanvasElement>) => void;
   onPointerCancel?: (event: PointerEvent<HTMLCanvasElement>) => void;
   onLostPointerCapture?: (event: PointerEvent<HTMLCanvasElement>) => void;
+  onDoubleClick?: (event: MouseEvent<HTMLCanvasElement>) => void;
 }
 
 function PeakCanvas({
@@ -198,16 +203,18 @@ export function WaveformView({
   follow = "off",
   onSeek,
   readPosition,
+  disabled = false,
 }: WaveformViewProps) {
   const fullRange = useMemo(() => ({ start: 0, end: info.frames }), [info]);
   const [state, setState] = useState<ViewState>({
     document: info,
     viewport: fullRange,
-    selection: undefined,
   });
-  const current =
-    state.document === info ? state : { document: info, viewport: fullRange, selection: undefined };
-  const { viewport, selection } = current;
+  const current = state.document === info ? state : { document: info, viewport: fullRange };
+  const { viewport } = current;
+  const editor = useSelection(client, info);
+  const { selection, timeline } = editor;
+  const selectedRange = selection.end > selection.start ? selection : undefined;
   const lanes = useRef<HTMLDivElement>(null);
   const cursorLines = useRef<(HTMLDivElement | null)[]>([]);
   const overviewCursor = useRef<HTMLDivElement>(null);
@@ -232,25 +239,49 @@ export function WaveformView({
   const scrollbar = useRef<HTMLDivElement>(null);
   const currentViewport = useRef(viewport);
   currentViewport.current = viewport;
-  const selectionDrag = useRef<{ pointer: number; anchor: number } | undefined>(undefined);
+  const selectionDrag = useRef<
+    | {
+        pointer: number;
+        anchor: number;
+        rawAnchor: number;
+        snapAnchor: boolean;
+        offset: number;
+        previous: SelectionRange;
+      }
+    | undefined
+  >(undefined);
+  const interaction = useRef(0);
+  const [snapZero, setSnapZero] = useState(false);
+  const [snapMarkers, setSnapMarkers] = useState(false);
+  const [snapTicks, setSnapTicks] = useState(false);
+  const [anchorName, setAnchorName] = useState("");
   const overviewDrag = useRef<{ pointer: number; x: number; viewport: FrameRange } | undefined>(
     undefined,
   );
   const pendingScroll = useRef<number | undefined>(undefined);
 
-  useEffect(() => {
-    setState({ document: info, viewport: fullRange, selection: undefined });
+  useLayoutEffect(() => {
+    setState({ document: info, viewport: fullRange });
+    interaction.current++;
     selectionDrag.current = undefined;
     overviewDrag.current = undefined;
   }, [info, fullRange]);
+
+  useLayoutEffect(() => {
+    // A new selection session (including client replacement) or import lock
+    // invalidates any pending zero-snap completion before it can seek.
+    interaction.current++;
+    selectionDrag.current = undefined;
+    if (disabled) {
+      editor.cancelPreview();
+    }
+  }, [disabled, editor.cancelPreview]);
 
   const updateViewport = useCallback(
     (change: (range: FrameRange) => FrameRange) => {
       setState((previous) => {
         const base =
-          previous.document === info
-            ? previous
-            : { document: info, viewport: fullRange, selection: undefined };
+          previous.document === info ? previous : { document: info, viewport: fullRange };
         const next = clampViewport(change(base.viewport), info.frames);
         if (
           base === previous &&
@@ -265,16 +296,14 @@ export function WaveformView({
   );
 
   const setSelection = useCallback(
-    (range: FrameRange) => {
-      setState((previous) => {
-        const base =
-          previous.document === info
-            ? previous
-            : { document: info, viewport: fullRange, selection: undefined };
-        return { ...base, selection: range };
-      });
+    (range: SelectionRange) => {
+      if (disabled) return;
+      interaction.current++;
+      selectionDrag.current = undefined;
+      editor.commit(range);
+      if (range.start !== selection.start || range.end !== selection.end) onSeek?.(range.start);
     },
-    [info, fullRange],
+    [disabled, editor.commit, onSeek, selection.start, selection.end],
   );
 
   const zoomIn = useCallback(
@@ -338,11 +367,29 @@ export function WaveformView({
       zoomOut,
       zoomFit,
       zoomSelection,
-      selection: () => selection,
-      clearSelection: () => setState((previous) => ({ ...previous, selection: undefined })),
+      selection: () => selectedRange && { start: selectedRange.start, end: selectedRange.end },
+      clearSelection: (frame = position) => {
+        if (disabled) return;
+        interaction.current++;
+        selectionDrag.current = undefined;
+        const cursor = Math.max(0, Math.min(info.frames, Math.round(frame)));
+        editor.commit({ start: cursor, end: cursor, channelMask: selection.channelMask });
+      },
       updatePlayback,
     }),
-    [zoomIn, zoomOut, zoomFit, zoomSelection, selection, updatePlayback],
+    [
+      zoomIn,
+      zoomOut,
+      zoomFit,
+      zoomSelection,
+      selectedRange,
+      selection.channelMask,
+      position,
+      disabled,
+      info.frames,
+      editor.commit,
+      updatePlayback,
+    ],
   );
 
   useEffect(() => {
@@ -390,8 +437,10 @@ export function WaveformView({
     pendingScroll.current = element.scrollLeft;
   }, [viewport.start, maxStart, scrollWidth, width]);
 
-  const pointerFrame = (event: PointerEvent<HTMLCanvasElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
+  const pointerFrame = (event: { currentTarget: HTMLElement; clientX: number }) => {
+    const target = event.currentTarget;
+    const track = target instanceof HTMLCanvasElement ? target : target.parentElement;
+    const bounds = (track ?? target).getBoundingClientRect();
     return Math.round(
       xToFrame(
         Math.max(0, Math.min(width, event.clientX - bounds.left)),
@@ -400,30 +449,130 @@ export function WaveformView({
       ),
     );
   };
-  const startSelection = (event: PointerEvent<HTMLCanvasElement>) => {
-    if (event.button !== 0 || info.frames === 0) return;
+  const timeTicks = generateTimeTicks(viewport, width, info.sampleRate, timeFormat);
+  const snapRadius = Math.max(0, Math.round((6 / width) * (viewport.end - viewport.start)));
+  const snapCandidates = [
+    ...(snapMarkers
+      ? [
+          ...timeline.markers.map((marker) => marker.frame),
+          ...timeline.regions.flatMap((region) => [region.start, region.end]),
+        ]
+      : []),
+    ...(snapTicks ? timeTicks.map((tick) => tick.frame) : []),
+  ];
+  const snapFrame = (frame: number, zero?: number) =>
+    snapSelectionFrame(
+      frame,
+      zero === undefined ? snapCandidates : [...snapCandidates, zero],
+      snapRadius,
+      info.frames,
+    );
+  const startSelection = (event: PointerEvent<HTMLElement>, edge?: "start" | "end") => {
+    if (disabled || event.button !== 0 || info.frames === 0) return;
+    interaction.current++;
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    const anchor = pointerFrame(event);
-    selectionDrag.current = { pointer: event.pointerId, anchor };
-    setSelection({ start: anchor, end: anchor });
+    const rawFrame = pointerFrame(event);
+    const frame = snapFrame(rawFrame);
+    const extending = event.shiftKey;
+    const fixed =
+      edge === "start"
+        ? selection.end
+        : edge === "end"
+          ? selection.start
+          : extending
+            ? frame < selection.start + (selection.end - selection.start) / 2
+              ? selection.end
+              : selection.start
+            : frame;
+    selectionDrag.current = {
+      pointer: event.pointerId,
+      anchor: fixed,
+      rawAnchor: edge || extending ? fixed : rawFrame,
+      snapAnchor: !edge && !extending,
+      offset: edge ? rawFrame - selection[edge] : 0,
+      previous: selection,
+    };
+    const moving = edge ? selection[edge] : frame;
+    editor.preview({
+      start: Math.min(fixed, moving),
+      end: Math.max(fixed, moving),
+      channelMask: selection.channelMask,
+    });
   };
-  const moveSelection = (event: PointerEvent<HTMLCanvasElement>) => {
+  const moveSelection = (event: PointerEvent<HTMLElement>) => {
     const drag = selectionDrag.current;
     if (!drag || drag.pointer !== event.pointerId) return;
-    const frame = pointerFrame(event);
-    setSelection({ start: Math.min(drag.anchor, frame), end: Math.max(drag.anchor, frame) });
+    const frame = snapFrame(Math.max(0, Math.min(info.frames, pointerFrame(event) - drag.offset)));
+    editor.preview({
+      start: Math.min(drag.anchor, frame),
+      end: Math.max(drag.anchor, frame),
+      channelMask: drag.previous.channelMask,
+    });
   };
-  const endSelection = (event: PointerEvent<HTMLCanvasElement>) => {
+  const endSelection = (event: PointerEvent<HTMLElement>) => {
     const drag = selectionDrag.current;
     if (!drag || drag.pointer !== event.pointerId) return;
     moveSelection(event);
-    onSeek?.(Math.min(drag.anchor, pointerFrame(event)));
+    const rawFrame = Math.max(0, Math.min(info.frames, pointerFrame(event) - drag.offset));
+    const sequence = interaction.current;
     selectionDrag.current = undefined;
     if (event.currentTarget.hasPointerCapture?.(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
+    const finish = (anchor: number, frame: number) => {
+      if (interaction.current !== sequence) return;
+      const range = {
+        start: Math.min(anchor, frame),
+        end: Math.max(anchor, frame),
+        channelMask: drag.previous.channelMask,
+      };
+      editor.commit(range);
+      onSeek?.(range.start);
+    };
+    if (!snapZero) {
+      finish(drag.anchor, snapFrame(rawFrame));
+      return;
+    }
+    // Keep zero-crossing work bounded even when viewing an hours-long file.
+    const radius = Math.min(8192, snapRadius, Math.ceil(info.sampleRate * 0.02));
+    void Promise.all([
+      drag.snapAnchor ? editor.snap(drag.rawAnchor, radius, drag.previous.channelMask) : undefined,
+      editor.snap(rawFrame, radius, drag.previous.channelMask),
+    ]).then(([anchor, frame]) => {
+      if (interaction.current !== sequence) return;
+      if (!frame || (drag.snapAnchor && !anchor)) {
+        // A failed analysis must not silently turn a requested snapped edit
+        // into an unsnapped one. Keep the last committed selection and error.
+        editor.cancelPreview();
+        return;
+      }
+      finish(
+        drag.snapAnchor
+          ? snapFrame(drag.rawAnchor, anchor?.found ? anchor.frame : undefined)
+          : drag.anchor,
+        snapFrame(rawFrame, frame?.found ? frame.frame : undefined),
+      );
+    });
   };
-
-  const timeTicks = generateTimeTicks(viewport, width, info.sampleRate, timeFormat);
+  const cancelSelection = (event: PointerEvent<HTMLElement>) => {
+    const drag = selectionDrag.current;
+    if (!drag || drag.pointer !== event.pointerId) return;
+    selectionDrag.current = undefined;
+    interaction.current++;
+    editor.cancelPreview();
+  };
+  const selectRegion = (event: MouseEvent<HTMLElement>) => {
+    if (disabled || info.frames === 0) return;
+    const frame = Math.min(info.frames - 1, pointerFrame(event));
+    const region = timeline.regions
+      .filter((region) => frame >= region.start && frame < region.end)
+      .sort((a, b) => a.end - a.start - (b.end - b.start) || a.id - b.id)[0];
+    const boundaries = [0, ...timeline.markers.map((marker) => marker.frame), info.frames].sort(
+      (a, b) => a - b,
+    );
+    const start = region?.start ?? boundaries.filter((boundary) => boundary <= frame).at(-1) ?? 0;
+    const end = region?.end ?? boundaries.find((boundary) => boundary > frame) ?? info.frames;
+    setSelection({ start, end, channelMask: selection.channelMask });
+  };
   const amplitudeTicks = generateAmplitudeTicks(LANE_HEIGHT, amplitudeScale);
   const selectionStart = selection ? Math.max(viewport.start, selection.start) : 0;
   const selectionEnd = selection ? Math.min(viewport.end, selection.end) : 0;
@@ -445,6 +594,9 @@ export function WaveformView({
       data-testid="waveform-view"
       data-start-frame={viewport.start}
       data-end-frame={viewport.end}
+      data-selection-start={selection.start}
+      data-selection-end={selection.end}
+      data-channel-mask={selection.channelMask}
     >
       <header className="border-b px-3 py-2" data-testid="document-info">
         <h1
@@ -510,11 +662,139 @@ export function WaveformView({
         </label>
         <span className="ml-auto text-xs text-muted-foreground">Peak / RMS</span>
       </div>
+      <SelectionBar
+        key={info.documentId}
+        selection={selection}
+        frames={info.frames}
+        sampleRate={info.sampleRate}
+        channels={info.channels}
+        timeFormat={timeFormat}
+        disabled={disabled}
+        onChange={setSelection}
+      />
+      <div className="flex flex-wrap items-center gap-3 border-b px-3 py-1.5 text-xs">
+        <span>Snap:</span>
+        <label>
+          <input
+            type="checkbox"
+            checked={snapZero}
+            onChange={(event) => {
+              setSnapZero(event.target.checked);
+            }}
+          />{" "}
+          Zero crossings
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={snapMarkers}
+            onChange={(event) => {
+              setSnapMarkers(event.target.checked);
+            }}
+          />{" "}
+          Markers / regions
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={snapTicks}
+            onChange={(event) => {
+              setSnapTicks(event.target.checked);
+            }}
+          />{" "}
+          Ruler ticks
+        </label>
+        <input
+          aria-label="Marker or region name"
+          className="rounded border bg-background px-1 py-0.5"
+          value={anchorName}
+          maxLength={256}
+          disabled={disabled || editor.adding}
+          onChange={(event) => setAnchorName(event.target.value)}
+          placeholder="Optional name"
+        />
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={disabled || !client || editor.adding}
+          onClick={() => void editor.addAnchor("marker", anchorName)}
+        >
+          Add marker
+        </Button>
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={disabled || !client || editor.adding || !selectedRange}
+          onClick={() => void editor.addAnchor("region", anchorName)}
+        >
+          Add region
+        </Button>
+      </div>
+      {editor.error && (
+        <p role="alert" className="px-3 text-xs text-destructive">
+          {editor.error}
+        </p>
+      )}
       <div className="grid border-b" style={sharedColumns}>
         <span className="flex items-center justify-center text-[10px] text-muted-foreground">
           Time
         </span>
         <div className="relative h-7 overflow-hidden" data-testid="waveform-time-ruler">
+          {timeline.regions.map(
+            (region) =>
+              region.end >= viewport.start &&
+              region.start <= viewport.end && (
+                <button
+                  key={`region-${region.id}`}
+                  type="button"
+                  title={region.name}
+                  aria-label={`Select region ${region.name}`}
+                  disabled={disabled}
+                  className="absolute bottom-0 z-10 h-2 min-w-1 rounded bg-violet-400/50"
+                  data-testid={`timeline-region-${region.id}`}
+                  style={{
+                    left: frameToX(Math.max(viewport.start, region.start), viewport, width),
+                    width: Math.max(
+                      1,
+                      frameToX(Math.min(viewport.end, region.end), viewport, width) -
+                        frameToX(Math.max(viewport.start, region.start), viewport, width),
+                    ),
+                  }}
+                  onClick={() =>
+                    setSelection({
+                      start: region.start,
+                      end: region.end,
+                      channelMask: selection.channelMask,
+                    })
+                  }
+                />
+              ),
+          )}
+          {timeline.markers.map(
+            (marker) =>
+              marker.frame >= viewport.start &&
+              marker.frame <= viewport.end && (
+                <button
+                  key={`marker-${marker.id}`}
+                  type="button"
+                  title={marker.name}
+                  aria-label={`Go to marker ${marker.name}`}
+                  disabled={disabled}
+                  className="absolute top-0 z-20 h-full border-l-2 border-emerald-400 text-[10px] text-emerald-300"
+                  data-testid={`timeline-marker-${marker.id}`}
+                  style={{ left: Math.min(width - 1, frameToX(marker.frame, viewport, width)) }}
+                  onClick={() =>
+                    setSelection({
+                      start: marker.frame,
+                      end: marker.frame,
+                      channelMask: selection.channelMask,
+                    })
+                  }
+                >
+                  {marker.name}
+                </button>
+              ),
+          )}
           {timeTicks.map((tick) => (
             <span
               key={tick.frame}
@@ -563,7 +843,7 @@ export function WaveformView({
                     </span>
                   ))}
                 </div>
-                <div className="relative min-w-0 overflow-hidden">
+                <div className="relative min-w-0 overflow-hidden" data-testid="waveform-track">
                   <PeakCanvas
                     client={client}
                     info={info}
@@ -580,30 +860,78 @@ export function WaveformView({
                     onPointerDown={startSelection}
                     onPointerMove={moveSelection}
                     onPointerUp={endSelection}
-                    onPointerCancel={() => {
-                      selectionDrag.current = undefined;
-                    }}
-                    onLostPointerCapture={() => {
-                      selectionDrag.current = undefined;
-                    }}
+                    onPointerCancel={cancelSelection}
+                    onLostPointerCapture={cancelSelection}
+                    onDoubleClick={selectRegion}
                   />
-                  {selection && selectionEnd >= selectionStart && (
-                    <div
-                      aria-hidden="true"
-                      data-testid={
-                        channel === 0 ? "waveform-selection" : `waveform-selection-${channel}`
-                      }
-                      className="pointer-events-none absolute inset-y-0 border border-blue-400 bg-blue-400/15"
-                      style={{
-                        left: frameToX(selectionStart, viewport, width),
-                        width: Math.max(
-                          1,
-                          frameToX(selectionEnd, viewport, width) -
-                            frameToX(selectionStart, viewport, width),
+                  {(selection.channelMask & (1 << channel)) !== 0 &&
+                    selectionEnd >= selectionStart && (
+                      <div
+                        aria-hidden="true"
+                        data-testid={
+                          channel === 0 ? "waveform-selection" : `waveform-selection-${channel}`
+                        }
+                        className="pointer-events-none absolute inset-y-0 border border-blue-400 bg-blue-400/15"
+                        style={{
+                          left: frameToX(selectionStart, viewport, width),
+                          width: Math.max(
+                            1,
+                            frameToX(selectionEnd, viewport, width) -
+                              frameToX(selectionStart, viewport, width),
+                          ),
+                        }}
+                      />
+                    )}
+                  {(selection.channelMask & (1 << channel)) !== 0 &&
+                    selectedRange &&
+                    (["start", "end"] as const).map(
+                      (edge) =>
+                        selection[edge] >= viewport.start &&
+                        selection[edge] <= viewport.end && (
+                          <button
+                            key={edge}
+                            type="button"
+                            aria-label={`Selection ${edge} edge channel ${channel + 1}`}
+                            disabled={disabled}
+                            data-testid={`selection-${edge}-edge-${channel}`}
+                            className="absolute inset-y-0 z-10 w-2 cursor-ew-resize touch-none border-x border-blue-400 bg-blue-400/20"
+                            style={{
+                              left: Math.max(
+                                0,
+                                Math.min(width - 8, frameToX(selection[edge], viewport, width) - 4),
+                              ),
+                            }}
+                            onPointerDown={(event) => startSelection(event, edge)}
+                            onPointerMove={moveSelection}
+                            onPointerUp={endSelection}
+                            onPointerCancel={cancelSelection}
+                            onLostPointerCapture={cancelSelection}
+                            onDoubleClick={selectRegion}
+                            onKeyDown={(event) => {
+                              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                              event.preventDefault();
+                              const frame = Math.max(
+                                0,
+                                Math.min(
+                                  info.frames,
+                                  selection[edge] + (event.key === "ArrowLeft" ? -1 : 1),
+                                ),
+                              );
+                              setSelection({
+                                start: Math.min(
+                                  edge === "start" ? frame : selection.start,
+                                  edge === "end" ? frame : selection.end,
+                                ),
+                                end: Math.max(
+                                  edge === "start" ? frame : selection.start,
+                                  edge === "end" ? frame : selection.end,
+                                ),
+                                channelMask: selection.channelMask,
+                              });
+                            }}
+                          />
                         ),
-                      }}
-                    />
-                  )}
+                    )}
                   {info.frames > 0 && (
                     <div
                       ref={(element) => {

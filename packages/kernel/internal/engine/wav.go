@@ -110,6 +110,9 @@ func (l *wavLayout) inspectFormat(data []byte) error {
 }
 
 func (e *Engine) openDocument(p protocol.DocumentOpenParams, input []byte) (protocol.DocumentInfoResult, error) {
+	if e.documentSequence == math.MaxUint64 {
+		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: document identity sequence exhausted")
+	}
 	layout, err := inspectWAV(input)
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: validate WAV: %w", err)
@@ -170,6 +173,11 @@ func (e *Engine) openDocument(p protocol.DocumentOpenParams, input []byte) (prot
 	e.document, e.sourceBitDepth, e.sourceFloat = document, layout.bitDepth, layout.float
 	e.transport = nil
 	e.source = sourceStopped
+	e.documentSequence++
+	e.editor = editorState{
+		documentID: fmt.Sprintf("doc-%d", e.documentSequence),
+		selection:  protocol.SelectionRange{ChannelMask: (1 << layout.channels) - 1},
+	}
 	return e.documentInfo()
 }
 
@@ -197,7 +205,8 @@ func (e *Engine) documentInfo() (protocol.DocumentInfoResult, error) {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.info: no document is open")
 	}
 	return protocol.DocumentInfoResult{
-		Name: e.document.Metadata().Name, SampleRate: e.document.SampleRate(),
+		DocumentID: e.editor.documentID,
+		Name:       e.document.Metadata().Name, SampleRate: e.document.SampleRate(),
 		Channels: e.document.Channels(), Frames: e.document.Frames(), BitDepth: e.sourceBitDepth, Float: e.sourceFloat,
 	}, nil
 }

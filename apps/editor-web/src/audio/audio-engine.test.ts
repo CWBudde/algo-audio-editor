@@ -6,6 +6,7 @@ import { AudioEngine } from "./audio-engine";
 import { FrameRingBuffer } from "./ring-buffer";
 
 const info: DocumentInfoResult = {
+  documentId: "doc-1",
   name: "stereo.wav",
   channels: 2,
   sampleRate: 44100,

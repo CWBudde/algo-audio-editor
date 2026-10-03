@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -79,12 +79,78 @@ export interface DocumentOpenParams {
 }
 
 export interface DocumentInfoResult {
+  documentId: string;
   name: string;
   sampleRate: number;
   channels: number;
   frames: number;
   bitDepth: number;
   float: boolean;
+}
+
+/** Equal endpoints form a cursor; bit zero selects the first channel. */
+export interface SelectionRange {
+  start: number;
+  end: number;
+  channelMask: number;
+}
+
+export interface SelectionResult extends SelectionRange {
+  documentId: string;
+}
+
+export type SelectionSetParams = SelectionResult;
+
+export interface SelectionGetParams {
+  documentId: string;
+}
+
+/** Read-only, inclusive zero-crossing query; radius is at most 8192 frames. */
+export interface SelectionSnapParams {
+  documentId: string;
+  frame: number;
+  radius: number;
+  channelMask: number;
+}
+
+export interface SelectionSnapResult {
+  documentId: string;
+  frame: number;
+  found: boolean;
+}
+
+export interface TimelineMarker {
+  id: number;
+  frame: number;
+  name: string;
+}
+
+export interface TimelineRegion {
+  id: number;
+  start: number;
+  end: number;
+  name: string;
+}
+
+export interface TimelineResult {
+  documentId: string;
+  markers: TimelineMarker[];
+  regions: TimelineRegion[];
+}
+
+export type TimelineGetParams = SelectionGetParams;
+
+export interface MarkerAddParams {
+  documentId: string;
+  frame: number;
+  name: string;
+}
+
+export interface RegionAddParams {
+  documentId: string;
+  start: number;
+  end: number;
+  name: string;
 }
 
 export interface DocumentExportParams {
@@ -135,6 +201,12 @@ export interface KernelMethods {
   "transport.play": { params: TransportPlayParams; result: TransportResult };
   "transport.stop": { params: undefined; result: TransportResult };
   "transport.seek": { params: TransportSeekParams; result: TransportResult };
+  "selection.get": { params: SelectionGetParams; result: SelectionResult };
+  "selection.set": { params: SelectionSetParams; result: SelectionResult };
+  "selection.snap": { params: SelectionSnapParams; result: SelectionSnapResult };
+  "timeline.get": { params: TimelineGetParams; result: TimelineResult };
+  "markers.add": { params: MarkerAddParams; result: TimelineResult };
+  "regions.add": { params: RegionAddParams; result: TimelineResult };
 }
 
 export type KernelMethod = keyof KernelMethods;
