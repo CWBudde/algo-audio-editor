@@ -23,6 +23,9 @@ declare global {
 /** Observe production workers without introducing any diagnostic application API. */
 export async function captureKernelWorker(page: Page | BrowserContext) {
   await page.addInitScript(() => {
+    // Electron may need both context registration for future extraction windows
+    // and explicit registration on its already-created parent page.
+    if (window.__aaeTest) return;
     const NativeWorker = window.Worker;
     const workers: Worker[] = [];
     const transfers: { before: number; after: number }[] = [];

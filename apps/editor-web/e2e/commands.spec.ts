@@ -62,6 +62,10 @@ test("palette and menu edit the real kernel, while export keeps the working docu
   opened = await palette(page, "export wav");
   const downloading = page.waitForEvent("download");
   await opened.search.press("Enter");
+  await page
+    .getByRole("dialog", { name: "Export audio" })
+    .getByRole("button", { name: "Export", exact: true })
+    .click();
   const download = await downloading;
   expect(download.suggestedFilename()).toBe("edit-48000.wav");
   await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");

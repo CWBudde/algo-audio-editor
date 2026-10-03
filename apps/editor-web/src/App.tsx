@@ -14,6 +14,7 @@ import { AboutStatusDialog } from "@/components/about-status-dialog";
 import { AppMenubar } from "@/components/app-menubar";
 import { CommandPalette } from "@/components/command-palette";
 import { EditToolbar, PasteConversionDialog } from "@/components/edit-toolbar";
+import { ExportDialog } from "@/components/export-dialog";
 import { HistoryPanel } from "@/components/history-panel";
 import { IconAction } from "@/components/icon-action";
 import { ProcessDialog } from "@/components/process-dialog";
@@ -31,6 +32,7 @@ import { useCommands } from "@/hooks/use-commands";
 import { useDocument } from "@/hooks/use-document";
 import { useDocumentMemory } from "@/hooks/use-document-memory";
 import { useEdit } from "@/hooks/use-edit";
+import { useExport } from "@/hooks/use-export";
 import { useHistory } from "@/hooks/use-history";
 import { useKernel } from "@/hooks/use-kernel";
 import { useProcess } from "@/hooks/use-process";
@@ -190,6 +192,13 @@ export default function App() {
     onError: (action, error) => reportError(action)(error),
   });
   const busy = doc.busy || edit.busy || history.busy;
+  const exporting = useExport({
+    client,
+    info: doc.info,
+    busy,
+    withOperation: doc.withOperation,
+    onError: (action, error) => reportError(action)(error),
+  });
   const processing = useProcess({
     client,
     info: doc.info,
@@ -353,14 +362,17 @@ export default function App() {
       canRedo: history.history?.canRedo ?? false,
       playing,
       silenceFrames: parseSelectionTime(silenceValue, 1, "samples"),
-      modalOpen: Boolean(pastePlan || processing.view || informationOpen),
+      modalOpen: Boolean(pastePlan || processing.view || exporting.view || informationOpen),
     }),
     paletteOpen,
     onError: (_id, error) => reportError("Command failed")(error),
     actions: {
       "file.open": doc.open,
       "file.save": doc.save,
-      "file.export": doc.exportAudio,
+      "file.export": () => {
+        const range = waveformView.current?.selectionState() ?? selection;
+        if (range) exporting.open(range);
+      },
       "edit.undo": async () => {
         await history.undo();
       },
@@ -645,6 +657,12 @@ export default function App() {
         plan={pastePlan}
         onConfirm={() => finishConfirmation(true)}
         onCancel={() => finishConfirmation(false)}
+      />
+      <ExportDialog
+        view={exporting.view}
+        onSettingsChange={exporting.setSettings}
+        onExport={() => void exporting.submit()}
+        onCancel={() => void exporting.cancel()}
       />
       <ProcessDialog
         view={processing.view}

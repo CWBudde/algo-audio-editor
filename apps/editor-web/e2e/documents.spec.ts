@@ -192,6 +192,10 @@ test("treats a zero-frame WAV as an open document that can be saved", async ({ p
   await expect(page.getByRole("menuitem", { name: /^Save\b/ })).toBeEnabled();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("menuitem", { name: /^Export WAV…/ }).click();
+  await page
+    .getByRole("dialog", { name: "Export audio" })
+    .getByRole("button", { name: "Export", exact: true })
+    .click();
   const downloaded = await downloadPromise;
   expect(downloaded.suggestedFilename()).toBe("empty.wav");
   expect(wavChunk(await downloadBytes(downloaded), "data")).toHaveLength(0);

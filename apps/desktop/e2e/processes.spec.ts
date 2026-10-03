@@ -27,6 +27,7 @@ test("Phase 3.2 processors preserve exact samples, history and isolated extracti
   try {
     await captureKernelWorker(app.context());
     const page = await app.firstWindow();
+    await captureKernelWorker(page);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.reload();

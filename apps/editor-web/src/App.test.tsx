@@ -17,7 +17,7 @@ const fake = vi.hoisted(() => ({
   error: vi.fn(),
   open: vi.fn(),
   save: vi.fn(),
-  exportAudio: vi.fn(),
+  exportOpen: vi.fn(),
   openFile: vi.fn(),
   edit: vi.fn(),
   undo: vi.fn(),
@@ -78,7 +78,6 @@ vi.mock("@/hooks/use-document", () => {
     },
     open: fake.open,
     save: fake.save,
-    exportAudio: fake.exportAudio,
     exportTimeline: vi.fn(),
     openFile: fake.openFile,
     withOperation: async (work: () => Promise<void>) => work(),
@@ -107,6 +106,15 @@ vi.mock("@/hooks/use-history", () => ({
     redo: fake.redo,
     jump: fake.jump,
     accept: vi.fn(),
+  }),
+}));
+vi.mock("@/hooks/use-export", () => ({
+  useExport: () => ({
+    view: undefined,
+    open: fake.exportOpen,
+    setSettings: vi.fn(),
+    submit: vi.fn(),
+    cancel: vi.fn(),
   }),
 }));
 vi.mock("@/hooks/use-process", async (importOriginal) => {
@@ -389,7 +397,7 @@ it("uses Export instead of Save for Ctrl+Shift+E, including from text fields", a
       shiftKey: true,
     }),
   );
-  expect(fake.exportAudio).toHaveBeenCalledOnce();
+  expect(fake.exportOpen).toHaveBeenCalledWith({ start: 0, end: 0, channelMask: 3 });
   expect(fake.save).not.toHaveBeenCalled();
   await act(async () => fireEvent.keyDown(window, { key: "s", ctrlKey: true }));
   expect(fake.save).toHaveBeenCalledOnce();

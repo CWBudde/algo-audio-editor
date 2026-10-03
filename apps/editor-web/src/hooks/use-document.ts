@@ -175,28 +175,12 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     [client, info, run],
   );
 
-  const exportAudio = useCallback(() => {
-    if (!info || latest.current.client !== client) return;
-    run("Could not export audio", async (target, active) => {
-      const destination = await chooseSaveTarget(info.name);
-      if (!destination || !active()) return;
-      const result = await target.call("doc.export", {
-        format: "wav",
-        bitDepth: info.bitDepth,
-        float: info.float,
-      });
-      if (active()) await destination.write(result);
-      // An export is a copy, not a new save point for the working document.
-    });
-  }, [client, info, run]);
-
   return {
     info,
     busy: pending?.client === client && pending?.busy === true,
     open,
     openFile,
     save,
-    exportAudio,
     exportTimeline,
     withOperation,
     replaceInfo,

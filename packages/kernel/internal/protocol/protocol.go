@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 11
+const Version = 12
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -411,10 +411,18 @@ type PastePlan struct {
 }
 
 // DocumentExportParams selects the output encoding; Format must be "wav".
+// Missing Scope, Dither and NoiseShaping preserve whole-document/no-quality
+// export. Selection uses the current authoritative range/channel mask. Seed
+// optionally makes independent source-channel dither streams reproducible.
 type DocumentExportParams struct {
-	Format   string `json:"format"`
-	BitDepth int    `json:"bitDepth"`
-	Float    bool   `json:"float"`
+	Format       string  `json:"format"`
+	BitDepth     int     `json:"bitDepth"`
+	Float        bool    `json:"float"`
+	Scope        string  `json:"scope,omitempty"`
+	Dither       string  `json:"dither,omitempty"`
+	NoiseShaping string  `json:"noiseShaping,omitempty"`
+	Seed         *uint32 `json:"seed,omitempty"`
+	DocumentID   string  `json:"documentId,omitempty"`
 }
 
 // DocumentExportInfo describes a WAV binary result supplied through takeData.

@@ -104,12 +104,7 @@ func (b *renderBridge) call(eng *engine.Engine, args []js.Value) int {
 	return b.render(eng, dst, positionDst, frames)
 }
 
-func main() {
-	// Fewer, larger collections: GC pauses stall the worker that feeds the
-	// playback ring buffer, and the heap here is dominated by long-lived audio.
-	debug.SetGCPercent(300)
-
-	eng := engine.New()
+func newKernelAPI(eng *engine.Engine) js.Value {
 	bridge := &renderBridge{}
 
 	api := js.Global().Get("Object").New()
@@ -153,6 +148,15 @@ func main() {
 	api.Set("render", js.FuncOf(func(_ js.Value, args []js.Value) any {
 		return bridge.call(eng, args)
 	}))
+	return api
+}
+
+func main() {
+	// Fewer, larger collections: GC pauses stall the worker that feeds the
+	// playback ring buffer, and the heap here is dominated by long-lived audio.
+	debug.SetGCPercent(300)
+
+	api := newKernelAPI(engine.New())
 
 	js.Global().Set("AAEKernel", api)
 

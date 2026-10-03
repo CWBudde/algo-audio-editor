@@ -435,65 +435,6 @@ describe("useDocument", () => {
     expect(write).toHaveBeenCalledWith(exported);
   });
 
-  it("exports a WAV copy without saving and holds the document lock until the write ends", async () => {
-    const worker = new DocumentWorker();
-    const client = new KernelClient(worker);
-    const callbacks = options();
-    const writing = deferred<void>();
-    const write = vi.fn(() => writing.promise);
-    vi.mocked(chooseSaveTarget).mockResolvedValue({ write });
-    const { result } = renderHook(() => useDocument(client, callbacks));
-    await act(async () => result.current.openFile(file()));
-    const original = result.current.info;
-    await act(async () => result.current.exportAudio());
-    expect(result.current.busy).toBe(true);
-    expect(chooseSaveTarget).toHaveBeenCalledWith(info.name);
-    expect(
-      worker.sent.find((request) => request.op === "call" && request.method === "doc.export"),
-    ).toMatchObject({ params: { format: "wav", bitDepth: 24, float: false } });
-    expect(write).toHaveBeenCalledWith(exported);
-    await expect(result.current.withOperation(async () => {})).rejects.toThrow("in progress");
-    await act(async () => writing.resolve(undefined));
-    expect(result.current.busy).toBe(false);
-    expect(result.current.info).toBe(original);
-    expect(callbacks.onSaved).not.toHaveBeenCalled();
-    expect(callbacks.beforeOpen).toHaveBeenCalledTimes(1);
-    expect(
-      worker.sent.some(
-        (request) =>
-          request.op === "call" && ["history.list", "doc.mark-saved"].includes(request.method),
-      ),
-    ).toBe(false);
-  });
-
-  it.each(["cancel", "kernel", "write"] as const)(
-    "does not mark a failed or cancelled WAV copy saved: %s",
-    async (phase) => {
-      const worker = new DocumentWorker();
-      const client = new KernelClient(worker);
-      const callbacks = options();
-      const write = vi.fn().mockResolvedValue(undefined);
-      vi.mocked(chooseSaveTarget).mockResolvedValue(phase === "cancel" ? undefined : { write });
-      const { result } = renderHook(() => useDocument(client, callbacks));
-      await act(async () => result.current.openFile(file()));
-      if (phase === "kernel") worker.rejectExport = true;
-      if (phase === "write") write.mockRejectedValue(new Error("disk full"));
-      await act(async () => result.current.exportAudio());
-      if (phase !== "write") expect(write).not.toHaveBeenCalled();
-      if (phase === "cancel") expect(callbacks.reportError).not.toHaveBeenCalled();
-      else
-        expect(callbacks.reportError).toHaveBeenCalledWith(
-          "Could not export audio",
-          expect.any(Error),
-        );
-      expect(callbacks.onSaved).not.toHaveBeenCalled();
-      expect(result.current.busy).toBe(false);
-      expect(
-        worker.sent.some((request) => request.op === "call" && request.method === "doc.mark-saved"),
-      ).toBe(false);
-    },
-  );
-
   it.each(["csv", "labels"] as const)(
     "exports %s sidecars under the shared file lock without marking saved",
     async (format) => {

@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -370,10 +370,19 @@ export interface PastePlan {
   clipboardVersion: string;
 }
 
+export type ExportScope = "document" | "selection";
+export type ExportDither = "none" | "rectangular" | "triangular" | "gaussian" | "fast-gaussian";
+export type ExportNoiseShaping = "none" | "efb" | "2sc" | "9fc" | "sbm" | "sharp";
+
 export interface DocumentExportParams {
   format: "wav";
   bitDepth: number;
   float: boolean;
+  scope?: ExportScope;
+  dither?: ExportDither;
+  noiseShaping?: ExportNoiseShaping;
+  seed?: number;
+  documentId?: string;
 }
 
 export interface ExportInfo {

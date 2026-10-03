@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"path/filepath"
 	"strings"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
@@ -232,14 +233,16 @@ func (e *Engine) documentInfo() (protocol.DocumentInfoResult, error) {
 }
 
 func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.DocumentExportInfo, error) {
-	if e.document.Channels() == 0 {
-		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: no document is open")
+	document, indices, err := e.exportSource(p)
+	if err != nil {
+		return protocol.DocumentExportInfo{}, err
 	}
-	if p.Format != "wav" || (p.Float && p.BitDepth != 32 && p.BitDepth != 64) || (!p.Float && p.BitDepth != 8 && p.BitDepth != 16 && p.BitDepth != 24 && p.BitDepth != 32) {
-		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: unsupported format %q/%d bits/float=%t", p.Format, p.BitDepth, p.Float)
+	quantizers, err := exportQuantizers(document, indices, p)
+	if err != nil {
+		return protocol.DocumentExportInfo{}, err
 	}
-	dataBytes := e.document.Frames() * int64(e.document.Channels()) * int64(p.BitDepth/8)
-	chunks, metadataBytes, err := encodeWAVTimeline(e.document.Metadata().Timeline, e.document.Frames())
+	dataBytes := document.Frames() * int64(document.Channels()) * int64(p.BitDepth/8)
+	chunks, metadataBytes, err := encodeWAVTimeline(document.Metadata().Timeline, document.Frames())
 	if err != nil {
 		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: annotations: %w", err)
 	}
@@ -252,37 +255,54 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 	if p.Float {
 		formatTag = 3
 	}
-	encoder := wav.NewEncoder(writer, e.document.SampleRate(), p.BitDepth, e.document.Channels(), formatTag)
+	encoder := wav.NewEncoder(writer, document.SampleRate(), p.BitDepth, document.Channels(), formatTag)
 	encoder.SetRawChunks(chunks)
-	pcm := &audio.Float32Buffer{Data: make([]float32, audiobuf.BlockFrames*e.document.Channels()), Format: &audio.Format{NumChannels: e.document.Channels(), SampleRate: e.document.SampleRate()}}
+	format := &audio.Format{NumChannels: document.Channels(), SampleRate: document.SampleRate()}
+	var pcm *audio.Float32Buffer
+	var integers *audio.IntBuffer
+	if quantizers == nil {
+		pcm = &audio.Float32Buffer{Data: make([]float32, audiobuf.BlockFrames*document.Channels()), Format: format}
+	} else {
+		integers = &audio.IntBuffer{Data: make([]int, audiobuf.BlockFrames*document.Channels()), Format: format, SourceBitDepth: p.BitDepth}
+	}
+	writeFrames := func(frames int) error {
+		if integers != nil {
+			integers.Data = integers.Data[:frames*document.Channels()]
+			return encoder.WriteInt(integers)
+		}
+		pcm.Data = pcm.Data[:frames*document.Channels()]
+		return encoder.Write(pcm)
+	}
 	mono := make([]float32, audiobuf.BlockFrames)
-	channels := make([]audiobuf.Channel, e.document.Channels())
+	channels := make([]audiobuf.Channel, document.Channels())
 	for i := range channels {
 		var err error
-		channels[i], err = e.document.Channel(i)
+		channels[i], err = document.Channel(i)
 		if err != nil {
 			return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: channel %d: %w", i, err)
 		}
 	}
 	// An empty Write emits a valid fmt/data header even for a zero-frame file.
-	if e.document.Frames() == 0 {
-		pcm.Data = pcm.Data[:0]
-		if err := encoder.Write(pcm); err != nil {
+	if document.Frames() == 0 {
+		if err := writeFrames(0); err != nil {
 			return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: encode empty PCM: %w", err)
 		}
 	}
-	for start := int64(0); start < e.document.Frames(); start += audiobuf.BlockFrames {
-		frames := int(min(int64(audiobuf.BlockFrames), e.document.Frames()-start))
-		pcm.Data = pcm.Data[:frames*len(channels)]
+	for start := int64(0); start < document.Frames(); start += audiobuf.BlockFrames {
+		frames := int(min(int64(audiobuf.BlockFrames), document.Frames()-start))
 		for i, channel := range channels {
 			if n := channel.Read(mono[:frames], start); n != frames {
 				return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: channel %d read %d of %d frames", i, n, frames)
 			}
 			for frame := range frames {
-				pcm.Data[frame*len(channels)+i] = mono[frame]
+				if integers != nil {
+					integers.Data[frame*len(channels)+i] = quantizers[i].ProcessInteger(float64(mono[frame]))
+				} else {
+					pcm.Data[frame*len(channels)+i] = mono[frame]
+				}
 			}
 		}
-		if err := encoder.Write(pcm); err != nil {
+		if err := writeFrames(frames); err != nil {
 			return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: encode PCM: %w", err)
 		}
 	}
@@ -290,7 +310,14 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: finish WAV: %w", err)
 	}
 	e.bulkData = writer.data
-	name := e.document.Metadata().Name
+	name := document.Metadata().Name
+	if p.Scope == "selection" {
+		name = strings.TrimSuffix(name, filepath.Ext(name))
+		if name == "" {
+			name = "Untitled"
+		}
+		name += "-selection.wav"
+	}
 	if !strings.HasSuffix(strings.ToLower(name), ".wav") {
 		name += ".wav"
 	}
