@@ -41,8 +41,9 @@
 
 ### Phase U.3: Secondary controls on demand
 
-- [ ] Retain compact editable selection start/end/length; disclose channel choices, snapping, display settings and marker/region naming/color controls. Preserve visible active-state indicators and quick annotation actions.
-- [ ] Make history and marker management optional panels rather than persistent collapsed rows. Default controls above the ruler occupy at most 160 CSS pixels at 1920-pixel desktop width; narrow layouts do not overlap or lose actions.
+- [x] `SelectionBar` retains compact, labeled editable start/end/length fields and discloses channel choices with an All/Left/Right/subset indicator. `TimelinePanel` now has an icon-triggered, viewport-clamped management popover. Forty-three focused selection/timeline tests pass, including numeric draft/validation and metadata editing regressions.
+- [ ] Disclose snapping, display settings and marker/region naming/color controls; retain active-state indicators and quick annotation icons, and place marker management in the view band.
+- [ ] Verify default controls above the ruler occupy at most 160 CSS pixels at 1920-pixel desktop width, with narrow layouts that do not overlap or lose actions. History is already optional through U.2.
 
 ### Phase U.4: Purple and warm-color theme
 

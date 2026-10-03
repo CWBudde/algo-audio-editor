@@ -1,5 +1,6 @@
 import type { SelectionRange } from "@aae/protocol";
 import { useEffect, useId, useRef, useState } from "react";
+import { ControlDisclosure } from "@/components/control-disclosure";
 import { Button } from "@/components/ui/button";
 import { allChannelsMask, formatSelectionTime, parseSelectionTime } from "@/lib/selection";
 import type { TimeFormat } from "@/lib/waveform-geometry";
@@ -65,14 +66,14 @@ function TimeField({ label, frame, rate, format, commit }: TimeFieldProps) {
   return (
     <div className="min-w-0">
       <label className="flex items-center gap-2 text-xs">
-        {label}
+        <span aria-hidden="true">{label.replace("Selection ", "")}</span>
         <input
           type="text"
           inputMode={format === "samples" ? "numeric" : "decimal"}
           aria-label={label}
           aria-invalid={Boolean(draft?.error)}
           aria-describedby={draft?.error ? errorId : undefined}
-          className="w-40 min-w-0 rounded border bg-background px-2 py-1 tabular-nums"
+          className="w-28 min-w-0 rounded border bg-background px-2 py-1 tabular-nums"
           value={draft?.text ?? formatted}
           onFocus={() => {
             focused.current = true;
@@ -152,7 +153,7 @@ export function SelectionBar({
   return (
     <fieldset
       disabled={disabled}
-      className="flex flex-wrap items-start gap-3 border-t px-3 py-2"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-1"
       data-testid="selection-bar"
     >
       <legend className="sr-only">Selection</legend>
@@ -180,56 +181,76 @@ export function SelectionBar({
       <span className="py-1 text-xs text-muted-foreground">
         {timeFormat === "samples" ? "samples" : timeFormat === "seconds" ? "seconds" : "h:mm:ss"}
       </span>
-      <fieldset className="flex flex-wrap items-center gap-2" aria-label="Selected channels">
-        <legend className="sr-only">Selected channels</legend>
-        <Button
-          type="button"
-          size="xs"
-          variant="outline"
-          aria-pressed={mask === all}
-          onClick={() => chooseMask(all)}
+      <ControlDisclosure className="relative text-xs" data-testid="channel-settings">
+        <summary
+          className="cursor-pointer rounded px-2 py-1 focus-visible:outline-2 focus-visible:outline-ring"
+          aria-label="Selected channels"
+          title="Choose selected channels"
         >
-          All
-        </Button>
-        {channels === 2 && (
-          <>
-            <Button
-              type="button"
-              size="xs"
-              variant="outline"
-              aria-pressed={mask === 1}
-              onClick={() => chooseMask(1)}
-            >
-              Left
-            </Button>
-            <Button
-              type="button"
-              size="xs"
-              variant="outline"
-              aria-pressed={mask === 2}
-              onClick={() => chooseMask(2)}
-            >
-              Right
-            </Button>
-          </>
-        )}
-        {Array.from({ length: channels }, (_, channel) => channel).map((channel) => {
-          const bit = 2 ** channel;
-          const checked = (mask & bit) !== 0;
-          return (
-            <label key={channel} className="flex items-center gap-1 text-xs">
-              <input
-                type="checkbox"
-                aria-label={`Channel ${channel + 1} selected`}
-                checked={checked}
-                disabled={disabled || (checked && mask === bit)}
-                onChange={(event) => chooseMask(event.target.checked ? mask | bit : mask & ~bit)}
-              />
-              Channel {channel + 1}
-            </label>
-          );
-        })}
-      </fieldset>
+          Channels:{" "}
+          {mask === all
+            ? "All"
+            : mask === 1 && channels === 2
+              ? "Left"
+              : mask === 2 && channels === 2
+                ? "Right"
+                : `${mask.toString(2).replaceAll("0", "").length} / ${channels}`}
+        </summary>
+        <fieldset
+          data-disclosure-panel
+          className="absolute right-0 top-full z-40 flex w-64 max-w-[calc(100vw-2rem)] flex-wrap items-center gap-2 rounded border bg-popover p-3 shadow-lg"
+          aria-label="Selected channels"
+        >
+          <legend className="sr-only">Selected channels</legend>
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            aria-pressed={mask === all}
+            onClick={() => chooseMask(all)}
+          >
+            All
+          </Button>
+          {channels === 2 && (
+            <>
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                aria-pressed={mask === 1}
+                onClick={() => chooseMask(1)}
+              >
+                Left
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                aria-pressed={mask === 2}
+                onClick={() => chooseMask(2)}
+              >
+                Right
+              </Button>
+            </>
+          )}
+          {Array.from({ length: channels }, (_, channel) => channel).map((channel) => {
+            const bit = 2 ** channel;
+            const checked = (mask & bit) !== 0;
+            return (
+              <label key={channel} className="flex items-center gap-1 text-xs">
+                <input
+                  type="checkbox"
+                  aria-label={`Channel ${channel + 1} selected`}
+                  checked={checked}
+                  disabled={disabled || (checked && mask === bit)}
+                  onChange={(event) => chooseMask(event.target.checked ? mask | bit : mask & ~bit)}
+                />
+                Channel {channel + 1}
+              </label>
+            );
+          })}
+        </fieldset>
+      </ControlDisclosure>
     </fieldset>
   );
 }

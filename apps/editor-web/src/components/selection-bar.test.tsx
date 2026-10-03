@@ -38,6 +38,16 @@ function edit(input: HTMLElement, text: string) {
 afterEach(cleanup);
 
 describe("SelectionBar numeric editing", () => {
+  it("discloses channel choices while keeping numeric fields directly editable", () => {
+    const { getByTestId, getByLabelText, getByText } = mounted();
+    const details = getByTestId("channel-settings") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(getByLabelText("Selection start")).toBeTruthy();
+    expect(getByText("Channels: All")).toBeTruthy();
+    fireEvent.click(details.querySelector("summary") as HTMLElement);
+    expect(details.open).toBe(true);
+    expect(getByLabelText("Channel 1 selected")).toBeTruthy();
+  });
   it("exposes exact start/end/length labels and sample coordinate values", () => {
     const { getByLabelText } = mounted();
     expect((getByLabelText("Selection start") as HTMLInputElement).value).toBe("100");

@@ -7,7 +7,9 @@ import type {
   TimelineRegion,
   TimelineResult,
 } from "@aae/protocol";
+import { ListMusic } from "lucide-react";
 import { useEffect, useId, useState } from "react";
+import { ControlDisclosure } from "@/components/control-disclosure";
 import { Button } from "@/components/ui/button";
 import { formatSelectionTime, parseSelectionTime } from "@/lib/selection";
 import type { TimeFormat } from "@/lib/waveform-geometry";
@@ -126,15 +128,25 @@ export function TimelinePanel({
   const update = (changes: Partial<Draft>) =>
     currentDraft && setDraft({ ...currentDraft, ...changes, error: undefined });
   return (
-    <details
-      className="border-b px-3 text-xs"
+    <ControlDisclosure
+      className="relative text-xs"
+      data-testid="timeline-panel"
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary className="cursor-pointer py-1">
-        Markers and regions ({timeline.markers.length + timeline.regions.length})
+      <summary
+        className="flex size-7 cursor-pointer list-none items-center justify-center rounded hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+        title="Markers and regions"
+      >
+        <ListMusic className="size-4" aria-hidden="true" />
+        <span className="sr-only">
+          Markers and regions ({timeline.markers.length + timeline.regions.length})
+        </span>
       </summary>
       {open && (
-        <div className="max-h-56 overflow-auto pb-2">
+        <div
+          data-disclosure-panel
+          className="absolute right-0 top-full z-40 max-h-80 w-[32rem] max-w-[calc(100vw-2rem)] overflow-auto rounded border bg-popover p-3 shadow-lg"
+        >
           <div className="mb-2 flex gap-2">
             <Button
               size="xs"
@@ -338,6 +350,6 @@ export function TimelinePanel({
           )}
         </div>
       )}
-    </details>
+    </ControlDisclosure>
   );
 }
