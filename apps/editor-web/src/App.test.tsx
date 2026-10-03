@@ -45,7 +45,7 @@ vi.mock("@/hooks/use-kernel", () => {
   const kernel = {
     status: "ready",
     client: {},
-    hello: { kernelVersion: "test", protocolVersion: 7, goVersion: "go1.test" },
+    hello: { kernelVersion: "test", protocolVersion: 8, goVersion: "go1.test" },
   };
   return { useKernel: () => kernel };
 });

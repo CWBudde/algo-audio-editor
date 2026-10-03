@@ -4,10 +4,13 @@ import {
   type KernelMethod,
   type ParamsOf,
   PROTOCOL_VERSION,
+  type ProcessJobParams,
+  type ProcessJobResult,
   type ResultOf,
 } from "@aae/protocol";
 import type { RingBufferInit, RingBufferStats } from "@/audio/ring-buffer";
 import type { WorkerOp, WorkerReply, WorkerRequest } from "./messages";
+import { validProcessProgress } from "./process-runner";
 
 /** The subset of Worker the client needs; lets tests substitute a fake. */
 export interface WorkerLike {
@@ -29,6 +32,11 @@ interface Pending {
   resolve(value: unknown): void;
   reject(reason: Error): void;
   timer: ReturnType<typeof setTimeout>;
+  process?: {
+    params: ProcessJobParams;
+    progress?: ProcessJobResult;
+    listener?: (progress: ProcessJobResult) => void;
+  };
 }
 
 type CallArgs<M extends KernelMethod> = ParamsOf<M> extends undefined ? [] : [ParamsOf<M>];
@@ -37,6 +45,7 @@ export interface KernelClientOptions {
   /** Per-request timeout. Booting downloads the WASM, so it gets longer. */
   timeoutMs?: number;
   bootTimeoutMs?: number;
+  processTimeoutMs?: number;
 }
 
 /** Promise-based RPC client for the kernel worker. */
@@ -48,11 +57,13 @@ export class KernelClient {
   private readonly worker: WorkerLike;
   private readonly timeoutMs: number;
   private readonly bootTimeoutMs: number;
+  private readonly processTimeoutMs: number;
 
   constructor(worker: WorkerLike, options: KernelClientOptions = {}) {
     this.worker = worker;
     this.timeoutMs = options.timeoutMs ?? 5_000;
     this.bootTimeoutMs = options.bootTimeoutMs ?? 30_000;
+    this.processTimeoutMs = options.processTimeoutMs ?? 15_000;
     worker.addEventListener("message", (event) => this.onMessage(event.data));
   }
 
@@ -85,6 +96,17 @@ export class KernelClient {
     ]) as Promise<DocumentInfoResult>;
   }
 
+  /** One final reply; matching progress extends the inactivity watchdog. */
+  runProcess(
+    params: ProcessJobParams,
+    onProgress?: (progress: ProcessJobResult) => void,
+  ): Promise<ProcessJobResult> {
+    return this.request({ op: "process.run", ...params }, this.processTimeoutMs, undefined, {
+      params: { ...params },
+      listener: onProgress,
+    }) as Promise<ProcessJobResult>;
+  }
+
   attachStream(ring: RingBufferInit): Promise<void> {
     return this.request({ op: "stream.attach", ring }) as Promise<void>;
   }
@@ -107,7 +129,7 @@ export class KernelClient {
 
   terminate(): void {
     this.worker.terminate();
-    this.fatal ??= "terminated";
+    this.setFatal("terminated");
     this.failAll(new KernelError("kernel terminated"));
   }
 
@@ -115,6 +137,7 @@ export class KernelClient {
     op: WorkerOp,
     timeoutMs = this.timeoutMs,
     transfer?: Transferable[],
+    process?: Pending["process"],
   ): Promise<unknown> {
     if (this.fatal !== undefined) {
       return Promise.reject(new KernelError(`kernel unavailable: ${this.fatal}`));
@@ -123,10 +146,19 @@ export class KernelClient {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
+        if (process || (op.op === "call" && op.method.startsWith("process."))) {
+          this.fatalTimeout(
+            id,
+            process
+              ? `process.run inactive for ${timeoutMs} ms`
+              : `${describe(op)} timed out after ${timeoutMs} ms`,
+          );
+          return;
+        }
         this.pending.delete(id);
         reject(new KernelTimeoutError(`${describe(op)} timed out after ${timeoutMs} ms`));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve, reject, timer, process });
       try {
         this.worker.postMessage({ id, ...op }, transfer);
       } catch (err) {
@@ -139,18 +171,72 @@ export class KernelClient {
 
   private onMessage(msg: WorkerReply) {
     if (msg.kind === "fatal") {
-      this.fatal = msg.error;
+      this.setFatal(msg.error);
       this.failAll(new KernelError(`kernel unavailable: ${msg.error}`));
-      for (const listener of this.fatalListeners) listener(msg.error);
       return;
     }
 
     const entry = this.pending.get(msg.id);
     if (!entry) return; // already timed out
+    if (msg.kind === "process.progress") {
+      const process = entry.process;
+      if (!process || !validProcessProgress(msg.progress, process.params, process.progress)) return;
+      const previous = process.progress;
+      if (
+        previous &&
+        previous.state === msg.progress.state &&
+        previous.processedFrames === msg.progress.processedFrames &&
+        previous.peak === msg.progress.peak &&
+        previous.nonFinite === msg.progress.nonFinite
+      )
+        return;
+      process.progress = { ...msg.progress };
+      clearTimeout(entry.timer);
+      entry.timer = setTimeout(
+        () => this.fatalTimeout(msg.id, `process.run inactive for ${this.processTimeoutMs} ms`),
+        this.processTimeoutMs,
+      );
+      try {
+        process.listener?.(msg.progress);
+      } catch {
+        /* Observers must not break the RPC lifecycle. */
+      }
+      return;
+    }
     this.pending.delete(msg.id);
     clearTimeout(entry.timer);
+    if (
+      msg.ok &&
+      entry.process &&
+      (!validProcessProgress(msg.result, entry.process.params, entry.process.progress) ||
+        msg.result.state === "running")
+    ) {
+      entry.reject(new KernelError("process.run returned invalid terminal progress"));
+      return;
+    }
     if (msg.ok) entry.resolve(msg.result);
     else entry.reject(new KernelError(msg.error));
+  }
+
+  private fatalTimeout(id: number, message: string) {
+    const entry = this.pending.get(id);
+    if (!entry) return;
+    // Kill computation and notify owners before the promise releases their lock.
+    this.worker.terminate();
+    this.setFatal(message);
+    this.failAll(new KernelTimeoutError(message));
+  }
+
+  private setFatal(error: string) {
+    if (this.fatal !== undefined) return;
+    this.fatal = error;
+    for (const listener of this.fatalListeners) {
+      try {
+        listener(error);
+      } catch {
+        /* A subscriber must not prevent failing pending RPCs. */
+      }
+    }
   }
 
   private failAll(error: Error) {

@@ -47,6 +47,9 @@ type Engine struct {
 	clipboard         ops.Clipboard
 	clipboardSequence uint64
 	history           *history.History[historySnapshot]
+	processJob        *processingJob
+	processSequence   uint64
+	cancelledProcess  *protocol.ProcessJobResult
 }
 
 // New returns an engine configured for 48 kHz stereo.
@@ -114,7 +117,30 @@ func (e *Engine) Render(dst []float32) int {
 }
 
 func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
+	if err := e.guardProcessing(method); err != nil {
+		return nil, err
+	}
+
 	switch method {
+	case protocol.MethodProcessStart:
+		var p protocol.ProcessStartParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.startProcess(p)
+	case protocol.MethodProcessStep, protocol.MethodProcessCancel, protocol.MethodProcessCommit:
+		var p protocol.ProcessJobParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		switch method {
+		case protocol.MethodProcessStep:
+			return e.stepProcess(p)
+		case protocol.MethodProcessCancel:
+			return e.cancelProcess(p)
+		default:
+			return e.commitProcess(p)
+		}
 	case protocol.MethodHello:
 		return e.hello(), nil
 	case protocol.MethodDocumentMemory:
@@ -219,6 +245,15 @@ func (e *Engine) documentMemory() protocol.DocumentMemoryResult {
 	documents := []audiobuf.Document{e.document}
 	if e.history != nil {
 		documents = e.history.Documents()
+	}
+	if job := e.processJob; job != nil {
+		if job.builder != nil {
+			if document, err := job.builder.MemoryDocument(); err == nil {
+				documents = append(documents, document)
+			}
+		} else if job.candidate.Channels() > 0 {
+			documents = append(documents, job.candidate)
+		}
 	}
 	stats := audiobuf.CountMemoryWithWindows(documents, e.clipboard.Windows()...)
 

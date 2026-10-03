@@ -3,6 +3,7 @@ import {
   type ExportResult,
   type PeaksGetResult,
   PROTOCOL_VERSION,
+  type ProcessJobResult,
 } from "@aae/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KernelClient, KernelError, KernelTimeoutError, type WorkerLike } from "./client";
@@ -46,6 +47,20 @@ const hello = (protocolVersion = PROTOCOL_VERSION) => ({
   sampleRate: 48000,
   channels: 2,
 });
+const job = { documentId: "doc-1", jobId: "job-1" };
+const progress: ProcessJobResult = {
+  ...job,
+  start: 10,
+  end: 30,
+  channelMask: 3,
+  state: "running",
+  operation: "gain",
+  gainDb: 6,
+  processedFrames: 1,
+  totalFrames: 20,
+  peak: 0.5,
+  nonFinite: false,
+};
 
 afterEach(() => {
   vi.useRealTimers();
@@ -231,5 +246,194 @@ describe("KernelClient", () => {
     expect(worker.terminated).toBe(true);
     await expect(pending).rejects.toThrow(/terminated/);
     await expect(client.call("hello")).rejects.toThrow(/terminated/);
+  });
+
+  it("runs a single long processing RPC while matching heartbeats extend only inactivity timeout", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const client = new KernelClient(worker, { timeoutMs: 10, processTimeoutMs: 100 });
+    const listener = vi.fn();
+    const pending = client.runProcess(job, listener);
+    expect(worker.sent).toEqual([{ id: 1, op: "process.run", ...job }]);
+    for (let processedFrames = 1; processedFrames <= 4; processedFrames++) {
+      vi.advanceTimersByTime(60);
+      worker.emit({ kind: "process.progress", id: 1, progress: { ...progress, processedFrames } });
+    }
+    const ready = { ...progress, state: "ready" as const, processedFrames: 20 };
+    worker.emit({ kind: "process.progress", id: 1, progress: ready });
+    worker.emit({ kind: "reply", id: 1, ok: true, result: ready });
+    await expect(pending).resolves.toEqual(ready);
+    expect(listener).toHaveBeenCalledTimes(5);
+    expect(worker.sent).toHaveLength(1);
+    expect(worker.terminated).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    worker.emit({ kind: "process.progress", id: 1, progress: ready });
+    expect(listener).toHaveBeenCalledTimes(5);
+  });
+
+  it("allows a separate Cancel RPC to finish the runner without committing or duplicate callbacks", async () => {
+    const worker = new FakeWorker();
+    const client = new KernelClient(worker);
+    const listener = vi.fn();
+    const running = client.runProcess(job, listener);
+    worker.emit({ kind: "process.progress", id: 1, progress });
+    const cancel = client.call("process.cancel", job);
+    const cancelled = { ...progress, state: "cancelled" as const };
+    worker.emit({ kind: "reply", id: 2, ok: true, result: cancelled });
+    worker.emit({ kind: "process.progress", id: 1, progress: cancelled });
+    worker.emit({ kind: "process.progress", id: 1, progress: cancelled });
+    worker.emit({ kind: "reply", id: 1, ok: true, result: cancelled });
+    await expect(cancel).resolves.toEqual(cancelled);
+    await expect(running).resolves.toEqual(cancelled);
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(
+      worker.sent.map((request) => (request.op === "call" ? request.method : request.op)),
+    ).toEqual(["process.run", "process.cancel"]);
+  });
+
+  it("kills the worker and notifies fatal owners before releasing a stalled job and other RPCs", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const client = new KernelClient(worker, { timeoutMs: 1000, processTimeoutMs: 100 });
+    const order: string[] = [];
+    vi.spyOn(worker, "terminate").mockImplementation(() => {
+      worker.terminated = true;
+      order.push("terminate");
+    });
+    client.onFatal(() => order.push("fatal"));
+    const pending = client.runProcess(job);
+    const other = client.call("hello");
+    const rejected = pending.catch((error: unknown) => {
+      order.push("reject");
+      throw error;
+    });
+    const assertion = expect(rejected).rejects.toBeInstanceOf(KernelTimeoutError);
+    const otherAssertion = expect(other).rejects.toBeInstanceOf(KernelTimeoutError);
+    vi.advanceTimersByTime(100);
+    await Promise.all([assertion, otherAssertion]);
+    expect(order).toEqual(["terminate", "fatal", "reject"]);
+    expect(vi.getTimerCount()).toBe(0);
+    await expect(client.call("hello")).rejects.toThrow("inactive");
+  });
+
+  it.each(["process.start", "process.step", "process.cancel", "process.commit"] as const)(
+    "uses fatal timeout fencing for %s even without an active runner",
+    async (method) => {
+      vi.useFakeTimers();
+      const worker = new FakeWorker();
+      const client = new KernelClient(worker, { timeoutMs: 10 });
+      const onFatal = vi.fn(() => expect(worker.terminated).toBe(true));
+      client.onFatal(onFatal);
+      const pending =
+        method === "process.start"
+          ? client.call(method, {
+              ...job,
+              start: 10,
+              end: 30,
+              channelMask: 3,
+              operation: "gain",
+              gainDb: 6,
+            })
+          : client.call(method, job);
+      const assertion = expect(pending).rejects.toBeInstanceOf(KernelTimeoutError);
+      vi.advanceTimersByTime(10);
+      await assertion;
+      expect(onFatal).toHaveBeenCalledOnce();
+      worker.emit({
+        kind: "reply",
+        id: worker.sent[0].id,
+        ok: true,
+        result: { ...progress, state: "ready", processedFrames: 20 },
+      });
+      await expect(client.call("hello")).rejects.toThrow("timed out");
+    },
+  );
+
+  it.each([
+    { jobId: "other" },
+    { documentId: "other" },
+    { processedFrames: 21 },
+    { peak: Number.NaN },
+    { totalFrames: 1.5 },
+  ])(
+    "ignores malformed or wrong-job progress %j without refreshing the watchdog",
+    async (changes) => {
+      vi.useFakeTimers();
+      const worker = new FakeWorker();
+      const client = new KernelClient(worker, { processTimeoutMs: 100 });
+      const listener = vi.fn();
+      const pending = client.runProcess(job, listener);
+      const assertion = expect(pending).rejects.toBeInstanceOf(KernelTimeoutError);
+      vi.advanceTimersByTime(60);
+      worker.emit({ kind: "process.progress", id: 1, progress: { ...progress, ...changes } });
+      worker.emit({ kind: "process.progress", id: 999, progress });
+      vi.advanceTimersByTime(40);
+      await assertion;
+      expect(listener).not.toHaveBeenCalled();
+    },
+  );
+
+  it("ignores duplicate and backwards progress so a stuck loop cannot keep its watchdog alive", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const client = new KernelClient(worker, { processTimeoutMs: 100 });
+    const listener = vi.fn();
+    const pending = client.runProcess(job, listener);
+    const assertion = expect(pending).rejects.toBeInstanceOf(KernelTimeoutError);
+    vi.advanceTimersByTime(20);
+    worker.emit({ kind: "process.progress", id: 1, progress });
+    vi.advanceTimersByTime(60);
+    worker.emit({ kind: "process.progress", id: 1, progress });
+    worker.emit({ kind: "process.progress", id: 1, progress: { ...progress, processedFrames: 0 } });
+    vi.advanceTimersByTime(40);
+    await assertion;
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("contains subscriber exceptions and does not let listener mutations poison progress validation", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const client = new KernelClient(worker);
+    const pending = client.runProcess(job, (value) => {
+      value.processedFrames = 999;
+      throw new Error("observer failed");
+    });
+    worker.emit({ kind: "process.progress", id: 1, progress: { ...progress } });
+    const ready = { ...progress, state: "ready" as const, processedFrames: 20 };
+    worker.emit({ kind: "reply", id: 1, ok: true, result: ready });
+    await expect(pending).resolves.toEqual(ready);
+    expect(vi.getTimerCount()).toBe(0);
+    client.onFatal(() => {
+      throw new Error("fatal observer failed");
+    });
+    client.terminate();
+    await expect(client.call("hello")).rejects.toThrow("terminated");
+  });
+
+  it("ignores progress for normal RPC IDs and reports invalid nonterminal runner replies", async () => {
+    const worker = new FakeWorker();
+    const client = new KernelClient(worker);
+    const ordinary = client.call("hello");
+    worker.emit({ kind: "process.progress", id: 1, progress });
+    worker.emit({ kind: "reply", id: 1, ok: true, result: hello() });
+    await expect(ordinary).resolves.toEqual(hello());
+    const running = client.runProcess(job);
+    worker.emit({ kind: "reply", id: 2, ok: true, result: progress });
+    await expect(running).rejects.toThrow("invalid terminal progress");
+  });
+
+  it("cleans up a runner watchdog when postMessage fails or the client terminates", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const client = new KernelClient(worker);
+    vi.spyOn(worker, "postMessage").mockImplementationOnce(() => {
+      throw new Error("post failed");
+    });
+    await expect(client.runProcess(job)).rejects.toThrow("post failed");
+    expect(vi.getTimerCount()).toBe(0);
+    const pending = client.runProcess(job);
+    client.terminate();
+    await expect(pending).rejects.toThrow("terminated");
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

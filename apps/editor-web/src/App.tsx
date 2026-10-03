@@ -13,6 +13,7 @@ import { AppMenubar } from "@/components/app-menubar";
 import { CommandPalette } from "@/components/command-palette";
 import { EditToolbar, PasteConversionDialog } from "@/components/edit-toolbar";
 import { HistoryPanel } from "@/components/history-panel";
+import { ProcessDialog } from "@/components/process-dialog";
 import { StatusBar } from "@/components/status-bar";
 import {
   type PlaybackFollow,
@@ -29,6 +30,7 @@ import { useDocumentMemory } from "@/hooks/use-document-memory";
 import { useEdit } from "@/hooks/use-edit";
 import { useHistory } from "@/hooks/use-history";
 import { useKernel } from "@/hooks/use-kernel";
+import { useProcess } from "@/hooks/use-process";
 import { parseSelectionTime } from "@/lib/selection";
 
 const STATS_INTERVAL_MS = 200;
@@ -80,7 +82,7 @@ export default function App() {
     currentEngine.current = engine;
     return () => {
       currentEngine.current = undefined;
-      void engine?.dispose();
+      void engine?.dispose().catch(reportError("Could not release audio resources"));
     };
   }, [engine]);
 
@@ -178,6 +180,38 @@ export default function App() {
     onError: (action, error) => reportError(action)(error),
   });
   const busy = doc.busy || edit.busy || history.busy;
+  const processing = useProcess({
+    client,
+    info: doc.info,
+    busy,
+    withOperation: doc.withOperation,
+    beforeEdit,
+    preparePreview: (info) =>
+      engine ? engine.prepare(info) : Promise.reject(new Error("Audio engine unavailable")),
+    async playPreview(info, job) {
+      if (!engine) throw new Error("Audio engine unavailable");
+      const action = ++playbackAction.current;
+      playbackPending.current = true;
+      setPosition(job.start);
+      setPlaying(true);
+      try {
+        await engine.play(info, {
+          start: job.start,
+          end: job.end,
+          loop: true,
+          previewJobId: job.jobId,
+        });
+      } finally {
+        if (action === playbackAction.current) playbackPending.current = false;
+      }
+    },
+    async stopPreview() {
+      if (currentEngine.current === engine) await beforeEdit();
+      else await engine?.stop();
+    },
+    onEdited,
+    onError: (action, error) => reportError(action)(error),
+  });
   useEffect(() => {
     document.title = doc.info
       ? `${history.history?.dirty ? "* " : ""}${doc.info.name} — algo-audio-editor`
@@ -290,7 +324,7 @@ export default function App() {
       canRedo: history.history?.canRedo ?? false,
       playing,
       silenceFrames: parseSelectionTime(silenceValue, 1, "samples"),
-      modalOpen: Boolean(pastePlan),
+      modalOpen: Boolean(pastePlan || processing.view),
     }),
     paletteOpen,
     onError: (_id, error) => reportError("Command failed")(error),
@@ -341,6 +375,10 @@ export default function App() {
         }
       },
       "commands.palette": () => setPaletteOpen(!paletteOpen),
+      "process.amplify": () => {
+        const range = waveformView.current ? waveformView.current.selectionState() : selection;
+        if (range) processing.open(range);
+      },
       "help.about": () => {
         toast("algo-audio-editor", { description: about });
       },
@@ -491,6 +529,22 @@ export default function App() {
         plan={pastePlan}
         onConfirm={() => finishConfirmation(true)}
         onCancel={() => finishConfirmation(false)}
+      />
+      <ProcessDialog
+        view={processing.view}
+        onGainTextChange={processing.setGainText}
+        onPreview={() => {
+          void processing.preview();
+        }}
+        onStopPreview={() => {
+          void processing.stopPreview();
+        }}
+        onApply={(allowClipping) => {
+          void processing.apply(allowClipping);
+        }}
+        onCancel={() => {
+          void processing.cancel();
+        }}
       />
     </TooltipProvider>
   );

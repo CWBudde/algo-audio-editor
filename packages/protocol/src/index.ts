@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -221,6 +221,29 @@ export interface EditResult {
   history: HistoryListResult;
 }
 
+export interface ProcessStartParams extends SelectionResult {
+  operation: "gain";
+  gainDb: number;
+}
+
+export interface ProcessJobParams {
+  documentId: string;
+  jobId: string;
+}
+
+/** Private candidate progress; only process.commit changes the document. */
+export interface ProcessJobResult extends SelectionResult {
+  jobId: string;
+  state: "running" | "ready" | "cancelled";
+  operation: "gain";
+  gainDb: number;
+  processedFrames: number;
+  totalFrames: number;
+  /** Maximum finite absolute float32 output; nonfinite values are separate. */
+  peak: number;
+  nonFinite: boolean;
+}
+
 export interface HistoryListParams {
   documentId: string;
 }
@@ -284,6 +307,7 @@ export interface TransportPlayParams {
   start: number;
   end?: number;
   loop: boolean;
+  previewJobId?: string;
 }
 
 export interface TransportSeekParams {
@@ -331,6 +355,10 @@ export interface KernelMethods {
   "edit.undo": { params: HistoryListParams; result: EditResult };
   "edit.redo": { params: HistoryListParams; result: EditResult };
   "doc.mark-saved": { params: MarkSavedParams; result: HistoryListResult };
+  "process.start": { params: ProcessStartParams; result: ProcessJobResult };
+  "process.step": { params: ProcessJobParams; result: ProcessJobResult };
+  "process.cancel": { params: ProcessJobParams; result: ProcessJobResult };
+  "process.commit": { params: ProcessJobParams; result: EditResult };
 }
 
 export type KernelMethod = keyof KernelMethods;

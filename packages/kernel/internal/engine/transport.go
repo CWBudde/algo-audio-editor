@@ -23,6 +23,7 @@ type documentTransport struct {
 	channels             []audiobuf.Channel
 	mono                 []float32
 	resampled            *documentResampler
+	previewJobID         string
 }
 
 func (t *documentTransport) result() protocol.TransportResult {
@@ -30,27 +31,45 @@ func (t *documentTransport) result() protocol.TransportResult {
 }
 
 func (e *Engine) playDocument(p protocol.TransportPlayParams) (protocol.TransportResult, error) {
-	if e.document.Channels() == 0 {
+	document := e.document
+	if p.PreviewJobID != "" {
+		job := e.processJob
+		if job == nil || job.result.JobID != p.PreviewJobID || job.result.State != "ready" {
+			return protocol.TransportResult{}, fmt.Errorf("transport.play: preview job is not ready or is stale")
+		}
+		if err := e.validateProcessSource("transport.play", job); err != nil {
+			return protocol.TransportResult{}, err
+		}
+		document = job.candidate
+	} else if e.processJob != nil {
+		return protocol.TransportResult{}, fmt.Errorf("transport.play: processing job is active")
+	}
+	if document.Channels() == 0 {
 		return protocol.TransportResult{}, fmt.Errorf("transport.play: no document is open")
 	}
-	end := e.document.Frames()
+	end := document.Frames()
 	if p.End != nil {
 		end = *p.End
 	}
-	if p.Start < 0 || p.Start >= end || end > e.document.Frames() || end > 1<<53-1 {
-		return protocol.TransportResult{}, fmt.Errorf("transport.play: nonempty range [%d, %d) must be inside [0, %d)", p.Start, end, e.document.Frames())
+	if p.Start < 0 || p.Start >= end || end > document.Frames() || end > 1<<53-1 {
+		return protocol.TransportResult{}, fmt.Errorf("transport.play: nonempty range [%d, %d) must be inside [0, %d)", p.Start, end, document.Frames())
 	}
-	t, err := e.makeTransport(p.Start, end, p.Start, p.Loop, true)
+	t, err := e.makeTransportFromDocument(document, p.Start, end, p.Start, p.Loop, true)
 	if err != nil {
 		return protocol.TransportResult{}, fmt.Errorf("transport.play: prepare playback: %w", err)
 	}
+	t.previewJobID = p.PreviewJobID
 	e.transport, e.source = t, sourceDocument
 	return t.result(), nil
 }
 
 func (e *Engine) makeTransport(start, end, position int64, loop, playing bool) (*documentTransport, error) {
-	if e.channels != e.document.Channels() {
-		return nil, fmt.Errorf("render channels %d must match document channels %d", e.channels, e.document.Channels())
+	return e.makeTransportFromDocument(e.document, start, end, position, loop, playing)
+}
+
+func (e *Engine) makeTransportFromDocument(document audiobuf.Document, start, end, position int64, loop, playing bool) (*documentTransport, error) {
+	if e.channels != document.Channels() {
+		return nil, fmt.Errorf("render channels %d must match document channels %d", e.channels, document.Channels())
 	}
 	t := &documentTransport{
 		start: start, end: end, position: position, loop: loop, playing: playing,
@@ -58,14 +77,14 @@ func (e *Engine) makeTransport(start, end, position int64, loop, playing bool) (
 	}
 	for i := range t.channels {
 		var err error
-		t.channels[i], err = e.document.Channel(i)
+		t.channels[i], err = document.Channel(i)
 		if err != nil {
 			return nil, fmt.Errorf("read channel %d: %w", i, err)
 		}
 	}
-	if playing && e.document.SampleRate() != int(e.sampleRate) {
+	if playing && document.SampleRate() != int(e.sampleRate) {
 		var err error
-		t.resampled, err = newDocumentResampler(t, e.document.SampleRate(), int(e.sampleRate))
+		t.resampled, err = newDocumentResampler(t, document.SampleRate(), int(e.sampleRate))
 		if err != nil {
 			return nil, fmt.Errorf("sample-rate conversion: %w", err)
 		}
@@ -83,6 +102,9 @@ func (e *Engine) stopDocument() protocol.TransportResult {
 }
 
 func (e *Engine) seekDocument(p protocol.TransportSeekParams) (protocol.TransportResult, error) {
+	if e.processJob != nil {
+		return protocol.TransportResult{}, fmt.Errorf("transport.seek: processing job is active")
+	}
 	if e.document.Channels() == 0 {
 		return protocol.TransportResult{}, fmt.Errorf("transport.seek: no document is open")
 	}

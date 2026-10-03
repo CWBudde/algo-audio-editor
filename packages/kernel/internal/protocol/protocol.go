@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 7
+const Version = 8
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -55,6 +55,10 @@ const (
 	MethodEditUndo       = "edit.undo"
 	MethodEditRedo       = "edit.redo"
 	MethodMarkSaved      = "doc.mark-saved"
+	MethodProcessStart   = "process.start"
+	MethodProcessStep    = "process.step"
+	MethodProcessCancel  = "process.cancel"
+	MethodProcessCommit  = "process.commit"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -277,6 +281,31 @@ type EditResult struct {
 	History   HistoryListResult  `json:"history"`
 }
 
+// Processing builds a private candidate in bounded worker slices. Only commit
+// publishes it; preview playback and cancellation leave the document unchanged.
+type ProcessStartParams struct {
+	SelectionResult
+	Operation string  `json:"operation"`
+	GainDB    float64 `json:"gainDb"`
+}
+
+type ProcessJobParams struct {
+	DocumentID string `json:"documentId"`
+	JobID      string `json:"jobId"`
+}
+
+type ProcessJobResult struct {
+	SelectionResult
+	JobID           string  `json:"jobId"`
+	State           string  `json:"state"`
+	Operation       string  `json:"operation"`
+	GainDB          float64 `json:"gainDb"`
+	ProcessedFrames int64   `json:"processedFrames"`
+	TotalFrames     int64   `json:"totalFrames"`
+	Peak            float64 `json:"peak"`
+	NonFinite       bool    `json:"nonFinite"`
+}
+
 type HistoryListParams struct {
 	DocumentID string `json:"documentId"`
 }
@@ -345,9 +374,10 @@ type DocumentExportInfo struct {
 // TransportPlayParams selects a nonempty document range. A missing End uses
 // the document's final frame. Loop repeats this range continuously.
 type TransportPlayParams struct {
-	Start int64  `json:"start"`
-	End   *int64 `json:"end,omitempty"`
-	Loop  bool   `json:"loop"`
+	Start        int64  `json:"start"`
+	End          *int64 `json:"end,omitempty"`
+	Loop         bool   `json:"loop"`
+	PreviewJobID string `json:"previewJobId,omitempty"`
 }
 
 // TransportSeekParams moves to a frame, including the document's final frame.

@@ -98,12 +98,29 @@ bench:
 bench-wasm:
     cd {{kernel}} && GOOS=js GOARCH=wasm go test \
         -exec="env -i $(command -v node) --stack-size=8192 $(go env GOROOT)/lib/wasm/wasm_exec_node.js" \
-        -run '^$' -bench . -benchtime=1x -benchmem ./internal/audiobuf ./internal/engine ./internal/ops ./internal/history
+        -run '^$' -bench . -benchtime=1x -benchmem ./internal/audiobuf ./internal/engine ./internal/ops ./internal/history ./internal/process
+
+# Full-size gain processing and engine transaction; run serially for meaningful timings.
+bench-process:
+    cd {{kernel}} && go test -run '^$' -bench '^Benchmark(Gain|EngineProcess)TenMinuteStereo$' \
+        -benchtime=1x -benchmem ./internal/process ./internal/engine
+
+# The same ten-minute processing benchmarks in V8, with a clean WASM runner environment.
+bench-process-wasm:
+    cd {{kernel}} && GOOS=js GOARCH=wasm go test \
+        -exec="env -i $(command -v node) --stack-size=8192 $(go env GOROOT)/lib/wasm/wasm_exec_node.js" \
+        -run '^$' -bench '^Benchmark(Gain|EngineProcess)TenMinuteStereo$' \
+        -benchtime=1x -benchmem ./internal/process ./internal/engine
 
 # Opt-in hardware timing gate: full ten-minute import, including file read and UI.
 # Run in isolation on the target laptop; this is not part of shared-runner CI.
 bench-import-browser: build
     AAE_IMPORT_BENCHMARK=1 bun run --cwd {{web}} e2e e2e/import-benchmark.spec.ts --workers=1
+
+# Opt-in hardware gate: yielded ten-minute gain, atomic commit and painted waveforms.
+# Run serially on the target laptop; this is not part of shared-runner CI.
+bench-process-browser: build
+    AAE_PROCESS_BENCHMARK=1 bun run --cwd {{web}} e2e e2e/process-benchmark.spec.ts --workers=1
 
 # Profile the same full-size import natively; output_dir must be an existing absolute path.
 # Keep the test binary/profile outside the worktree, then print CPU hotspots.

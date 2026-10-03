@@ -644,6 +644,7 @@ export function WaveformView({
       ref={host}
       className="flex h-full min-h-[24rem] min-w-0 flex-col"
       data-testid="waveform-view"
+      data-document-id={info.documentId}
       data-start-frame={viewport.start}
       data-end-frame={viewport.end}
       data-selection-start={selection.start}

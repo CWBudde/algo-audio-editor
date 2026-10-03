@@ -333,6 +333,30 @@ describe("AudioEngine document playback", () => {
     expect(engine.stats()).toBeUndefined();
   });
 
+  it("closes preview browser resources even when its worker has already died", async () => {
+    const ctx = context();
+    const client = new KernelClient(new PlaybackWorker());
+    const engine = new AudioEngine(client);
+    await engine.play(info, { ...params, previewJobId: "process-1", loop: true });
+    client.terminate();
+    await expect(engine.dispose()).rejects.toThrow("kernel unavailable");
+    expect(ctx.nodes[0]?.disconnect).toHaveBeenCalledOnce();
+    expect(ctx.close).toHaveBeenCalledOnce();
+    expect(engine.sampleRate).toBeUndefined();
+    expect(engine.stats()).toBeUndefined();
+    expect(engine.isPlaying()).toBe(false);
+  });
+
+  it("clears disposed references even when closing the browser context rejects", async () => {
+    const { ctx, engine } = fixture();
+    await engine.play(info, params);
+    ctx.close.mockRejectedValueOnce(new Error("context close"));
+    await expect(engine.dispose()).rejects.toThrow("context close");
+    expect(ctx.nodes[0]?.disconnect).toHaveBeenCalledOnce();
+    expect(engine.sampleRate).toBeUndefined();
+    expect(engine.stats()).toBeUndefined();
+  });
+
   it("maps stale device timestamps to retained audible tags instead of ring-ahead consumption", async () => {
     const { ctx, worker, engine } = fixture();
     vi.spyOn(performance, "now").mockReturnValue(1000);
@@ -428,5 +452,140 @@ describe("AudioEngine document playback", () => {
     expect(engine.isPlaying()).toBe(false);
     expect(engine.position()).toBe(params.start);
     expect(engine.stats()?.bufferedFrames).toBe(0);
+  });
+
+  it("prepares a silent graph with synchronous gesture unlock, then plays a private preview without reconfiguration", async () => {
+    const { ctx, worker, engine } = fixture();
+    const preparing = engine.prepare(info);
+    expect(ctx.construct).toHaveBeenCalledOnce();
+    expect(ctx.resume).toHaveBeenCalledOnce();
+    expect(worker.operations()).not.toContain("engine.configure");
+    await preparing;
+    expect(ctx.nodes[0].options.outputChannelCount).toEqual([2]);
+    expect(engine.isPlaying()).toBe(false);
+    expect(worker.operations()).not.toContain("stream.start");
+    expect(worker.operations()).not.toContain("transport.play");
+    expect(worker.operations()).toContain("transport.stop");
+    const preview = { ...params, previewJobId: "job-1" };
+    await engine.play(info, preview);
+    expect(worker.latest("transport.play")).toMatchObject({ params: preview });
+    expect(ctx.construct).toHaveBeenCalledOnce();
+    expect(ctx.audioWorklet.addModule).toHaveBeenCalledOnce();
+    expect(
+      worker.operations().filter((operation) => operation === "engine.configure"),
+    ).toHaveLength(1);
+    expect(engine.isPlaying()).toBe(true);
+  });
+
+  it("preserves preview source identity when seek supersedes initial play setup", async () => {
+    const { worker, engine } = fixture();
+    worker.hold = "engine.configure";
+    const preview = { ...params, loop: true, previewJobId: "job-1" };
+    const playing = engine.play(info, preview);
+    const configure = await waiting(worker, "engine.configure");
+    const seeking = engine.seek(500);
+    worker.reply(configure);
+    await Promise.all([playing, seeking]);
+    expect(worker.latest("transport.play")).toMatchObject({ params: preview });
+    expect(worker.state).toMatchObject({ position: 500, playing: true });
+    expect(engine.position()).toBe(500);
+  });
+
+  it("awaits gesture unlock before Stop and does not start stale preparation after it settles", async () => {
+    const { ctx, worker, engine } = fixture();
+    let finish!: () => void;
+    ctx.resume.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const preparing = engine.prepare(info);
+    const stopping = engine.stop();
+    await Promise.resolve();
+    expect(ctx.suspend).not.toHaveBeenCalled();
+    finish();
+    await Promise.all([preparing, stopping]);
+    expect(ctx.suspend).toHaveBeenCalledOnce();
+    expect(ctx.nodes).toHaveLength(0);
+    expect(worker.operations()).toEqual(["stream.stop", "transport.stop"]);
+    expect(engine.isPlaying()).toBe(false);
+  });
+
+  it("waits for late preparation setup during Stop and leaves no audible producer", async () => {
+    const { ctx, worker, engine } = fixture();
+    worker.hold = "engine.configure";
+    const preparing = engine.prepare(info);
+    const configure = await waiting(worker, "engine.configure");
+    const stopping = engine.stop();
+    worker.reply(configure);
+    await Promise.all([preparing, stopping]);
+    expect(ctx.resume).toHaveBeenCalledOnce(); // gesture unlock only, never a stale playback resume
+    expect(worker.operations()).not.toContain("stream.start");
+    expect(worker.operations()).not.toContain("transport.play");
+    expect(worker.state.playing).toBe(false);
+    expect(engine.stats()?.bufferedFrames).toBe(0);
+  });
+
+  it("serializes a newer play behind preparation and creates only its requested channel graph", async () => {
+    const { ctx, worker, engine } = fixture();
+    const preparing = engine.prepare(info);
+    const playing = engine.play({ ...info, channels: 6 }, { ...params, previewJobId: "job-2" });
+    await Promise.all([preparing, playing]);
+    expect(ctx.nodes.map((node) => node.options.outputChannelCount)).toEqual([[6]]);
+    expect(worker.ring?.channels).toBe(6);
+    expect(worker.latest("transport.play")).toMatchObject({
+      params: { ...params, previewJobId: "job-2" },
+    });
+    expect(engine.isPlaying()).toBe(true);
+  });
+
+  it("quiesces existing playback during preparation while retaining its audible cursor", async () => {
+    const { worker, engine } = fixture();
+    await engine.play(info, params);
+    worker.ring?.write(new Float32Array(8), 4, BigInt64Array.from([13n, 14n, 15n, 16n]));
+    worker.ring?.readPlanar([new Float32Array(4), new Float32Array(4)], 4);
+    await engine.prepare(info);
+    expect(engine.isPlaying()).toBe(false);
+    expect(engine.position()).toBe(16);
+    expect(worker.state.playing).toBe(false);
+    expect(engine.stats()).toMatchObject({
+      consumedFrames: 0,
+      bufferedFrames: 0,
+      documentFrame: 16,
+    });
+  });
+
+  it("disposes safely while gesture preparation is pending and cannot revive its context", async () => {
+    const { ctx, worker, engine } = fixture();
+    let finish!: () => void;
+    ctx.resume.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const preparing = engine.prepare(info);
+    const disposing = engine.dispose();
+    expect(ctx.close).not.toHaveBeenCalled();
+    finish();
+    await Promise.all([preparing, disposing]);
+    expect(ctx.close).toHaveBeenCalledOnce();
+    expect(ctx.nodes).toHaveLength(0);
+    expect(worker.operations()).not.toContain("engine.configure");
+    expect(engine.sampleRate).toBeUndefined();
+    expect(engine.stats()).toBeUndefined();
+  });
+
+  it("contains a rejected gesture unlock and can retry preparation without starting transport", async () => {
+    const { ctx, worker, engine } = fixture();
+    ctx.resume.mockRejectedValueOnce(new Error("autoplay rejected"));
+    await expect(engine.prepare(info)).rejects.toThrow("autoplay rejected");
+    expect(worker.operations()).toContain("transport.stop");
+    expect(engine.isPlaying()).toBe(false);
+    await engine.prepare(info);
+    expect(ctx.nodes).toHaveLength(1);
+    expect(worker.operations()).not.toContain("stream.start");
+    expect(worker.operations()).not.toContain("transport.play");
   });
 });

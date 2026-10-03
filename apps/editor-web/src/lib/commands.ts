@@ -313,7 +313,12 @@ const definitions: readonly Definition[] = [
     enabled: documentAvailable,
     shortcuts: [mod("a")],
   },
-  { id: "process.amplify", label: "Amplify…", menu: "Process", enabled: () => false },
+  {
+    id: "process.amplify",
+    label: "Amplify…",
+    menu: "Process",
+    enabled: (c) => validSelection(c) && Boolean(c.info?.frames),
+  },
   { id: "process.normalize", label: "Normalize…", menu: "Process", enabled: () => false },
   { id: "process.fade", label: "Fade In / Out", menu: "Process", enabled: () => false },
   { id: "effects.equalizer", label: "Equalizer…", menu: "Effects", enabled: () => false },

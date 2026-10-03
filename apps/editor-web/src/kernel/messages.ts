@@ -1,4 +1,4 @@
-import type { KernelMethod } from "@aae/protocol";
+import type { KernelMethod, ProcessJobResult } from "@aae/protocol";
 import type { RingBufferInit } from "@/audio/ring-buffer";
 
 /**
@@ -9,6 +9,7 @@ import type { RingBufferInit } from "@/audio/ring-buffer";
 export type WorkerOp =
   | { op: "init"; wasmUrl: string; wasmExecUrl: string }
   | { op: "call"; method: KernelMethod; params: unknown; data?: ArrayBuffer }
+  | { op: "process.run"; documentId: string; jobId: string }
   | { op: "stream.attach"; ring: RingBufferInit }
   /** Fills the ring completely, then replies and keeps it topped up. */
   | { op: "stream.start" }
@@ -23,6 +24,7 @@ export interface WorkerResult {
 }
 
 export type WorkerReply =
+  | { kind: "process.progress"; id: number; progress: ProcessJobResult }
   | { kind: "reply"; id: number; ok: true; result: unknown }
   | { kind: "reply"; id: number; ok: false; error: string }
   | { kind: "fatal"; error: string };

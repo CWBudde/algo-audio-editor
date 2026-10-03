@@ -32,6 +32,37 @@ export class AudioEngine {
     return this.ctx?.sampleRate;
   }
 
+  /** Unlock under the Preview gesture, then leave a configured, silent graph. */
+  async prepare(info: DocumentInfoResult): Promise<void> {
+    this.cursor = this.position();
+    this.audibleCursor = this.cursor;
+    const generation = ++this.generation;
+    this.playing = false;
+    try {
+      this.ctx ??= new AudioContext({ latencyHint: "interactive" });
+      // Unlike a resume after processing, this call still has user activation.
+      const unlock = this.ctx.resume();
+      this.resume = unlock;
+      void unlock.catch(() => {});
+      await this.enqueue(async () => {
+        await unlock;
+        if (generation !== this.generation) return;
+        await this.ensureSetup(info.channels, generation);
+        if (generation !== this.generation) return;
+        await this.quiet();
+        if (generation !== this.generation) return;
+        await this.kernel.call("transport.stop");
+        if (generation !== this.generation) return;
+        this.transportStarted = false;
+        this.info = info;
+        this.ring?.reset(this.cursor);
+      });
+    } catch (error) {
+      if (generation === this.generation) await this.stop().catch(() => {});
+      throw error;
+    }
+  }
+
   async play(info: DocumentInfoResult, params: TransportPlayParams): Promise<void> {
     const generation = ++this.generation;
     this.playing = true;
@@ -139,15 +170,27 @@ export class AudioEngine {
   }
 
   async dispose(): Promise<void> {
-    await this.stop();
-    this.node?.disconnect();
-    await this.ctx?.close();
-    this.ctx = undefined;
-    this.node = undefined;
-    this.ring = undefined;
-    this.setup = undefined;
-    this.module = undefined;
-    this.resume = undefined;
+    try {
+      await this.stop();
+    } finally {
+      // A fatal processing watchdog has already killed the worker. Its stop
+      // RPC may reject, but browser resources must still be released.
+      try {
+        this.node?.disconnect();
+      } finally {
+        try {
+          await this.ctx?.close();
+        } finally {
+          this.ctx = undefined;
+          this.node = undefined;
+          this.ring = undefined;
+          this.setup = undefined;
+          this.module = undefined;
+          this.resume = undefined;
+          this.transportStarted = false;
+        }
+      }
+    }
   }
 
   private enqueue(operation: () => Promise<void>): Promise<void> {

@@ -117,6 +117,18 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await expect(palette).not.toBeVisible();
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-start-frame", "0");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-end-frame", "16");
+    await page.getByRole("menuitem", { name: "Process", exact: true }).click();
+    await page.locator('[role="menuitem"][data-command-id="process.amplify"]').click();
+    const amplify = page.getByRole("dialog", { name: "Amplify", exact: true });
+    await amplify.getByLabel("Gain (dB)").fill("-6");
+    await amplify.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(amplify.getByTestId("process-status")).toContainText("Previewing");
+    await expect(page.getByTestId("underruns")).toHaveText("0");
+    await amplify.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(amplify).not.toBeVisible();
+    await expect(page.getByTestId("document-details")).toContainText("· 16 frames");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
     expect(errors).toEqual([]);
   } finally {
     await app.close();

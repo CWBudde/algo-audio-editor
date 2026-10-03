@@ -106,7 +106,6 @@ describe("central command registry", () => {
     expect(resolveCommands(context, "other", {}).every((command) => !command.enabled)).toBe(true);
     for (const id of [
       "file.new",
-      "process.amplify",
       "process.normalize",
       "process.fade",
       "effects.equalizer",

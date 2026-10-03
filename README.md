@@ -5,10 +5,11 @@ An audio editor that runs in the browser and as a desktop app. All audio work
 WebAssembly** on top of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp)
 family. The UI is **React + TypeScript + shadcn**.
 
-> **Status:** Phases 1–2 of [PLAN.md](PLAN.md): WAV import/export,
+> **Status:** Phases 1–2 and processing infrastructure in [PLAN.md](PLAN.md): WAV import/export,
 > interactive waveforms, playback, channel-aware selections and editing in the
 > browser and Electron, with undo/redo, persistent markers/regions, save-point
-> tracking, shared commands and a searchable command palette.
+> tracking, shared commands and a searchable command palette. Amplify adds
+> cancellable gain processing and a noncommitting playback preview.
 
 ## Architecture
 
@@ -39,13 +40,18 @@ just ci            # everything CI checks
 
 Browser tests start their own production preview. If port 4173 is occupied,
 choose a separate port: `AAE_E2E_PORT=44873 just e2e` (also supported by
-`just bench-import-browser`).
+`just bench-import-browser` and `just bench-process-browser`).
 
 `just bench-import-browser` measures a full ten-minute WAV import through file
 reading, the kernel and drawn waveforms. Run it in isolation on the target
 laptop. For native CPU profiling, pass an existing absolute temporary-directory
 path to `just bench-import-profile`; it stores the test binary and CPU profile
 there and prints the import hotspots.
+
+`just bench-process-browser` measures ten-minute stereo gain through the actual
+Apply dialog, yielded worker job, atomic commit and redrawn waveforms. Run this
+hardware-dependent <1 s gate in isolation too. `just bench-process` and
+`just bench-process-wasm` isolate native and WASM kernel processing costs.
 
 ## Selecting audio
 
@@ -117,6 +123,23 @@ boundaries. Crop intersects and rebases annotations, retaining points on its
 closed boundaries. Subset-channel edits keep global annotation coordinates,
 as unselected channels retain their sample positions. Mute, swap and Mix keep
 coordinates unchanged. Copy/paste and Duplicate do not clone annotations.
+
+## Processing audio
+
+Process → Amplify accepts −120 to +60 dB. A nonempty selection limits the
+processed time range; a cursor processes the whole file. Both cases retain
+the selected channel mask. Preview loops a private processed copy through the
+normal playback path without changing the document, history or save point.
+Stop preview retains that copy; changing the gain rebuilds it on the next
+Preview or Apply. Apply creates one undoable edit. Zero dB is an exact no-op,
+including special floating-point sample bits and the original cursor.
+
+Long jobs show progress and yield between bounded kernel chunks so Cancel can
+discard their private output. The dialog holds the shared document lock until
+Apply or Cancel completes. Samples above full scale are not clipped by gain;
+a predicted-peak/nonfinite warning requires a separate Apply anyway action.
+New selected-channel samples are bounded to 512 MiB, and committing must also
+fit the undo-history budget. Other destructive processes remain planned.
 
 ## Undo and saving
 
