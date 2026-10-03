@@ -59,6 +59,7 @@ export async function load(page: Page, channels = [LEFT, RIGHT], rate = 48_000) 
   await (await revealControl(page.getByLabel("Time format", { exact: true }))).selectOption(
     "samples",
   );
+  await page.getByLabel("Time format", { exact: true }).press("Escape");
 }
 
 export async function info(page: Page) {
@@ -123,7 +124,9 @@ export async function samples(page: Page) {
 
 export async function edit(page: Page, name: string, frames: number) {
   const previous = (await info(page)).documentId;
-  await (await revealControl(page.getByRole("button", { name, exact: true }))).click();
+  await (
+    await revealControl(page.getByRole("button", { name, exact: true, includeHidden: true }))
+  ).click();
   await expect.poll(async () => (await info(page)).documentId).not.toBe(previous);
   await expect(page.getByTestId("document-details")).toContainText(`· ${frames} frames`);
   await expect(page.getByLabel("Selection start", { exact: true })).toBeEnabled();

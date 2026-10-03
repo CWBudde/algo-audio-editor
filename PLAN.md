@@ -22,7 +22,7 @@
 
 **Product shape (decided 2026-10-02):** a waveform editor first, in the spirit of ocenaudio, Sound Forge or Audition's waveform view. Multitrack comes in Phase 11 and is built on the same block-based document model.
 
-## Phase U: Editor Clarity & Sample Detail
+## ✅ Phase U: Editor Clarity & Sample Detail — COMPLETE (2026-10-03)
 
 **Priority:** User-requested next work (2026-10-03); the unfinished Phase 3.2 LUFS performance requirement remains pending, not waived.
 
@@ -56,11 +56,11 @@
 - [x] `useWaveformPeaks` reuses binary one-frame `peaks.get` records in ≤8192-frame pages with clamped boundary context and one physical in-flight request across envelope/detail switches. It publishes complete current pages only, rejects aggregate/missing records and clears obsolete snapshot/paint references. Ninety-four focused tests cover threshold/DPR, signed geometry, page seams, EOF, NaN/infinity display, safe offsets, stale partial replies and all existing waveform interactions; TypeScript and scoped Biome pass. ABI v10 and Go/audio processing are unchanged.
 - [x] Overview and ≤1 CSS pixel/sample envelopes retain their existing geometry. Sinc interpolation and the undecided zoomed-out redesign remain explicitly outside this phase.
 
-### Phase U.6: Integration and acceptance
+### Phase U.6: Integration and acceptance — ✅ DONE (2026-10-03)
 
-- [ ] Cover footer/disclosures/icons/modal behavior, responsive layouts and sample geometry/query edge cases with component tests and actual browser pixel checks.
-- [ ] Migrate diagnostics assertions without weakening playback/isolation/underrun checks; run full CI, all kernel WASM tests, browser regressions and Electron smoke.
-- [ ] Capture desktop/narrow screenshots and run existing hardware performance gates serially without relaxing limits. Record measured outcomes, including the still-pending LUFS gate.
+- [x] Component regressions cover footer identities/save state, icon command routing, native disclosure dismissal/clamping, inner-draft Escape priority, modal fencing and focus restoration. `sample-waveform.spec.ts` adds five actual production-pixel cases: signed dots without RMS/bars, linear versus hold geometry, EOF/context clipping, strict CSS-pixel threshold at DPR 1/2, cached mode redraws and unchanged exported samples/history. The pixel oracle recognizes antialiased CSS-role/background blends while rejecting background, mirrored signs and RMS.
+- [x] Browser/Electron tests reveal real disclosures and retain their original playback, isolation, zero-underrun, audio/export, metadata and history assertions. Final `just ci` passes: 706 frontend tests in 40 files, native Go race tests, native/WASM lint/vet, both typechecks, formatting/tidy and production build. All kernel golden tests under actual V8/WASM pass. All 69 production browser functional tests, the separate audible-cursor timing test and the isolated Electron smoke pass. Current sibling dependency tags pass `check-deps`; ABI v10 and generated UI components are unchanged. The existing nonfatal >500 kB bundle warning remains.
+- [x] Captured desktop (1920×1000), narrow (640×720) and signed-sample detail screenshots. All owned build/test jobs were idle during serial hardware gates: ten-minute stereo import **631.970 ms**, gain **460.890 ms**, peak normalization **440.315 ms** pass their unchanged <1 s limits. The cursor gate records 20 readings, maximum **11 frames**, **zero underruns** (unchanged one-quantum limit). LUFS **1071.205 ms** fails the unchanged <1 s limit despite measured stored output **−22.999999991 LUFS** at target −23; the pre-existing Phase 3.2 requirement remains pending, not waived or marked complete. This UI phase does not modify DSP or claim a LUFS performance fix.
 
 ---
 

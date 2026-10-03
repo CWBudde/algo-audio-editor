@@ -47,7 +47,11 @@ test("channel-only edits keep other channel positions and pad only at EOF; crop 
 }) => {
   await load(page);
   await select(page, 1, 3);
-  await (await revealControl(page.getByRole("button", { name: "Left", exact: true }))).click();
+  await (
+    await revealControl(
+      page.getByRole("button", { name: "Left", exact: true, includeHidden: true }),
+    )
+  ).click();
   await edit(page, "Mute", 8);
   expect(await samples(page)).toEqual([[0.125, 0, 0, ...LEFT.slice(3)], RIGHT]);
   await select(page, 3, 5);
@@ -64,7 +68,9 @@ test("channel-only edits keep other channel positions and pad only at EOF; crop 
   await select(page, 3, 7);
   await edit(page, "Crop time (all channels)", 4);
   expect(await samples(page)).toEqual([[0, 0, 0.5, 0.625], RIGHT.slice(3, 7)]);
-  await (await revealControl(page.getByRole("button", { name: "All", exact: true }))).click();
+  await (
+    await revealControl(page.getByRole("button", { name: "All", exact: true, includeHidden: true }))
+  ).click();
   await select(page, 1, 3);
   await edit(page, "Swap selected channels", 4);
   expect(await samples(page)).toEqual([
@@ -83,10 +89,16 @@ test("channel conversion requires confirmation and cancellation leaves document 
 }) => {
   await load(page);
   await select(page, 1, 3);
-  await (await revealControl(page.getByRole("button", { name: "Left", exact: true }))).click();
+  await (
+    await revealControl(
+      page.getByRole("button", { name: "Left", exact: true, includeHidden: true }),
+    )
+  ).click();
   await page.getByRole("button", { name: "Copy", exact: true }).click();
   await expect.poll(async () => (await clipboard(page)).channels).toBe(1);
-  await (await revealControl(page.getByRole("button", { name: "All", exact: true }))).click();
+  await (
+    await revealControl(page.getByRole("button", { name: "All", exact: true, includeHidden: true }))
+  ).click();
   await select(page, 0, 0);
   const before = await info(page);
   const copied = await clipboard(page);
@@ -192,7 +204,9 @@ test("oversized mix rejects safely without changing the document or clipboard", 
   const before = await info(page);
   const copied = await clipboard(page);
   await (
-    await revealControl(page.getByRole("button", { name: "Mix clipboard", exact: true }))
+    await revealControl(
+      page.getByRole("button", { name: "Mix clipboard", exact: true, includeHidden: true }),
+    )
   ).click();
   await expect(page.getByText("Could not paste-mix", { exact: true })).toBeVisible();
   await expect(page.getByText(/materialized.*budget|budget.*materialized/)).toBeVisible();

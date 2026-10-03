@@ -35,7 +35,11 @@ test("gain processing changes only selected frames/channels and is one exact und
 }) => {
   await load(page);
   await select(page, 2, 6);
-  await (await revealControl(page.getByRole("button", { name: "Right", exact: true }))).click();
+  await (
+    await revealControl(
+      page.getByRole("button", { name: "Right", exact: true, includeHidden: true }),
+    )
+  ).click();
   const before = await info(page);
   const saved = await history(page);
   const dialog = await amplify(page, "-6.020599913279624");

@@ -105,7 +105,11 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await page.getByLabel("Selection end", { exact: true }).press("Enter");
     await page.getByLabel("Selection start", { exact: true }).fill("4");
     await page.getByLabel("Selection start", { exact: true }).press("Enter");
-    await (await revealControl(page.getByRole("button", { name: "Right", exact: true }))).click();
+    await (
+      await revealControl(
+        page.getByRole("button", { name: "Right", exact: true, includeHidden: true }),
+      )
+    ).click();
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-channel-mask", "2");
     await expect(page.getByTestId("waveform-selection")).toHaveCount(0);
     await (await revealControl(page.getByLabel("Marker or region name"))).fill("Desktop region");
@@ -127,7 +131,11 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await expect(page.getByTestId("region-row-1")).toContainText("Desktop region edited");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
-    await (await revealControl(page.getByRole("button", { name: "All", exact: true }))).click();
+    await (
+      await revealControl(
+        page.getByRole("button", { name: "All", exact: true, includeHidden: true }),
+      )
+    ).click();
     await page.getByRole("button", { name: "Cut", exact: true }).click();
     await expect(page.getByTestId("document-details")).toContainText("· 12 frames");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");

@@ -40,6 +40,7 @@ async function open(page: Page) {
   await (await revealControl(page.getByLabel("Time format", { exact: true }))).selectOption(
     "samples",
   );
+  await page.getByLabel("Time format", { exact: true }).press("Escape");
 }
 
 async function selection(page: Page) {
@@ -79,7 +80,11 @@ test("numeric entry preserves exact frames across formats and targets arbitrary 
   await entry(page, "end", "24,001");
   await entry(page, "start", "12001");
   await expect.poll(() => range(page)).toEqual({ start: 12_001, end: 24_001, channelMask: 3 });
-  await (await revealControl(page.getByRole("button", { name: "Right", exact: true }))).click();
+  await (
+    await revealControl(
+      page.getByRole("button", { name: "Right", exact: true, includeHidden: true }),
+    )
+  ).click();
   await expect.poll(() => range(page)).toEqual({ start: 12_001, end: 24_001, channelMask: 2 });
   await expect(page.getByTestId("waveform-selection")).toHaveCount(0);
   await expect(page.getByTestId("waveform-selection-1")).toBeVisible();
@@ -155,7 +160,8 @@ test("named regions and markers are usable snapping and double-click targets", a
   await (await revealControl(page.getByLabel("Marker or region name"))).fill("Cue");
   await page.getByRole("button", { name: "Add marker", exact: true }).click();
   await expect(page.getByTestId("timeline-marker-2")).toBeVisible();
-  await page.getByLabel("Markers / regions", { exact: true }).check();
+  await (await revealControl(page.getByLabel("Markers / regions", { exact: true }))).check();
+  await page.keyboard.press("Escape");
   const near = await point(page, 10_000);
   await page.mouse.click(near.x + 5, near.y);
   await expect.poll(() => range(page)).toEqual({ start: 10_000, end: 10_000, channelMask: 3 });
@@ -175,20 +181,30 @@ test("zero snapping follows the selected channel and ruler snapping uses display
   page,
 }) => {
   await open(page);
-  await (await revealControl(page.getByRole("button", { name: "Left", exact: true }))).click();
-  await page.getByLabel("Zero crossings", { exact: true }).check();
+  await (
+    await revealControl(
+      page.getByRole("button", { name: "Left", exact: true, includeHidden: true }),
+    )
+  ).click();
+  await (await revealControl(page.getByLabel("Zero crossings", { exact: true }))).check();
+  await page.keyboard.press("Escape");
   const left = await point(page, 12_000);
   await page.mouse.click(left.x + 2, left.y);
   await expect.poll(() => range(page)).toEqual({ start: 12_000, end: 12_000, channelMask: 1 });
-  await (await revealControl(page.getByRole("button", { name: "Right", exact: true }))).click();
+  await (
+    await revealControl(
+      page.getByRole("button", { name: "Right", exact: true, includeHidden: true }),
+    )
+  ).click();
   const right = await point(page, 36_000);
   await page.mouse.click(right.x - 2, right.y);
   await expect.poll(() => range(page)).toEqual({ start: 36_000, end: 36_000, channelMask: 2 });
-  await page.getByLabel("Zero crossings", { exact: true }).uncheck();
+  await (await revealControl(page.getByLabel("Zero crossings", { exact: true }))).uncheck();
   await (await revealControl(page.getByLabel("Time format", { exact: true }))).selectOption(
     "seconds",
   );
-  await page.getByLabel("Ruler ticks", { exact: true }).check();
+  await (await revealControl(page.getByLabel("Ruler ticks", { exact: true }))).check();
+  await page.keyboard.press("Escape");
   const tick = page.getByTestId("waveform-time-ruler").getByText("0.5 s", { exact: true });
   const bounds = await tick.boundingBox();
   if (!bounds) throw new Error("missing half-second ruler tick");
@@ -202,7 +218,11 @@ test("reopening an identical file resets selection and anchors and rejects the o
 }) => {
   await open(page);
   await entry(page, "end", "24000");
-  await (await revealControl(page.getByRole("button", { name: "Left", exact: true }))).click();
+  await (
+    await revealControl(
+      page.getByRole("button", { name: "Left", exact: true, includeHidden: true }),
+    )
+  ).click();
   await page.getByRole("button", { name: "Add region", exact: true }).click();
   await expect(page.getByTestId("timeline-region-1")).toBeVisible();
   const old = await selection(page);

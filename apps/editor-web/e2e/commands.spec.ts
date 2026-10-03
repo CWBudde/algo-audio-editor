@@ -75,7 +75,11 @@ test("select-all and silence palette commands use the live channel mask and exac
   page,
 }) => {
   await load(page);
-  await (await revealControl(page.getByRole("button", { name: "Right", exact: true }))).click();
+  await (
+    await revealControl(
+      page.getByRole("button", { name: "Right", exact: true, includeHidden: true }),
+    )
+  ).click();
   const silence = await revealControl(page.getByLabel("Silence frames", { exact: true }));
   await silence.fill("3");
   await silence.press("Control+a");

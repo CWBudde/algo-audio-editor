@@ -55,7 +55,11 @@ test("peak normalization has independent subset output goldens and exact undo/re
 }) => {
   await load(page);
   await select(page, 2, 6);
-  await (await revealControl(page.getByRole("button", { name: "Right", exact: true }))).click();
+  await (
+    await revealControl(
+      page.getByRole("button", { name: "Right", exact: true, includeHidden: true }),
+    )
+  ).click();
   const before = await info(page),
     saved = await history(page);
   const dialog = await normalize(page, "normalize-peak", "-6.020599913279624");

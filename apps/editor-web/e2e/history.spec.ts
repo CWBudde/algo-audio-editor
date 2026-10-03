@@ -176,6 +176,9 @@ test("history rows jump both directions, branching removes redo, and input undo 
   expect(branched.canRedo).toBe(false);
   expect(branched.currentStateId).not.toBe(duplicate.currentStateId);
   await expect(page.getByTestId(`history-state-${duplicate.currentStateId}`)).toHaveCount(0);
+  await revealControl(
+    page.getByRole("button", { name: "Redo edit", exact: true, includeHidden: true }),
+  );
   await expect(page.getByRole("button", { name: "Redo edit", exact: true })).toBeDisabled();
 });
 
@@ -221,7 +224,9 @@ test("cancelled and failed saves stay dirty, failed open retains history, reopen
     }),
   );
   await save(page);
-  await expect(page.getByRole("button", { name: "Mute", exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Mute", exact: true, includeHidden: true }),
+  ).toBeEnabled();
   expect(await history(page)).toEqual(current);
   await page.evaluate(() =>
     Object.assign(window, {
