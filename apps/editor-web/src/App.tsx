@@ -496,7 +496,7 @@ export default function App() {
         >
           {busy && (
             <p role="status" className="absolute right-3 top-3 text-sm text-muted-foreground">
-              Working on audio…
+              Working on document…
             </p>
           )}
           {doc.info && client ? (
@@ -504,6 +504,12 @@ export default function App() {
               ref={waveformView}
               client={client}
               info={doc.info}
+              timelineOptions={{
+                busy,
+                withOperation: doc.withOperation,
+                onTimelineChanged: (result) => history.accept(result.history),
+              }}
+              onExportTimeline={doc.exportTimeline}
               position={position}
               playing={playing}
               follow={follow}

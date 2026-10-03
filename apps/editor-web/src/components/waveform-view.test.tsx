@@ -1,6 +1,7 @@
 import type {
   DocumentInfoResult,
   PeaksGetParams,
+  SelectionRange,
   SelectionResult,
   SelectionSnapParams,
   TimelineResult,
@@ -8,6 +9,7 @@ import type {
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SelectionOptions } from "@/hooks/use-selection";
 import { KernelClient, type WorkerLike } from "@/kernel/client";
 import type { WorkerReply, WorkerRequest } from "@/kernel/messages";
 import { WaveformView, type WaveformViewHandle } from "./waveform-view";
@@ -72,7 +74,13 @@ class PeakWorker implements WorkerLike {
     this.sent.push(request);
     if (request.op !== "call") return;
     if (request.method !== "peaks.get") {
-      const params = request.params as SelectionResult & { frame: number; name: string };
+      const params = request.params as SelectionResult & {
+        id: number;
+        frame: number;
+        name: string;
+        color: string;
+        selection?: SelectionRange;
+      };
       let result: unknown;
       switch (request.method) {
         case "selection.set":
@@ -98,6 +106,7 @@ class PeakWorker implements WorkerLike {
             id: 1,
             frame: params.frame,
             name: params.name || "Marker 1",
+            color: params.color,
           });
           result = { ...this.timeline };
           break;
@@ -107,11 +116,65 @@ class PeakWorker implements WorkerLike {
             start: params.start,
             end: params.end,
             name: params.name || "Region 2",
+            color: params.color,
           });
+          result = { ...this.timeline };
+          break;
+        case "markers.update":
+          this.timeline.markers = this.timeline.markers.map((marker) =>
+            marker.id === params.id
+              ? { ...marker, frame: params.frame, name: params.name, color: params.color }
+              : marker,
+          );
+          result = { ...this.timeline };
+          break;
+        case "regions.update":
+          this.timeline.regions = this.timeline.regions.map((region) =>
+            region.id === params.id
+              ? {
+                  ...region,
+                  start: params.start,
+                  end: params.end,
+                  name: params.name,
+                  color: params.color,
+                }
+              : region,
+          );
+          result = { ...this.timeline };
+          break;
+        case "markers.remove":
+          this.timeline.markers = this.timeline.markers.filter((marker) => marker.id !== params.id);
+          result = { ...this.timeline };
+          break;
+        case "regions.remove":
+          this.timeline.regions = this.timeline.regions.filter((region) => region.id !== params.id);
           result = { ...this.timeline };
           break;
         default:
           result = { ...this.timeline, documentId: params.documentId };
+      }
+      if (/^(markers|regions)\.(add|update|remove)$/.test(request.method)) {
+        if (params.selection)
+          this.selection = { documentId: params.documentId, ...params.selection };
+        result = {
+          ...this.timeline,
+          changed: true,
+          history: {
+            documentId: params.documentId,
+            currentStateId: "state-2",
+            savedStateId: "state-1",
+            dirty: true,
+            canUndo: true,
+            canRedo: false,
+            entries: [
+              { stateId: "state-1", label: "Opened" },
+              { stateId: "state-2", label: "Timeline" },
+            ],
+            maxEntries: 100,
+            maxBytes: 1000000,
+            retainedBytes: 0,
+          },
+        };
       }
       queueMicrotask(() =>
         this.listener?.({
@@ -265,6 +328,9 @@ function mounted(
     selection?: Partial<SelectionResult>;
     timeline?: Partial<TimelineResult>;
     onSeek?: (frame: number) => void;
+    timelineOptions?: SelectionOptions;
+    onExportTimeline?: (format: "csv" | "labels") => void;
+    playing?: boolean;
   } = {},
 ) {
   const worker = new PeakWorker(documentInfo);
@@ -274,7 +340,15 @@ function mounted(
   const handle = createRef<WaveformViewHandle>();
   return {
     ...render(
-      <WaveformView client={client} info={documentInfo} ref={handle} onSeek={options.onSeek} />,
+      <WaveformView
+        client={client}
+        info={documentInfo}
+        ref={handle}
+        onSeek={options.onSeek}
+        timelineOptions={options.timelineOptions}
+        onExportTimeline={options.onExportTimeline}
+        playing={options.playing}
+      />,
     ),
     worker,
     client,
@@ -450,7 +524,7 @@ describe("WaveformView", () => {
     const onSeek = vi.fn();
     const { getByTestId, getByLabelText, getByRole, worker, handle } = mounted(info, {
       selection: { start: 12000, end: 24000, channelMask: 1 },
-      timeline: { regions: [{ id: 10, start: 0, end: 36000, name: "Outer" }] },
+      timeline: { regions: [{ id: 10, start: 0, end: 36000, name: "Outer", color: "#a78bfa" }] },
       onSeek,
     });
     await painted(getByTestId);
@@ -462,6 +536,8 @@ describe("WaveformView", () => {
       start: 12000,
       end: 24000,
       name: "Verse",
+      color: "#a78bfa",
+      selection: { start: 12000, end: 24000, channelMask: 1 },
     });
     expect(getByTestId("timeline-region-2")).toBeTruthy();
     act(() => handle.current?.clearSelection(0));
@@ -478,8 +554,8 @@ describe("WaveformView", () => {
     const { getByTestId } = mounted(info, {
       timeline: {
         markers: [
-          { id: 1, frame: 12000, name: "Start" },
-          { id: 2, frame: 24000, name: "End" },
+          { id: 1, frame: 12000, name: "Start", color: "#a78bfa" },
+          { id: 2, frame: 24000, name: "End", color: "#a78bfa" },
         ],
       },
     });
@@ -495,8 +571,8 @@ describe("WaveformView", () => {
   it("snaps endpoints to marker and region boundaries without sample RPCs", async () => {
     const { getByTestId, getByLabelText, worker } = mounted(info, {
       timeline: {
-        markers: [{ id: 1, frame: 12000, name: "Cue" }],
-        regions: [{ id: 2, start: 18000, end: 24000, name: "Verse" }],
+        markers: [{ id: 1, frame: 12000, name: "Cue", color: "#a78bfa" }],
+        regions: [{ id: 2, start: 18000, end: 24000, name: "Verse", color: "#a78bfa" }],
       },
     });
     await painted(getByTestId);
@@ -895,6 +971,121 @@ describe("WaveformView", () => {
     fireEvent.change(getByLabelText("Amplitude scale"), { target: { value: "db" } });
     expect(getByTestId("waveform-amplitude-ruler-0").textContent).toContain("-6");
     expect(getByTestId("waveform-amplitude-ruler-0").textContent).toContain("−∞");
+  });
+
+  it("adds/renames/recolors/removes metadata without resetting playing cursor, peaks or viewport", async () => {
+    const onTimelineChanged = vi.fn();
+    const onSeek = vi.fn();
+    const { getByTestId, getByLabelText, getByRole, container, worker } = mounted(info, {
+      playing: true,
+      onSeek,
+      timelineOptions: { onTimelineChanged },
+      selection: { start: 12000, end: 24000, channelMask: 2 },
+    });
+    await painted(getByTestId);
+    fireEvent.click(getByRole("button", { name: "Zoom in" }));
+    await flushReplies();
+    await waitFor(() => expect(worker.peaks).toHaveLength(4));
+    const beforeRange = range(getByTestId("waveform-view"));
+    const beforePeaks = worker.peaks.length;
+    fireEvent.change(getByLabelText("Marker or region name"), { target: { value: "Cue" } });
+    fireEvent.change(getByLabelText("Marker or region color"), { target: { value: "#123456" } });
+    fireEvent.click(getByRole("button", { name: /^Add marker$/ }));
+    await flushReplies();
+    expect(getByTestId("timeline-marker-1").style.borderColor).toBe("rgb(18, 52, 86)");
+    expect(worker.calls("markers.add")[0].params).toEqual({
+      documentId: "doc-1",
+      frame: 12000,
+      name: "Cue",
+      color: "#123456",
+      selection: { start: 12000, end: 24000, channelMask: 2 },
+    });
+    const details = container.querySelector("details") as HTMLDetailsElement;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    fireEvent.click(getByRole("button", { name: "Edit marker Cue" }));
+    fireEvent.change(getByLabelText("Timeline name"), { target: { value: "Renamed" } });
+    fireEvent.change(getByLabelText("Timeline color"), { target: { value: "#abcdef" } });
+    fireEvent.click(getByRole("button", { name: "Save marker" }));
+    await flushReplies();
+    expect(getByTestId("timeline-marker-1").textContent).toBe("Renamed");
+    expect(getByTestId("timeline-marker-1").style.color).toBe("rgb(171, 205, 239)");
+    fireEvent.click(getByRole("button", { name: "Delete marker Renamed" }));
+    await flushReplies();
+    expect(onTimelineChanged).toHaveBeenCalledTimes(3);
+    expect(onTimelineChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        documentId: "doc-1",
+        changed: true,
+        history: expect.objectContaining({ dirty: true }),
+      }),
+      "doc-1",
+    );
+    expect(range(getByTestId("waveform-view"))).toEqual(beforeRange);
+    expect(worker.peaks).toHaveLength(beforePeaks);
+    expect(worker.calls("selection.set")).toHaveLength(0);
+    expect(worker.calls("transport.stop")).toHaveLength(0);
+    expect(onSeek).not.toHaveBeenCalled();
+  });
+
+  it("jumps from the management list via committed selection/seek and delegates export without JS serialization", async () => {
+    const onSeek = vi.fn();
+    const onExportTimeline = vi.fn();
+    const onTimelineChanged = vi.fn();
+    const { getByRole, getByTestId, container, worker } = mounted(info, {
+      onSeek,
+      onExportTimeline,
+      timelineOptions: { onTimelineChanged },
+      selection: { channelMask: 2 },
+      timeline: { regions: [{ id: 9, start: 12000, end: 24000, name: "Verse", color: "#ff0000" }] },
+    });
+    await painted(getByTestId);
+    expect(getByTestId("timeline-region-9").style.backgroundColor).toBe("rgba(255, 0, 0, 0.5)");
+    const details = container.querySelector("details") as HTMLDetailsElement;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    fireEvent.click(getByRole("button", { name: "Jump to region Verse" }));
+    await flushReplies();
+    expect(worker.selection).toMatchObject({ start: 12000, end: 24000, channelMask: 2 });
+    expect(onSeek).toHaveBeenCalledWith(12000);
+    expect(onTimelineChanged).not.toHaveBeenCalled();
+    fireEvent.click(getByRole("button", { name: "Export CSV" }));
+    fireEvent.click(getByRole("button", { name: "Export labels" }));
+    expect(onExportTimeline.mock.calls).toEqual([["csv"], ["labels"]]);
+    expect(worker.calls("timeline.export")).toHaveLength(0);
+  });
+
+  it("refuses add and management actions during pointer and delayed snap previews", async () => {
+    const { getByRole, getByTestId, getByLabelText, container, worker } = mounted(info, {
+      timeline: { markers: [{ id: 1, frame: 12000, name: "Cue", color: "#a78bfa" }] },
+    });
+    await painted(getByTestId);
+    const details = container.querySelector("details") as HTMLDetailsElement;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    fireEvent.click(getByLabelText("Zero crossings"));
+    worker.deferSnaps = true;
+    const canvas = getByTestId("waveform-channel-0");
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: frameX(12000) });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: frameX(18000) });
+    for (const name of [
+      "Add marker",
+      "Add region",
+      "Delete marker Cue",
+      "Edit marker Cue",
+      "Jump to marker Cue",
+    ]) {
+      expect((getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(getByRole("button", { name }));
+    }
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: frameX(18000) });
+    expect((getByRole("button", { name: "Add marker" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(getByRole("button", { name: "Delete marker Cue" }));
+    expect(worker.calls("markers.add")).toHaveLength(0);
+    expect(worker.calls("markers.remove")).toHaveLength(0);
+    await act(async () => worker.resolveSnaps(18000));
+    await flushReplies();
+    expect((getByRole("button", { name: "Add marker" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("handles an empty document without asking the kernel for peaks", () => {

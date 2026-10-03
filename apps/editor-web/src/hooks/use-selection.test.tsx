@@ -1,6 +1,7 @@
 import type {
   DocumentInfoResult,
   EditResult,
+  HistoryListResult,
   SelectionResult,
   TimelineResult,
 } from "@aae/protocol";
@@ -9,7 +10,7 @@ import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KernelClient, type WorkerLike } from "@/kernel/client";
 import type { WorkerReply, WorkerRequest } from "@/kernel/messages";
-import { useSelection } from "./use-selection";
+import { type SelectionOptions, useSelection } from "./use-selection";
 
 const info: DocumentInfoResult = {
   documentId: "doc-1",
@@ -22,6 +23,21 @@ const info: DocumentInfoResult = {
 };
 const initial: SelectionResult = { documentId: info.documentId, start: 0, end: 0, channelMask: 3 };
 const timeline: TimelineResult = { documentId: info.documentId, markers: [], regions: [] };
+const history: HistoryListResult = {
+  documentId: info.documentId,
+  currentStateId: "state-2",
+  savedStateId: "state-1",
+  dirty: true,
+  canUndo: true,
+  canRedo: false,
+  entries: [
+    { stateId: "state-1", label: "Opened" },
+    { stateId: "state-2", label: "Timeline" },
+  ],
+  maxEntries: 100,
+  maxBytes: 1000000,
+  retainedBytes: 0,
+};
 
 class DeferredWorker implements WorkerLike {
   sent: WorkerRequest[] = [];
@@ -53,19 +69,24 @@ interface HookProps {
   client: KernelClient;
   info: DocumentInfoResult;
   initial?: SelectionSeed;
+  options?: SelectionOptions;
 }
 
-function mounted(strict = false, seed?: SelectionSeed) {
+function mounted(strict = false, seed?: SelectionSeed, options?: SelectionOptions) {
   const worker = new DeferredWorker();
   const client = new KernelClient(worker);
-  const initialProps: HookProps = { client, info, initial: seed };
+  const initialProps: HookProps = { client, info, initial: seed, options };
   return {
     worker,
     client,
-    ...renderHook(({ client, info, initial }: HookProps) => useSelection(client, info, initial), {
-      initialProps,
-      wrapper: strict ? StrictMode : undefined,
-    }),
+    ...renderHook(
+      ({ client, info, initial, options }: HookProps) =>
+        useSelection(client, info, initial, options),
+      {
+        initialProps,
+        wrapper: strict ? StrictMode : undefined,
+      },
+    ),
   };
 }
 
@@ -80,8 +101,8 @@ describe("useSelection", () => {
     selection: { ...initial, start: 100, end: 200, channelMask: 2 },
     timeline: {
       ...timeline,
-      markers: [{ id: 1, frame: 150, name: "Cue" }],
-      regions: [{ id: 2, start: 100, end: 200, name: "Verse" }],
+      markers: [{ id: 1, frame: 150, name: "Cue", color: "#a78bfa" }],
+      regions: [{ id: 2, start: 100, end: 200, name: "Verse", color: "#a78bfa" }],
     },
   };
 
@@ -178,7 +199,7 @@ describe("useSelection", () => {
       });
       worker.reply(worker.calls("timeline.get")[0], {
         ...timeline,
-        markers: [{ id: 1, frame: 7, name: "Cue" }],
+        markers: [{ id: 1, frame: 7, name: "Cue", color: "#a78bfa" }],
       });
     });
     expect(result.current.selection).toEqual({ start: 4, end: 10, channelMask: 2 });
@@ -309,7 +330,10 @@ describe("useSelection", () => {
     });
     await act(async () => worker.fail(worker.calls("markers.add")[0]));
     await pending;
-    const existing = { ...timeline, markers: [{ id: 1, frame: 100, name: "Existing" }] };
+    const existing = {
+      ...timeline,
+      markers: [{ id: 1, frame: 100, name: "Existing", color: "#a78bfa" }],
+    };
     await act(async () => worker.reply(worker.calls("timeline.get")[0], existing));
     expect(result.current.timeline).toEqual(existing);
   });
@@ -399,7 +423,7 @@ describe("useSelection", () => {
 
   it("serializes anchor creation, preserves added anchors over late initialization and hides obsolete replies", async () => {
     const { worker, result, rerender, client } = mounted();
-    act(() => result.current.preview({ start: 12, end: 25, channelMask: 1 }));
+    act(() => result.current.commit({ start: 12, end: 25, channelMask: 1 }));
     let pending: Promise<void> = Promise.resolve();
     act(() => {
       pending = result.current.addAnchor("region", "Verse");
@@ -409,8 +433,13 @@ describe("useSelection", () => {
       params: { documentId: "doc-1", start: 12, end: 25, name: "Verse" },
     });
     expect(worker.calls("markers.add")).toHaveLength(0);
-    const added = { ...timeline, regions: [{ id: 1, start: 12, end: 25, name: "Verse" }] };
-    await act(async () => worker.reply(worker.calls("regions.add")[0], added));
+    const added = {
+      ...timeline,
+      regions: [{ id: 1, start: 12, end: 25, name: "Verse", color: "#a78bfa" }],
+    };
+    await act(async () =>
+      worker.reply(worker.calls("regions.add")[0], { ...added, history, changed: true }),
+    );
     await pending;
     await act(async () => worker.reply(worker.calls("timeline.get")[0], timeline));
     expect(result.current.timeline).toEqual(added);
@@ -421,5 +450,268 @@ describe("useSelection", () => {
     await act(async () => worker.reply(worker.calls("markers.add")[0], added));
     await pending;
     expect(result.current.timeline).toEqual({ ...timeline, documentId: "doc-2" });
+  });
+
+  it("holds the shared lock, snapshots committed controls, and survives its own busy update", async () => {
+    let enter!: () => Promise<void>;
+    let release!: () => void;
+    const withOperation = vi.fn(
+      (work: () => Promise<void>) =>
+        new Promise<void>((resolve) => {
+          enter = work;
+          release = resolve;
+        }),
+    );
+    const onTimelineChanged = vi.fn();
+    const options = { withOperation, onTimelineChanged };
+    const { result, worker, rerender, client } = mounted(false, undefined, options);
+    act(() => result.current.commit({ start: 12, end: 25, channelMask: 2 }));
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.addAnchor("marker", "Cue", "#123456");
+    });
+    expect(result.current.adding).toBe(true);
+    expect(worker.calls("markers.add")).toHaveLength(0);
+    rerender({ client, info, options: { ...options, busy: true } });
+    let work!: Promise<void>;
+    act(() => {
+      work = enter();
+    });
+    expect(worker.calls("markers.add")[0]).toMatchObject({
+      params: {
+        documentId: "doc-1",
+        frame: 12,
+        name: "Cue",
+        color: "#123456",
+        selection: { start: 12, end: 25, channelMask: 2 },
+      },
+    });
+    const changed = {
+      ...timeline,
+      markers: [{ id: 1, frame: 12, name: "Cue", color: "#123456" }],
+      history,
+      changed: true,
+    };
+    await act(async () => {
+      worker.reply(worker.calls("markers.add")[0], changed);
+      await work;
+    });
+    expect(onTimelineChanged).toHaveBeenCalledWith(changed, "doc-1");
+    // The external workflow still owns the physical lock even after its RPC settles.
+    expect(result.current.adding).toBe(true);
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect(result.current.adding).toBe(false);
+    expect(worker.calls("transport.stop")).toHaveLength(0);
+  });
+
+  it("refuses metadata mutations during a pointer preview or external workflow", async () => {
+    const { worker, result, rerender, client } = mounted();
+    act(() => result.current.preview({ start: 1, end: 2, channelMask: 1 }));
+    await act(async () => {
+      await result.current.addAnchor("marker", "Cue");
+      await result.current.updateMarker({ id: 1, frame: 3, name: "Cue" });
+      await result.current.removeRegion(2);
+    });
+    expect(worker.calls("markers.add")).toHaveLength(0);
+    expect(worker.calls("markers.update")).toHaveLength(0);
+    expect(worker.calls("regions.remove")).toHaveLength(0);
+    act(() => result.current.cancelPreview());
+    rerender({ client, info, options: { busy: true } });
+    await act(async () => result.current.addAnchor("marker", "blocked"));
+    expect(worker.calls("markers.add")).toHaveLength(0);
+  });
+
+  it.each([
+    [
+      "markers.update",
+      (hook: ReturnType<typeof useSelection>) =>
+        hook.updateMarker({ id: 1, frame: 90, name: "Cue", color: "#abcdef" }),
+      { id: 1, frame: 90, name: "Cue", color: "#abcdef" },
+    ],
+    [
+      "regions.update",
+      (hook: ReturnType<typeof useSelection>) =>
+        hook.updateRegion({ id: 2, start: 30, end: 50, name: "Verse", color: "#123456" }),
+      { id: 2, start: 30, end: 50, name: "Verse", color: "#123456" },
+    ],
+    ["markers.remove", (hook: ReturnType<typeof useSelection>) => hook.removeMarker(1), { id: 1 }],
+    ["regions.remove", (hook: ReturnType<typeof useSelection>) => hook.removeRegion(2), { id: 2 }],
+  ] as const)(
+    "sends explicit identity and committed channel subset for %s",
+    async (method, run, fields) => {
+      const onTimelineChanged = vi.fn();
+      const { worker, result } = mounted(false, seeded, { onTimelineChanged });
+      let pending!: Promise<void>;
+      act(() => {
+        pending = run(result.current);
+      });
+      expect(worker.calls(method)[0]).toMatchObject({
+        params: {
+          documentId: "doc-1",
+          selection: { start: 100, end: 200, channelMask: 2 },
+          ...fields,
+        },
+      });
+      const changed = { ...timeline, history, changed: true };
+      await act(async () => {
+        worker.reply(worker.calls(method)[0], changed);
+        await pending;
+      });
+      expect(onTimelineChanged).toHaveBeenCalledWith(changed, "doc-1");
+      expect(result.current.timeline).toEqual(timeline);
+    },
+  );
+
+  it.each([true, false])(
+    "accepts timeline/history but only advances selection acknowledgement when changed=%s",
+    async (changed) => {
+      const onTimelineChanged = vi.fn();
+      const { result, worker } = mounted(false, seeded, { onTimelineChanged });
+      let pending!: Promise<void>;
+      act(() => {
+        pending = result.current.removeMarker(1);
+      });
+      const snapshot = { ...timeline, history, changed };
+      await act(async () => {
+        worker.reply(worker.calls("markers.remove")[0], snapshot);
+        await pending;
+      });
+      await act(async () => {
+        worker.reply(worker.calls("timeline.get")[0], seeded.timeline);
+        worker.reply(worker.calls("selection.get")[0], { ...initial, start: 5, end: 6 });
+      });
+      expect(result.current.timeline).toEqual(timeline);
+      expect(result.current.selection).toEqual(
+        changed ? { start: 100, end: 200, channelMask: 2 } : { start: 5, end: 6, channelMask: 3 },
+      );
+      expect(onTimelineChanged).toHaveBeenCalledWith(snapshot, "doc-1");
+    },
+  );
+
+  it("keeps metadata acknowledgement newer than an old SET when the next SET rejects", async () => {
+    const { worker, result } = mounted();
+    act(() => {
+      result.current.commit({ start: 10, end: 20, channelMask: 1 });
+      result.current.commit({ start: 30, end: 40, channelMask: 2 });
+    });
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.addAnchor("marker", "Latest");
+    });
+    await act(async () => {
+      worker.reply(worker.calls("markers.add")[0], { ...timeline, history, changed: true });
+      await pending;
+    });
+    await act(async () =>
+      worker.reply(worker.calls("selection.set")[0], {
+        ...initial,
+        start: 10,
+        end: 20,
+        channelMask: 1,
+      }),
+    );
+    await act(async () => worker.fail(worker.calls("selection.set")[1]));
+    expect(result.current.selection).toEqual({ start: 30, end: 40, channelMask: 2 });
+  });
+
+  it("does not release its physical mutation lock on document/client replacement", async () => {
+    const onTimelineChanged = vi.fn();
+    const { worker, result, rerender } = mounted(false, undefined, { onTimelineChanged });
+    let old!: Promise<void>;
+    act(() => {
+      old = result.current.addAnchor("marker", "Old");
+    });
+    const replacementWorker = new DeferredWorker();
+    const replacementClient = new KernelClient(replacementWorker);
+    rerender({
+      client: replacementClient,
+      info: { ...info, documentId: "doc-2" },
+      options: { onTimelineChanged },
+    });
+    expect(result.current.adding).toBe(true);
+    await act(async () => result.current.addAnchor("marker", "Blocked"));
+    expect(replacementWorker.calls("markers.add")).toHaveLength(0);
+    await act(async () => {
+      worker.reply(worker.calls("markers.add")[0], { ...timeline, history, changed: true });
+      await old;
+    });
+    expect(result.current.adding).toBe(false);
+    expect(onTimelineChanged).not.toHaveBeenCalled();
+    expect(result.current.timeline.documentId).toBe("doc-2");
+    let next!: Promise<void>;
+    act(() => {
+      next = result.current.addAnchor("marker", "New");
+    });
+    expect(replacementWorker.calls("markers.add")).toHaveLength(1);
+    await act(async () => {
+      replacementWorker.fail(replacementWorker.calls("markers.add")[0]);
+      await next;
+    });
+    expect(result.current.error).toBe("rejected");
+  });
+
+  it("restores captured controls adopted atomically after a preceding SET rejection", async () => {
+    const { worker, result } = mounted(false, seeded);
+    act(() => result.current.commit({ start: 30, end: 40, channelMask: 1 }));
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.addAnchor("marker", "Cue");
+    });
+    await act(async () => worker.fail(worker.calls("selection.set")[0]));
+    expect(result.current.selection).toEqual({ start: 100, end: 200, channelMask: 2 });
+    await act(async () => {
+      worker.reply(worker.calls("markers.add")[0], { ...timeline, history, changed: true });
+      await pending;
+    });
+    expect(result.current.selection).toEqual({ start: 30, end: 40, channelMask: 1 });
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it.each(["unmount", "document", "selection"] as const)(
+    "does not issue a queued mutation after %s changes during lock acquisition",
+    async (change) => {
+      let enter!: () => Promise<void>;
+      const withOperation = (work: () => Promise<void>) => {
+        enter = work;
+        return Promise.resolve();
+      };
+      const { worker, result, rerender, client, unmount } = mounted(false, undefined, {
+        withOperation,
+      });
+      await act(async () => result.current.addAnchor("marker", "Cue"));
+      if (change === "unmount") unmount();
+      else if (change === "document") rerender({ client, info: { ...info, documentId: "doc-2" } });
+      else act(() => result.current.commit({ start: 1, end: 2, channelMask: 3 }));
+      await act(async () => enter());
+      expect(worker.calls("markers.add")).toHaveLength(0);
+    },
+  );
+
+  it("surfaces shared-lock failure and ignores a response after unmount", async () => {
+    const onTimelineChanged = vi.fn();
+    const { worker, result, rerender, client, unmount } = mounted(false, undefined, {
+      withOperation: async () => {
+        throw new Error("Another workflow is active");
+      },
+      onTimelineChanged,
+    });
+    await act(async () => result.current.addAnchor("marker", "Cue"));
+    expect(result.current.error).toBe("Another workflow is active");
+    expect(result.current.adding).toBe(false);
+    expect(worker.calls("markers.add")).toHaveLength(0);
+    rerender({ client, info, options: { onTimelineChanged } });
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.addAnchor("marker", "Cue");
+    });
+    unmount();
+    await act(async () => {
+      worker.reply(worker.calls("markers.add")[0], { ...timeline, history, changed: true });
+      await pending;
+    });
+    expect(onTimelineChanged).not.toHaveBeenCalled();
   });
 });

@@ -29,9 +29,7 @@ func TestHistoryAllAudioEditsRestoreExactSnapshots(t *testing.T) {
 			if _, err := e.applyEdit(editParams(e, "copy", 0, 1, 3)); err != nil {
 				t.Fatal(err)
 			}
-			e.editor.markers = []protocol.TimelineMarker{{ID: 1, Frame: 4, Name: "end"}}
-			e.editor.regions = []protocol.TimelineRegion{{ID: 2, Start: 2, End: 4, Name: "tail"}}
-			e.editor.anchorSequence = 2
+			setTimelineFixture(t, e, []protocol.TimelineMarker{{ID: 1, Frame: 4, Name: "end"}}, []protocol.TimelineRegion{{ID: 2, Start: 2, End: 4, Name: "tail"}})
 			beforeTimeline := e.timelineResult()
 			p := editParams(e, operation, 1, 3, 3)
 			frames := int64(2)
@@ -55,7 +53,7 @@ func TestHistoryAllAudioEditsRestoreExactSnapshots(t *testing.T) {
 			}
 			assertEditBits(t, editSamples(t, e), original)
 			beforeTimeline.DocumentID = undone.Document.DocumentID
-			if !reflect.DeepEqual(undone.Timeline, beforeTimeline) || undone.Selection.SelectionRange != p.SelectionRange || e.editor.anchorSequence != 2 {
+			if !reflect.DeepEqual(undone.Timeline, beforeTimeline) || undone.Selection.SelectionRange != p.SelectionRange || e.document.Metadata().Timeline.NextID != 3 {
 				t.Fatal("undo selection/anchor snapshot mismatch")
 			}
 			redone := historyNavigate(t, e, protocol.MethodEditRedo, "")
@@ -88,7 +86,6 @@ func TestHistoryLiveControlsBranchingAndNoops(t *testing.T) {
 	if _, err := e.applyEdit(editParams(e, "mute", 0, 1, 1)); err != nil {
 		t.Fatal(err)
 	}
-	state := e.historyResult().CurrentStateID
 	live := protocol.SelectionRange{Start: 2, End: 3, ChannelMask: 2}
 	if _, err := e.setSelection(protocol.SelectionSetParams{DocumentID: e.editor.documentID, SelectionRange: live}); err != nil {
 		t.Fatal(err)
@@ -96,8 +93,9 @@ func TestHistoryLiveControlsBranchingAndNoops(t *testing.T) {
 	if _, err := e.addMarker(protocol.MarkerAddParams{DocumentID: e.editor.documentID, Frame: 2, Name: "late"}); err != nil {
 		t.Fatal(err)
 	}
+	state := e.historyResult().CurrentStateID
 	historyNavigate(t, e, protocol.MethodEditUndo, "")
-	if len(e.editor.markers) != 0 {
+	if len(e.timelineResult().Markers) != 0 {
 		t.Fatal("live late marker leaked into preceding state")
 	}
 	r := historyNavigate(t, e, protocol.MethodEditRedo, "")
@@ -257,7 +255,7 @@ func TestHistoryBudgetRejectsEditAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.editor.markers = []protocol.TimelineMarker{{ID: 1, Frame: 4, Name: "end"}}
+	setTimelineFixture(t, e, []protocol.TimelineMarker{{ID: 1, Frame: 4, Name: "end"}}, nil)
 	playRange(t, e, 0, 4, true)
 	before := e.editResult(false)
 	transport := e.transport
@@ -286,15 +284,20 @@ func TestHistoryAnchorSequenceRestoredAfterDroppedRegions(t *testing.T) {
 	if _, err := e.addMarker(protocol.MarkerAddParams{DocumentID: e.editor.documentID, Frame: 2}); err != nil {
 		t.Fatal(err)
 	}
-	if e.editor.markers[1].ID != 3 {
+	if e.timelineResult().Markers[1].ID != 3 {
 		t.Fatal("droppedregion reusedanchorID")
 	}
 	historyNavigate(t, e, protocol.MethodEditUndo, "")
-	if e.editor.anchorSequence != 2 || len(e.editor.regions) != 1 {
+	if e.document.Metadata().Timeline.NextID != 3 || len(e.timelineResult().Regions) != 0 {
+		t.Fatal("metadata-only undo failedrestore")
+	}
+	historyNavigate(t, e, protocol.MethodEditUndo, "")
+	if e.document.Metadata().Timeline.NextID != 3 || len(e.timelineResult().Regions) != 1 {
 		t.Fatal("anchor sequence/snapshot failedrestore")
 	}
 	historyNavigate(t, e, protocol.MethodEditRedo, "")
-	if e.editor.anchorSequence != 3 || len(e.editor.regions) != 0 || len(e.editor.markers) != 2 {
+	historyNavigate(t, e, protocol.MethodEditRedo, "")
+	if e.document.Metadata().Timeline.NextID != 4 || len(e.timelineResult().Regions) != 0 || len(e.timelineResult().Markers) != 2 {
 		t.Fatal("liveanchor edits lost acrossnavigation")
 	}
 }

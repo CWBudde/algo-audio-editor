@@ -151,7 +151,7 @@ func splice(channel audiobuf.Channel, start, end int64, middle audiobuf.Channel)
 
 // editChannels keeps unselected sample positions unchanged. Ripple edits of a
 // subset pad the shorter channels at EOF so every channel retains equal length.
-func editChannels(document audiobuf.Document, selected Range, edit func(audiobuf.Channel, int) (audiobuf.Channel, error)) (audiobuf.Document, error) {
+func editChannels(document audiobuf.Document, selected Range, metadata audiobuf.Metadata, edit func(audiobuf.Channel, int) (audiobuf.Channel, error)) (audiobuf.Document, error) {
 	channels := make([]audiobuf.Channel, document.Channels())
 	var frames int64
 	for i := range channels {
@@ -183,18 +183,34 @@ func editChannels(document audiobuf.Document, selected Range, edit func(audiobuf
 			channels[i] = channel.Concat(silence)
 		}
 	}
-	result, err := audiobuf.NewDocument(channels, document.SampleRate(), document.Metadata())
+	result, err := audiobuf.NewDocument(channels, document.SampleRate(), metadata)
 	if err != nil {
 		return document, fmt.Errorf("document: %w", err)
 	}
 	return result, nil
 }
 
+func rippleMetadata(document audiobuf.Document, selected Range, start, end, inserted int64) (audiobuf.Metadata, error) {
+	metadata := document.Metadata()
+	if selected.ChannelMask == (1<<document.Channels())-1 {
+		var err error
+		metadata.Timeline, err = metadata.Timeline.Splice(document.Frames(), start, end, inserted)
+		if err != nil {
+			return audiobuf.Metadata{}, fmt.Errorf("shift timeline: %w", err)
+		}
+	}
+	return metadata, nil
+}
+
 func (op Delete) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	if err := validate(document, op.Range, true); err != nil {
 		return document, fmt.Errorf("ops.delete: %w", err)
 	}
-	result, err := editChannels(document, op.Range, func(channel audiobuf.Channel, _ int) (audiobuf.Channel, error) {
+	metadata, err := rippleMetadata(document, op.Range, op.Range.Start, op.Range.End, 0)
+	if err != nil {
+		return document, fmt.Errorf("ops.delete: %w", err)
+	}
+	result, err := editChannels(document, op.Range, metadata, func(channel audiobuf.Channel, _ int) (audiobuf.Channel, error) {
 		return splice(channel, op.Range.Start, op.Range.End, audiobuf.Channel{})
 	})
 	if err != nil {
@@ -227,7 +243,11 @@ func (op InsertSilence) Apply(document audiobuf.Document) (audiobuf.Document, er
 	if err != nil {
 		return document, fmt.Errorf("ops.insertSilence: %w", err)
 	}
-	result, err := editChannels(document, op.Range, func(channel audiobuf.Channel, _ int) (audiobuf.Channel, error) {
+	metadata, err := rippleMetadata(document, op.Range, op.Range.Start, op.Range.Start, op.Frames)
+	if err != nil {
+		return document, fmt.Errorf("ops.insertSilence: %w", err)
+	}
+	result, err := editChannels(document, op.Range, metadata, func(channel audiobuf.Channel, _ int) (audiobuf.Channel, error) {
 		return splice(channel, op.Range.Start, op.Range.Start, silence)
 	})
 	if err != nil {
@@ -244,7 +264,7 @@ func (op Mute) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	if err != nil {
 		return document, fmt.Errorf("ops.mute: %w", err)
 	}
-	result, err := editChannels(document, op.Range, func(channel audiobuf.Channel, _ int) (audiobuf.Channel, error) {
+	result, err := editChannels(document, op.Range, document.Metadata(), func(channel audiobuf.Channel, _ int) (audiobuf.Channel, error) {
 		return splice(channel, op.Range.Start, op.Range.End, silence)
 	})
 	if err != nil {
@@ -294,7 +314,7 @@ func (op SwapChannels) Apply(document audiobuf.Document) (audiobuf.Document, err
 			return document, fmt.Errorf("ops.swapChannels: range %d: %w", index, err)
 		}
 	}
-	result, err := editChannels(document, selected, func(channel audiobuf.Channel, i int) (audiobuf.Channel, error) {
+	result, err := editChannels(document, selected, document.Metadata(), func(channel audiobuf.Channel, i int) (audiobuf.Channel, error) {
 		other := parts[0]
 		if i == indices[0] {
 			other = parts[1]
@@ -343,7 +363,15 @@ func (op Paste) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 		}
 	}
 	packed := 0
-	result, err := editChannels(document, op.Range, func(channel audiobuf.Channel, _ int) (audiobuf.Channel, error) {
+	metadata := document.Metadata()
+	if op.Mode != PasteMix {
+		var err error
+		metadata, err = rippleMetadata(document, op.Range, op.Range.Start, end, clipboard.Frames())
+		if err != nil {
+			return document, fmt.Errorf("ops.paste: %w", err)
+		}
+	}
+	result, err := editChannels(document, op.Range, metadata, func(channel audiobuf.Channel, _ int) (audiobuf.Channel, error) {
 		index := packed
 		packed++
 		if clipboard.Channels() == 1 {

@@ -6,15 +6,17 @@ import (
 	"slices"
 )
 
-// Metadata holds the display name and file metadata. Documents copy Tags on
-// input and output so callers cannot mutate an existing snapshot.
+// Metadata holds the display name, file tags and typed timeline. Documents
+// copy maps and anchor lists on input/output, preserving snapshot ownership.
 type Metadata struct {
-	Name string
-	Tags map[string]string
+	Name     string
+	Tags     map[string]string
+	Timeline Timeline
 }
 
 func (m Metadata) clone() Metadata {
 	m.Tags = maps.Clone(m.Tags)
+	m.Timeline = m.Timeline.clone()
 
 	return m
 }
@@ -41,7 +43,14 @@ func NewDocument(channels []Channel, sampleRate int, metadata Metadata) (Documen
 		}
 	}
 
-	return Document{channels: slices.Clone(channels), sampleRate: sampleRate, metadata: metadata.clone()}, nil
+	metadata = metadata.clone()
+	if metadata.Timeline.NextID == 0 {
+		metadata.Timeline.NextID = 1
+	}
+	if err := metadata.Timeline.Validate(channels[0].Frames()); err != nil {
+		return Document{}, fmt.Errorf("document.new: timeline: %w", err)
+	}
+	return Document{channels: slices.Clone(channels), sampleRate: sampleRate, metadata: metadata}, nil
 }
 
 // Frames returns the number of frames in each channel.
@@ -72,10 +81,17 @@ func (d Document) Channel(index int) (Channel, error) {
 }
 
 // WithMetadata returns a new snapshot with copied metadata and shared audio.
-func (d Document) WithMetadata(metadata Metadata) Document {
-	d.metadata = metadata.clone()
+func (d Document) WithMetadata(metadata Metadata) (Document, error) {
+	metadata = metadata.clone()
+	if metadata.Timeline.NextID == 0 {
+		metadata.Timeline.NextID = 1
+	}
+	if err := metadata.Timeline.Validate(d.Frames()); err != nil {
+		return d, fmt.Errorf("document.withMetadata: timeline: %w", err)
+	}
+	d.metadata = metadata
 
-	return d
+	return d, nil
 }
 
 // Slice selects the same frame range across all channels. Audio blocks and
@@ -85,6 +101,7 @@ func (d Document) Slice(start, end int64) (Document, error) {
 		return Document{}, fmt.Errorf("document.slice: no document")
 	}
 
+	total := d.Frames()
 	channels := make([]Channel, len(d.channels))
 	for i, channel := range d.channels {
 		part, err := channel.Slice(start, end)
@@ -94,6 +111,11 @@ func (d Document) Slice(start, end int64) (Document, error) {
 		channels[i] = part
 	}
 	d.channels = channels
+	timeline, err := d.metadata.Timeline.Crop(total, start, end)
+	if err != nil {
+		return Document{}, fmt.Errorf("document.slice: timeline: %w", err)
+	}
+	d.metadata.Timeline = timeline
 
 	return d, nil
 }

@@ -159,8 +159,10 @@ test("named regions and markers are usable snapping and double-click targets", a
       documentId: info.documentId,
     })) as TimelineResult;
   });
-  expect(result.markers).toEqual([{ id: 2, frame: 10_000, name: "Cue" }]);
-  expect(result.regions).toEqual([{ id: 1, start: 10_000, end: 20_000, name: "Verse" }]);
+  expect(result.markers).toEqual([{ id: 2, frame: 10_000, name: "Cue", color: "#a78bfa" }]);
+  expect(result.regions).toEqual([
+    { id: 1, start: 10_000, end: 20_000, name: "Verse", color: "#a78bfa" },
+  ]);
 });
 
 test("zero snapping follows the selected channel and ruler snapping uses displayed ticks", async ({

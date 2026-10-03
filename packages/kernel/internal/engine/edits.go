@@ -150,19 +150,6 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 		if err != nil {
 			return protocol.EditResult{}, fmt.Errorf("%s: %w", method, err)
 		}
-		// Until edit-aware anchor shifting (Phase 2.4), clamp coordinates and
-		// discard collapsed regions rather than retaining invalid anchors.
-		for i := range editor.markers {
-			editor.markers[i].Frame = min(editor.markers[i].Frame, document.Frames())
-		}
-		regions := editor.regions[:0]
-		for _, region := range editor.regions {
-			region.Start, region.End = min(region.Start, document.Frames()), min(region.End, document.Frames())
-			if region.Start < region.End {
-				regions = append(regions, region)
-			}
-		}
-		editor.regions = regions
 	}
 	selection.Start, selection.End = min(selection.Start, document.Frames()), min(selection.End, document.Frames())
 	editor.selection = selection

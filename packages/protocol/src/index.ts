@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -123,6 +123,7 @@ export interface TimelineMarker {
   id: number;
   frame: number;
   name: string;
+  color: string;
 }
 
 export interface TimelineRegion {
@@ -130,6 +131,7 @@ export interface TimelineRegion {
   start: number;
   end: number;
   name: string;
+  color: string;
 }
 
 export interface TimelineResult {
@@ -140,10 +142,17 @@ export interface TimelineResult {
 
 export type TimelineGetParams = SelectionGetParams;
 
+export interface TimelineMutationResult extends TimelineResult {
+  history: HistoryListResult;
+  changed: boolean;
+}
+
 export interface MarkerAddParams {
   documentId: string;
   frame: number;
   name: string;
+  color?: string;
+  selection?: SelectionRange;
 }
 
 export interface RegionAddParams {
@@ -151,6 +160,27 @@ export interface RegionAddParams {
   start: number;
   end: number;
   name: string;
+  color?: string;
+  selection?: SelectionRange;
+}
+
+export interface MarkerUpdateParams extends MarkerAddParams {
+  id: number;
+}
+
+export interface RegionUpdateParams extends RegionAddParams {
+  id: number;
+}
+
+export interface TimelineRemoveParams {
+  documentId: string;
+  id: number;
+  selection?: SelectionRange;
+}
+
+export interface TimelineExportParams {
+  documentId: string;
+  format: "csv" | "labels";
 }
 
 export interface ClipboardInfo {
@@ -286,8 +316,13 @@ export interface KernelMethods {
   "selection.set": { params: SelectionSetParams; result: SelectionResult };
   "selection.snap": { params: SelectionSnapParams; result: SelectionSnapResult };
   "timeline.get": { params: TimelineGetParams; result: TimelineResult };
-  "markers.add": { params: MarkerAddParams; result: TimelineResult };
-  "regions.add": { params: RegionAddParams; result: TimelineResult };
+  "markers.add": { params: MarkerAddParams; result: TimelineMutationResult };
+  "regions.add": { params: RegionAddParams; result: TimelineMutationResult };
+  "markers.update": { params: MarkerUpdateParams; result: TimelineMutationResult };
+  "regions.update": { params: RegionUpdateParams; result: TimelineMutationResult };
+  "markers.remove": { params: TimelineRemoveParams; result: TimelineMutationResult };
+  "regions.remove": { params: TimelineRemoveParams; result: TimelineMutationResult };
+  "timeline.export": { params: TimelineExportParams; result: ExportResult };
   "edit.state": { params: undefined; result: ClipboardInfo };
   "edit.apply": { params: EditApplyParams; result: EditResult };
   "edit.prepare-paste": { params: PreparePasteParams; result: PastePlan };

@@ -75,6 +75,21 @@ describe("audio file dialogs", () => {
     expect(writable.close).toHaveBeenCalledTimes(1);
   });
 
+  it("uses sidecar file types without changing the default WAV picker", async () => {
+    window.showSaveFilePicker = vi.fn().mockResolvedValue({ createWritable: vi.fn() });
+    const types = [{ description: "Marker CSV", accept: { "text/csv": [".csv"] } }];
+    await chooseSaveTarget("test.markers.csv", types);
+    expect(window.showSaveFilePicker).toHaveBeenLastCalledWith({
+      suggestedName: "test.markers.csv",
+      types,
+    });
+    await chooseSaveTarget("test.wav");
+    expect(window.showSaveFilePicker).toHaveBeenLastCalledWith({
+      suggestedName: "test.wav",
+      types: [{ description: "WAV audio", accept: { "audio/wav": [".wav"] } }],
+    });
+  });
+
   it("aborts an unsuccessful file write", async () => {
     const error = new Error("disk full");
     const writable = {

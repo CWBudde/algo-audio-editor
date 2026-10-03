@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 6
+const Version = 7
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -35,21 +35,26 @@ const (
 	// MethodTransportStop preserves the cursor and stops rendering audio.
 	MethodTransportStop = "transport.stop"
 	// MethodTransportSeek changes the document playback cursor.
-	MethodTransportSeek = "transport.seek"
-	MethodSelectionGet  = "selection.get"
-	MethodSelectionSet  = "selection.set"
-	MethodSelectionSnap = "selection.snap"
-	MethodTimelineGet   = "timeline.get"
-	MethodMarkersAdd    = "markers.add"
-	MethodRegionsAdd    = "regions.add"
-	MethodEditState     = "edit.state"
-	MethodEditApply     = "edit.apply"
-	MethodPreparePaste  = "edit.prepare-paste"
-	MethodHistoryList   = "history.list"
-	MethodHistoryJump   = "history.jump"
-	MethodEditUndo      = "edit.undo"
-	MethodEditRedo      = "edit.redo"
-	MethodMarkSaved     = "doc.mark-saved"
+	MethodTransportSeek  = "transport.seek"
+	MethodSelectionGet   = "selection.get"
+	MethodSelectionSet   = "selection.set"
+	MethodSelectionSnap  = "selection.snap"
+	MethodTimelineGet    = "timeline.get"
+	MethodMarkersAdd     = "markers.add"
+	MethodRegionsAdd     = "regions.add"
+	MethodMarkersUpdate  = "markers.update"
+	MethodMarkersRemove  = "markers.remove"
+	MethodRegionsUpdate  = "regions.update"
+	MethodRegionsRemove  = "regions.remove"
+	MethodTimelineExport = "timeline.export"
+	MethodEditState      = "edit.state"
+	MethodEditApply      = "edit.apply"
+	MethodPreparePaste   = "edit.prepare-paste"
+	MethodHistoryList    = "history.list"
+	MethodHistoryJump    = "history.jump"
+	MethodEditUndo       = "edit.undo"
+	MethodEditRedo       = "edit.redo"
+	MethodMarkSaved      = "doc.mark-saved"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -177,16 +182,18 @@ type SelectionSnapResult struct {
 }
 
 type TimelineMarker struct {
-	ID    int    `json:"id"`
+	ID    int64  `json:"id"`
 	Frame int64  `json:"frame"`
 	Name  string `json:"name"`
+	Color string `json:"color"`
 }
 
 type TimelineRegion struct {
-	ID    int    `json:"id"`
+	ID    int64  `json:"id"`
 	Start int64  `json:"start"`
 	End   int64  `json:"end"`
 	Name  string `json:"name"`
+	Color string `json:"color"`
 }
 
 type TimelineResult struct {
@@ -197,17 +204,48 @@ type TimelineResult struct {
 
 type TimelineGetParams = SelectionGetParams
 
+type TimelineMutationResult struct {
+	TimelineResult
+	History HistoryListResult `json:"history"`
+	Changed bool              `json:"changed"`
+}
+
 type MarkerAddParams struct {
-	DocumentID string `json:"documentId"`
-	Frame      int64  `json:"frame"`
-	Name       string `json:"name"`
+	DocumentID string          `json:"documentId"`
+	Frame      int64           `json:"frame"`
+	Name       string          `json:"name"`
+	Color      string          `json:"color,omitempty"`
+	Selection  *SelectionRange `json:"selection,omitempty"`
 }
 
 type RegionAddParams struct {
+	DocumentID string          `json:"documentId"`
+	Start      int64           `json:"start"`
+	End        int64           `json:"end"`
+	Name       string          `json:"name"`
+	Color      string          `json:"color,omitempty"`
+	Selection  *SelectionRange `json:"selection,omitempty"`
+}
+
+type MarkerUpdateParams struct {
+	MarkerAddParams
+	ID int64 `json:"id"`
+}
+
+type RegionUpdateParams struct {
+	RegionAddParams
+	ID int64 `json:"id"`
+}
+
+type TimelineRemoveParams struct {
+	DocumentID string          `json:"documentId"`
+	ID         int64           `json:"id"`
+	Selection  *SelectionRange `json:"selection,omitempty"`
+}
+
+type TimelineExportParams struct {
 	DocumentID string `json:"documentId"`
-	Start      int64  `json:"start"`
-	End        int64  `json:"end"`
-	Name       string `json:"name"`
+	Format     string `json:"format"`
 }
 
 // ClipboardInfo describes retained, compactly packed selected source channels.

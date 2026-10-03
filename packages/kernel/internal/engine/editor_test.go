@@ -71,7 +71,7 @@ func TestEditorDocumentIdentityAndReset(t *testing.T) {
 	if err != nil || info.DocumentID == id || e.documentSequence != 2 {
 		t.Fatalf("reopen identity %+v, %v", info, err)
 	}
-	if e.selectionResult().SelectionRange != (protocol.SelectionRange{ChannelMask: 3}) || len(e.editor.markers)+len(e.editor.regions) != 0 {
+	if e.selectionResult().SelectionRange != (protocol.SelectionRange{ChannelMask: 3}) || len(e.timelineResult().Markers)+len(e.timelineResult().Regions) != 0 {
 		t.Fatal("successful open did not reset document editor state")
 	}
 	for _, method := range []string{protocol.MethodSelectionGet, protocol.MethodSelectionSet, protocol.MethodSelectionSnap, protocol.MethodTimelineGet, protocol.MethodMarkersAdd, protocol.MethodRegionsAdd} {
@@ -146,11 +146,11 @@ func TestTimelineAnchorsAndSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := e.timelineResult()
-	if got.Markers[0] != (protocol.TimelineMarker{ID: 1, Frame: 8, Name: "Marker 1"}) || got.Regions[0] != (protocol.TimelineRegion{ID: 2, Start: 2, End: 8, Name: "chorus"}) || got.Regions[1].Name != "Region 3" {
+	if got.Markers[0] != (protocol.TimelineMarker{ID: 1, Frame: 8, Name: "Marker 1", Color: audiobuf.DefaultAnchorColor}) || got.Regions[0] != (protocol.TimelineRegion{ID: 2, Start: 2, End: 8, Name: "chorus", Color: audiobuf.DefaultAnchorColor}) || got.Regions[1].Name != "Region 3" {
 		t.Fatalf("unexpected anchors %+v", got)
 	}
 	got.Markers[0].Name, got.Regions[0].Start = "changed", 7
-	if e.editor.markers[0].Name != "Marker 1" || e.editor.regions[0].Start != 2 {
+	if e.timelineResult().Markers[0].Name != "Marker 1" || e.timelineResult().Regions[0].Start != 2 {
 		t.Fatal("returned timeline aliases stored state")
 	}
 	before := e.timelineResult()
@@ -177,19 +177,20 @@ func TestTimelineAnchorsAndSnapshots(t *testing.T) {
 	if _, err := e.addMarker(protocol.MarkerAddParams{DocumentID: id, Name: strings.Repeat("é", 128)}); err != nil {
 		t.Fatal("valid 256-byte name rejected", err)
 	}
-	e.editor.markers = make([]protocol.TimelineMarker, maxAnchors-len(e.editor.regions)-1)
-	for i := range e.editor.markers {
-		e.editor.markers[i].ID = i + 1
+	markers := make([]protocol.TimelineMarker, maxAnchors-len(e.timelineResult().Regions)-1)
+	for i := range markers {
+		markers[i].ID = int64(i + 1)
 		if i > 0 {
-			e.editor.markers[i].ID += len(e.editor.regions)
+			markers[i].ID += int64(len(e.timelineResult().Regions))
 		}
 	}
+	setTimelineFixture(t, e, markers, e.timelineResult().Regions)
 	last, err := e.addMarker(protocol.MarkerAddParams{DocumentID: id})
 	if err != nil || last.Markers[len(last.Markers)-1].ID != maxAnchors {
 		t.Fatalf("last allowed anchor error %v", err)
 	}
 	for _, method := range []string{protocol.MethodMarkersAdd, protocol.MethodRegionsAdd} {
-		if response := editorCall(t, e, method, map[string]any{"documentId": id, "end": 1}); response.OK || len(e.editor.markers)+len(e.editor.regions) != maxAnchors {
+		if response := editorCall(t, e, method, map[string]any{"documentId": id, "end": 1}); response.OK || len(e.timelineResult().Markers)+len(e.timelineResult().Regions) != maxAnchors {
 			t.Fatalf("anchor cap not atomic for %s", method)
 		}
 	}

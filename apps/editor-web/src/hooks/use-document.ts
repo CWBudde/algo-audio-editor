@@ -1,4 +1,4 @@
-import type { DocumentInfoResult, HistoryListResult } from "@aae/protocol";
+import type { DocumentInfoResult, HistoryListResult, TimelineExportParams } from "@aae/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KernelClient } from "@/kernel/client";
 import { chooseAudioFile, chooseSaveTarget, isFileDialogCancelled } from "@/lib/file-access";
@@ -148,12 +148,40 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     });
   }, [client, info, run]);
 
+  const exportTimeline = useCallback(
+    (format: TimelineExportParams["format"]) => {
+      if (!info || latest.current.client !== client) return;
+      run("Could not export markers and regions", async (target, active) => {
+        const base = info.name.replace(/\.[^.]+$/, "") || "Untitled";
+        const csv = format === "csv";
+        const destination = await chooseSaveTarget(
+          `${base}.${csv ? "markers.csv" : "labels.txt"}`,
+          [
+            {
+              description: csv ? "Marker CSV" : "Label file",
+              accept: { [csv ? "text/csv" : "text/plain"]: [csv ? ".csv" : ".txt"] },
+            },
+          ],
+        );
+        if (!destination || !active()) return;
+        const result = await target.call("timeline.export", {
+          documentId: info.documentId,
+          format,
+        });
+        if (active()) await destination.write(result);
+        // A sidecar export never acknowledges the document's save point.
+      });
+    },
+    [client, info, run],
+  );
+
   return {
     info,
     busy: pending?.client === client && pending?.busy === true,
     open,
     openFile,
     save,
+    exportTimeline,
     withOperation,
     replaceInfo,
   };

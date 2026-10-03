@@ -60,10 +60,13 @@ export interface SaveTarget {
 }
 
 /** Ask during the user gesture, before waiting for the kernel to export. */
-export async function chooseSaveTarget(name: string): Promise<SaveTarget | undefined> {
+export async function chooseSaveTarget(
+  name: string,
+  types: AudioPickerOptions["types"] = WAV_TYPES,
+): Promise<SaveTarget | undefined> {
   if (window.showSaveFilePicker) {
     try {
-      const handle = await window.showSaveFilePicker({ suggestedName: name, types: WAV_TYPES });
+      const handle = await window.showSaveFilePicker({ suggestedName: name, types });
       return {
         async write(result) {
           const writable = await handle.createWritable();

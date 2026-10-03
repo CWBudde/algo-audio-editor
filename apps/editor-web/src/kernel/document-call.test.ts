@@ -49,4 +49,37 @@ describe("document binary bridge", () => {
       "doc.export: bulk data length does not match metadata",
     );
   });
+
+  it.each(["csv", "labels"] as const)("transfers %s timeline exports as file bytes", (format) => {
+    const bytes = new Uint8Array(new TextEncoder().encode("0.000000000\t0.000000000\tCue\n"));
+    const info: ExportInfo = {
+      name: "test.labels.txt",
+      mimeType: "text/plain;charset=utf-8",
+      dataBytes: bytes.byteLength,
+    };
+    const bridge: KernelBridge = {
+      call: vi.fn(() => JSON.stringify({ ok: true, result: info })),
+      takeData: vi.fn(() => bytes),
+      render: vi.fn(),
+    };
+    const reply = callKernel(bridge, "timeline.export", { documentId: "doc-1", format });
+    expect(reply.result).toEqual({ ...info, data: bytes.buffer });
+    expect(reply.transfer).toEqual([bytes.buffer]);
+    const received = structuredClone(reply.result as ExportInfo & { data: ArrayBuffer }, {
+      transfer: reply.transfer,
+    });
+    expect(bytes.byteLength).toBe(0);
+    expect(new TextDecoder().decode(received.data)).toContain("Cue");
+  });
+
+  it("rejects mismatched timeline bulk lengths", () => {
+    const bridge: KernelBridge = {
+      call: vi.fn(() => JSON.stringify({ ok: true, result: { dataBytes: 100 } })),
+      takeData: vi.fn(() => new Uint8Array(4)),
+      render: vi.fn(),
+    };
+    expect(() => callKernel(bridge, "timeline.export", {})).toThrow(
+      "timeline.export: bulk data length does not match metadata",
+    );
+  });
 });

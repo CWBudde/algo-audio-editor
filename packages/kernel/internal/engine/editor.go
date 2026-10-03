@@ -2,10 +2,8 @@ package engine
 
 import (
 	"fmt"
-	"math"
-	"strings"
-	"unicode/utf8"
 
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 	timestats "github.com/cwbudde/algo-dsp/stats/time"
 )
@@ -13,19 +11,14 @@ import (
 const (
 	maxEditorFrame = 1<<53 - 1
 	maxSnapRadius  = 8192
-	maxAnchors     = 4096
-	maxAnchorName  = 256
+	maxAnchors     = audiobuf.MaxAnchors
 )
 
-// Editor state belongs to an immutable audio-history snapshot. Navigation
-// restores selection and anchors while assigning a fresh document identity.
-// Edit-aware anchor shifting and persistence are later foundations.
+// Editor controls belong to an immutable history snapshot. Anchors are owned
+// by document metadata; navigation restores both with a fresh document ID.
 type editorState struct {
-	documentID     string
-	selection      protocol.SelectionRange
-	markers        []protocol.TimelineMarker
-	regions        []protocol.TimelineRegion
-	anchorSequence int
+	documentID string
+	selection  protocol.SelectionRange
 }
 
 func (e *Engine) dispatchEditor(method string, payload []byte) (any, error) {
@@ -66,6 +59,30 @@ func (e *Engine) dispatchEditor(method string, payload []byte) (any, error) {
 			return nil, err
 		}
 		return e.addRegion(p)
+	case protocol.MethodMarkersUpdate:
+		var p protocol.MarkerUpdateParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.updateMarker(p)
+	case protocol.MethodRegionsUpdate:
+		var p protocol.RegionUpdateParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.updateRegion(p)
+	case protocol.MethodMarkersRemove, protocol.MethodRegionsRemove:
+		var p protocol.TimelineRemoveParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.removeAnchor(method, p)
+	case protocol.MethodTimelineExport:
+		var p protocol.TimelineExportParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.exportTimeline(p)
 	default:
 		return nil, fmt.Errorf("unknown editor method %q", method)
 	}
@@ -174,13 +191,18 @@ func (e *Engine) snapSelection(p protocol.SelectionSnapParams) (protocol.Selecti
 }
 
 func (e *Engine) timelineResult() protocol.TimelineResult {
+	timeline := e.document.Metadata().Timeline
 	result := protocol.TimelineResult{
 		DocumentID: e.editor.documentID,
-		Markers:    make([]protocol.TimelineMarker, len(e.editor.markers)),
-		Regions:    make([]protocol.TimelineRegion, len(e.editor.regions)),
+		Markers:    make([]protocol.TimelineMarker, len(timeline.Markers)),
+		Regions:    make([]protocol.TimelineRegion, len(timeline.Regions)),
 	}
-	copy(result.Markers, e.editor.markers)
-	copy(result.Regions, e.editor.regions)
+	for i, marker := range timeline.Markers {
+		result.Markers[i] = protocol.TimelineMarker{ID: marker.ID, Frame: marker.Frame, Name: marker.Name, Color: marker.Color}
+	}
+	for i, region := range timeline.Regions {
+		result.Regions[i] = protocol.TimelineRegion{ID: region.ID, Start: region.Start, End: region.End, Name: region.Name, Color: region.Color}
+	}
 	return result
 }
 
@@ -188,67 +210,5 @@ func (e *Engine) getTimeline(p protocol.TimelineGetParams) (protocol.TimelineRes
 	if err := e.validateDocumentID(protocol.MethodTimelineGet, p.DocumentID); err != nil {
 		return protocol.TimelineResult{}, err
 	}
-	return e.timelineResult(), nil
-}
-
-func (e *Engine) anchorName(method, name, kind string) (string, int, error) {
-	if len(e.editor.markers)+len(e.editor.regions) >= maxAnchors {
-		return "", 0, fmt.Errorf("%s: document already contains %d anchors", method, maxAnchors)
-	}
-	sequence := e.editor.anchorSequence
-	for _, marker := range e.editor.markers {
-		sequence = max(sequence, marker.ID)
-	}
-	for _, region := range e.editor.regions {
-		sequence = max(sequence, region.ID)
-	}
-	if sequence == math.MaxInt {
-		return "", 0, fmt.Errorf("%s: anchor identity exhausted", method)
-	}
-	id := sequence + 1
-	name = strings.TrimSpace(name)
-	if len(name) > maxAnchorName || !utf8.ValidString(name) {
-		return "", 0, fmt.Errorf("%s: name must be valid UTF-8 and at most %d bytes", method, maxAnchorName)
-	}
-	if name == "" {
-		name = fmt.Sprintf("%s %d", kind, id)
-	}
-	return name, id, nil
-}
-
-func (e *Engine) addMarker(p protocol.MarkerAddParams) (protocol.TimelineResult, error) {
-	const method = protocol.MethodMarkersAdd
-	if err := e.validateDocumentID(method, p.DocumentID); err != nil {
-		return protocol.TimelineResult{}, err
-	}
-	if err := e.validateEditorRange(method, p.Frame, p.Frame); err != nil {
-		return protocol.TimelineResult{}, err
-	}
-	name, id, err := e.anchorName(method, p.Name, "Marker")
-	if err != nil {
-		return protocol.TimelineResult{}, err
-	}
-	e.editor.markers = append(e.editor.markers, protocol.TimelineMarker{ID: id, Frame: p.Frame, Name: name})
-	e.editor.anchorSequence = id
-	return e.timelineResult(), nil
-}
-
-func (e *Engine) addRegion(p protocol.RegionAddParams) (protocol.TimelineResult, error) {
-	const method = protocol.MethodRegionsAdd
-	if err := e.validateDocumentID(method, p.DocumentID); err != nil {
-		return protocol.TimelineResult{}, err
-	}
-	if err := e.validateEditorRange(method, p.Start, p.End); err != nil {
-		return protocol.TimelineResult{}, err
-	}
-	if p.Start == p.End {
-		return protocol.TimelineResult{}, fmt.Errorf("%s: region must be nonempty", method)
-	}
-	name, id, err := e.anchorName(method, p.Name, "Region")
-	if err != nil {
-		return protocol.TimelineResult{}, err
-	}
-	e.editor.regions = append(e.editor.regions, protocol.TimelineRegion{ID: id, Start: p.Start, End: p.End, Name: name})
-	e.editor.anchorSequence = id
 	return e.timelineResult(), nil
 }

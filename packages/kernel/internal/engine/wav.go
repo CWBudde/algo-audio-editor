@@ -20,6 +20,8 @@ type wavLayout struct {
 	rate, channels       int
 	bitDepth             int
 	float                bool
+	timelineChunks       []wavTimelineChunk
+	timelineBytes        int
 }
 
 // inspectWAV validates every container boundary before the decoder sees any
@@ -62,6 +64,14 @@ func inspectWAV(input []byte) (wavLayout, error) {
 			}
 			layout.dataStart, layout.dataBytes = int(body), int(size)
 			seenData = true
+		case "cue ", "aeMD", "LIST":
+			id := [4]byte(input[pos : pos+4])
+			if id == wav.CIDList && (size < 4 || string(input[body:body+4]) != "adtl") {
+				break
+			}
+			if err := layout.addTimelineChunk(id, input[body:body+size]); err != nil {
+				return wavLayout{}, err
+			}
 		}
 		pos = next
 	}
@@ -117,8 +127,14 @@ func (e *Engine) openDocument(p protocol.DocumentOpenParams, input []byte) (prot
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: validate WAV: %w", err)
 	}
+	frames := layout.dataBytes / (layout.channels * (layout.bitDepth / 8))
+	timeline, err := decodeWAVTimeline(layout.timelineChunks, int64(frames))
+	if err != nil {
+		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: import annotations: %w", err)
+	}
 	// Present only a small normalized fmt chunk and the validated data section
-	// to wav. Unrelated metadata is not decoded until metadata support lands.
+	// to the audio decoder; bounded timeline chunks were decoded separately.
+	// General metadata mapping remains Phase 6.
 	// The body references the caller's file bytes; no whole-file copy is made.
 	reader := layout.reader(input)
 	decoder := wav.NewDecoder(reader)
@@ -126,7 +142,6 @@ func (e *Engine) openDocument(p protocol.DocumentOpenParams, input []byte) (prot
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: locate PCM: %w", err)
 	}
 	decoder.PCMChunk.R = io.LimitReader(decoder.PCMChunk.R, int64(layout.dataBytes))
-	frames := layout.dataBytes / (layout.channels * (layout.bitDepth / 8))
 	blocks := make([][]*audiobuf.Block, layout.channels)
 	for i := range blocks {
 		blockCount := frames / audiobuf.BlockFrames
@@ -166,7 +181,7 @@ func (e *Engine) openDocument(p protocol.DocumentOpenParams, input []byte) (prot
 	if name == "" {
 		name = "Untitled.wav"
 	}
-	document, err := audiobuf.NewDocument(channels, layout.rate, audiobuf.Metadata{Name: name})
+	document, err := audiobuf.NewDocument(channels, layout.rate, audiobuf.Metadata{Name: name, Timeline: timeline})
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: create document: %w", err)
 	}
@@ -224,7 +239,11 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: unsupported format %q/%d bits/float=%t", p.Format, p.BitDepth, p.Float)
 	}
 	dataBytes := e.document.Frames() * int64(e.document.Channels()) * int64(p.BitDepth/8)
-	fileBytes := dataBytes + (dataBytes & 1) + 44
+	chunks, metadataBytes, err := encodeWAVTimeline(e.document.Metadata().Timeline, e.document.Frames())
+	if err != nil {
+		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: annotations: %w", err)
+	}
+	fileBytes := dataBytes + (dataBytes & 1) + 44 + metadataBytes
 	if fileBytes-8 > math.MaxUint32 || fileBytes > int64(math.MaxInt) {
 		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: document exceeds RIFF/WASM size limit")
 	}
@@ -234,6 +253,7 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 		formatTag = 3
 	}
 	encoder := wav.NewEncoder(writer, e.document.SampleRate(), p.BitDepth, e.document.Channels(), formatTag)
+	encoder.SetRawChunks(chunks)
 	pcm := &audio.Float32Buffer{Data: make([]float32, audiobuf.BlockFrames*e.document.Channels()), Format: &audio.Format{NumChannels: e.document.Channels(), SampleRate: e.document.SampleRate()}}
 	mono := make([]float32, audiobuf.BlockFrames)
 	channels := make([]audiobuf.Channel, e.document.Channels())

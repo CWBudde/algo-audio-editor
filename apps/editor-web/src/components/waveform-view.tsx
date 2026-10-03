@@ -14,10 +14,11 @@ import {
   useState,
 } from "react";
 import { SelectionBar } from "@/components/selection-bar";
+import { TimelinePanel } from "@/components/timeline-panel";
 import type { PlaybackFollow } from "@/components/transport-bar";
 import { Button } from "@/components/ui/button";
 import { type PeaksState, usePeaks } from "@/hooks/use-peaks";
-import { useSelection } from "@/hooks/use-selection";
+import { type SelectionOptions, useSelection } from "@/hooks/use-selection";
 import type { KernelClient } from "@/kernel/client";
 import type { PeakViews } from "@/kernel/peak-data";
 import { snapSelectionFrame } from "@/lib/selection";
@@ -63,6 +64,8 @@ interface WaveformViewProps {
   disabled?: boolean;
   onSelectionChange?(selection: SelectionRange): void;
   initialEdit?: Pick<EditResult, "selection" | "timeline">;
+  timelineOptions?: SelectionOptions;
+  onExportTimeline?(format: "csv" | "labels"): void;
 }
 
 interface ViewState {
@@ -209,6 +212,8 @@ export function WaveformView({
   disabled = false,
   onSelectionChange,
   initialEdit,
+  timelineOptions,
+  onExportTimeline,
 }: WaveformViewProps) {
   const fullRange = useMemo(() => ({ start: 0, end: info.frames }), [info]);
   const [state, setState] = useState<ViewState>({
@@ -217,7 +222,10 @@ export function WaveformView({
   });
   const current = state.document === info ? state : { document: info, viewport: fullRange };
   const { viewport } = current;
-  const editor = useSelection(client, info, initialEdit);
+  const editor = useSelection(client, info, initialEdit, {
+    ...timelineOptions,
+    busy: disabled || timelineOptions?.busy,
+  });
   const { selection, timeline } = editor;
   const selectedRange = selection.end > selection.start ? selection : undefined;
   useLayoutEffect(() => onSelectionChange?.(selection), [selection, onSelectionChange]);
@@ -261,6 +269,7 @@ export function WaveformView({
   const [snapMarkers, setSnapMarkers] = useState(false);
   const [snapTicks, setSnapTicks] = useState(false);
   const [anchorName, setAnchorName] = useState("");
+  const [anchorColor, setAnchorColor] = useState("#a78bfa");
   const overviewDrag = useRef<{ pointer: number; x: number; viewport: FrameRange } | undefined>(
     undefined,
   );
@@ -271,6 +280,8 @@ export function WaveformView({
     interaction.current++;
     selectionDrag.current = undefined;
     overviewDrag.current = undefined;
+    setAnchorName("");
+    setAnchorColor("#a78bfa");
   }, [info, fullRange]);
 
   useLayoutEffect(() => {
@@ -726,20 +737,60 @@ export function WaveformView({
         <Button
           size="xs"
           variant="outline"
-          disabled={disabled || !client || editor.adding}
-          onClick={() => void editor.addAnchor("marker", anchorName)}
+          disabled={disabled || !client || editor.adding || editor.previewing}
+          onClick={() => {
+            if (!selectionDrag.current) void editor.addAnchor("marker", anchorName, anchorColor);
+          }}
         >
           Add marker
         </Button>
         <Button
           size="xs"
           variant="outline"
-          disabled={disabled || !client || editor.adding || !selectedRange}
-          onClick={() => void editor.addAnchor("region", anchorName)}
+          disabled={disabled || !client || editor.adding || editor.previewing || !selectedRange}
+          onClick={() => {
+            if (!selectionDrag.current) void editor.addAnchor("region", anchorName, anchorColor);
+          }}
         >
           Add region
         </Button>
+        <input
+          type="color"
+          aria-label="Marker or region color"
+          value={anchorColor}
+          disabled={disabled || editor.adding}
+          onChange={(event) => setAnchorColor(event.target.value)}
+        />
       </div>
+      <TimelinePanel
+        sessionKey={client ?? info}
+        info={info}
+        timeline={timeline}
+        selection={selection}
+        timeFormat={timeFormat}
+        busy={disabled || !client || editor.adding || editor.previewing}
+        onUpdateMarker={(changes) => {
+          if (!selectionDrag.current) void editor.updateMarker(changes);
+        }}
+        onUpdateRegion={(changes) => {
+          if (!selectionDrag.current) void editor.updateRegion(changes);
+        }}
+        onRemoveMarker={(id) => {
+          if (!selectionDrag.current) void editor.removeMarker(id);
+        }}
+        onRemoveRegion={(id) => {
+          if (!selectionDrag.current) void editor.removeRegion(id);
+        }}
+        onJump={(range) => {
+          if (!selectionDrag.current && !editor.previewing) setSelection(range);
+        }}
+        onExport={
+          onExportTimeline &&
+          ((format) => {
+            if (!selectionDrag.current && !editor.previewing) onExportTimeline(format);
+          })
+        }
+      />
       {editor.error && (
         <p role="alert" className="px-3 text-xs text-destructive">
           {editor.error}
@@ -760,9 +811,10 @@ export function WaveformView({
                   title={region.name}
                   aria-label={`Select region ${region.name}`}
                   disabled={disabled}
-                  className="absolute bottom-0 z-10 h-2 min-w-1 rounded bg-violet-400/50"
+                  className="absolute bottom-0 z-10 h-2 min-w-1 rounded"
                   data-testid={`timeline-region-${region.id}`}
                   style={{
+                    backgroundColor: `${region.color}80`,
                     left: frameToX(Math.max(viewport.start, region.start), viewport, width),
                     width: Math.max(
                       1,
@@ -790,9 +842,13 @@ export function WaveformView({
                   title={marker.name}
                   aria-label={`Go to marker ${marker.name}`}
                   disabled={disabled}
-                  className="absolute top-0 z-20 h-full border-l-2 border-emerald-400 text-[10px] text-emerald-300"
+                  className="absolute top-0 z-20 h-full border-l-2 text-[10px]"
                   data-testid={`timeline-marker-${marker.id}`}
-                  style={{ left: Math.min(width - 1, frameToX(marker.frame, viewport, width)) }}
+                  style={{
+                    left: Math.min(width - 1, frameToX(marker.frame, viewport, width)),
+                    borderColor: marker.color,
+                    color: marker.color,
+                  }}
                   onClick={() =>
                     setSelection({
                       start: marker.frame,

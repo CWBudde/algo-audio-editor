@@ -105,7 +105,9 @@ for (const operation of [
     await page.getByRole("button", { name: "Add marker", exact: true }).click();
     await expect(page.getByTestId("timeline-marker-2")).toBeVisible();
     const before = await editorState(page);
-    expect((await history(page)).entries).toHaveLength(1);
+    const beforeHistory = await history(page);
+    expect(beforeHistory.entries).toHaveLength(3);
+    expect(beforeHistory.dirty).toBe(true);
     if (operation.name === "Insert silence")
       await page.getByLabel("Silence frames", { exact: true }).fill("2");
     await edit(page, operation.name, operation.frames);
@@ -113,7 +115,7 @@ for (const operation of [
     const after = await editorState(page);
     const copied = await clipboard(page);
     const edited = await history(page);
-    expect(edited.entries).toHaveLength(2);
+    expect(edited.entries).toHaveLength(4);
     expect(edited.dirty).toBe(true); // Probe exports alone never mark saved.
     await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
     await openPanel(page);
@@ -123,8 +125,9 @@ for (const operation of [
     expect(await samples(page)).toEqual([LEFT, RIGHT]);
     expect(await editorState(page)).toEqual(before);
     expect(await clipboard(page)).toEqual(copied);
-    expect((await history(page)).dirty).toBe(false);
-    await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
+    expect((await history(page)).currentStateId).toBe(beforeHistory.currentStateId);
+    expect((await history(page)).dirty).toBe(true);
+    await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
     await navigate(page, () => page.keyboard.press("Control+Shift+z"));
     expect(await samples(page)).toEqual(changed);
     expect(await editorState(page)).toEqual(after);

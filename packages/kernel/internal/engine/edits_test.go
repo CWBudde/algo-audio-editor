@@ -157,8 +157,7 @@ func TestEditFailuresAndNoopsAreAtomic(t *testing.T) {
 	if _, err := e.applyEdit(editParams(e, "copy", 0, 1, 1)); err != nil {
 		t.Fatal(err)
 	}
-	e.editor.markers = []protocol.TimelineMarker{{ID: 1, Frame: 2, Name: "end"}}
-	e.editor.regions = []protocol.TimelineRegion{{ID: 2, Start: 1, End: 2, Name: "tail"}}
+	setTimelineFixture(t, e, []protocol.TimelineMarker{{ID: 1, Frame: 2, Name: "end"}}, []protocol.TimelineRegion{{ID: 2, Start: 1, End: 2, Name: "tail"}})
 	playRange(t, e, 0, 2, true)
 	bad := []protocol.EditApplyParams{editParams(e, "unknown", 0, 1, 3), editParams(e, "cut", 1, 1, 3), editParams(e, "crop", 1, 1, 3), editParams(e, "swap-channels", 0, 1, 1), editParams(e, "insert-silence", 0, 0, 3), editParams(e, "paste-insert", 0, 0, 3)}
 	p := editParams(e, "mute", 0, 1, 3)
@@ -188,11 +187,10 @@ func TestEditFailuresAndNoopsAreAtomic(t *testing.T) {
 	}
 }
 
-func TestEditSelectionAndAnchorClamp(t *testing.T) {
+func TestEditSelectionAndAnchorShift(t *testing.T) {
 	e, _ := openEditorFixture(t, []float32{1, 2, 3, 4}, 1)
 	e.editor.selection = protocol.SelectionRange{Start: 0, End: 1, ChannelMask: 1}
-	e.editor.markers = []protocol.TimelineMarker{{ID: 1, Frame: 4, Name: "end"}}
-	e.editor.regions = []protocol.TimelineRegion{{ID: 2, Start: 3, End: 4, Name: "drop"}, {ID: 3, Start: 1, End: 4, Name: "keep"}}
+	setTimelineFixture(t, e, []protocol.TimelineMarker{{ID: 1, Frame: 4, Name: "end"}}, []protocol.TimelineRegion{{ID: 2, Start: 3, End: 4, Name: "drop"}, {ID: 3, Start: 1, End: 4, Name: "keep"}})
 	r, err := e.applyEdit(editParams(e, "delete", 2, 4, 1))
 	if err != nil {
 		t.Fatal(err)
@@ -290,8 +288,7 @@ func TestEditMixMaterializedBudgetFailureIsAtomic(t *testing.T) {
 	}
 	e.clipboardSequence = 1
 	e.editor.selection = protocol.SelectionRange{Start: 2, End: 4, ChannelMask: 2}
-	e.editor.markers = []protocol.TimelineMarker{{ID: 1, Frame: 4, Name: "end"}}
-	e.editor.regions = []protocol.TimelineRegion{{ID: 2, Start: 1, End: 4, Name: "keep"}}
+	setTimelineFixture(t, e, []protocol.TimelineMarker{{ID: 1, Frame: 4, Name: "end"}}, []protocol.TimelineRegion{{ID: 2, Start: 1, End: 4, Name: "keep"}})
 	playRange(t, e, 1, 4, true)
 	before := e.editResult(false)
 	beforeMemory := e.documentMemory()

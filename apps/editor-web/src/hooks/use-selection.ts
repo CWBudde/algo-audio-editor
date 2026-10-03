@@ -1,4 +1,12 @@
-import type { DocumentInfoResult, EditResult, SelectionRange, TimelineResult } from "@aae/protocol";
+import type {
+  DocumentInfoResult,
+  EditResult,
+  MarkerUpdateParams,
+  RegionUpdateParams,
+  SelectionRange,
+  TimelineMutationResult,
+  TimelineResult,
+} from "@aae/protocol";
 import { useCallback, useLayoutEffect, useMemo, useReducer, useRef } from "react";
 import type { KernelClient } from "@/kernel/client";
 
@@ -15,6 +23,7 @@ interface Session {
   committed: SelectionRange;
   acknowledged: SelectionRange;
   acknowledgedRevision: number;
+  metadataAcknowledged?: boolean;
   rejectedRevision?: number;
   timeline: TimelineResult;
   timelineRevision: number;
@@ -28,11 +37,21 @@ interface Write {
   revision: number;
 }
 
+export interface SelectionOptions {
+  busy?: boolean;
+  withOperation?: (work: () => Promise<void>) => Promise<void>;
+  onTimelineChanged?: (result: TimelineMutationResult, sourceDocumentId: string) => void;
+}
+
+type MarkerChanges = Omit<MarkerUpdateParams, "documentId" | "selection">;
+type RegionChanges = Omit<RegionUpdateParams, "documentId" | "selection">;
+
 /** Optimistic control state; audio analysis and authoritative state stay in Go. */
 export function useSelection(
   client: KernelClient | undefined,
   info: DocumentInfoResult,
   initial?: Pick<EditResult, "selection" | "timeline">,
+  options: SelectionOptions = {},
 ) {
   const [, refresh] = useReducer((value: number) => value + 1, 0);
   const session = useMemo<Session>(() => {
@@ -66,6 +85,11 @@ export function useSelection(
       adding: false,
     };
   }, [client, info, initial]);
+  const latestOptions = useRef(options);
+  latestOptions.current = options;
+  const currentSession = useRef(session);
+  currentSession.current = session;
+  const mutation = useRef<object | undefined>(undefined);
   // One physical write at a time, with only the newest pending range retained.
   // A replacement session cannot let the old response paint its UI; the kernel
   // additionally rejects writes carrying an obsolete document ID.
@@ -81,8 +105,10 @@ export function useSelection(
       .call("selection.set", { documentId: target.info.documentId, ...write.selection })
       .then((result) => {
         if (!target.active || result.documentId !== target.info.documentId) return;
-        target.acknowledged = write.selection;
-        target.acknowledgedRevision = write.revision;
+        if (write.revision >= target.acknowledgedRevision) {
+          target.acknowledged = write.selection;
+          target.acknowledgedRevision = write.revision;
+        }
         if (target.commitRevision === write.revision) target.error = undefined;
       })
       .catch((error: unknown) => {
@@ -109,7 +135,8 @@ export function useSelection(
           if (
             !current() ||
             result.documentId !== info.documentId ||
-            session.acknowledgedRevision !== 0
+            session.acknowledgedRevision !== 0 ||
+            session.metadataAcknowledged
           )
             return;
           const { start, end, channelMask } = result;
@@ -121,7 +148,7 @@ export function useSelection(
           refresh();
         },
         (error: unknown) => {
-          if (!current() || session.commits !== 0) return;
+          if (!current() || session.commits !== 0 || session.metadataAcknowledged) return;
           session.error = error instanceof Error ? error.message : String(error);
           refresh();
         },
@@ -130,7 +157,11 @@ export function useSelection(
         (result) => {
           if (!current() || result.documentId !== info.documentId || session.timelineRevision)
             return;
-          session.timeline = result;
+          session.timeline = {
+            documentId: result.documentId,
+            markers: result.markers,
+            regions: result.regions,
+          };
           refresh();
         },
         (error: unknown) => {
@@ -202,42 +233,117 @@ export function useSelection(
     },
     [client, info, session],
   );
-  const addAnchor = useCallback(
-    async (kind: "marker" | "region", name: string) => {
-      if (!session.active || session.adding || !client) return;
+  const mutate = useCallback(
+    async (
+      request: (rpc: KernelClient, selection: SelectionRange) => Promise<TimelineMutationResult>,
+    ) => {
+      if (
+        !session.active ||
+        session.previewing ||
+        mutation.current ||
+        latestOptions.current.busy ||
+        !client
+      )
+        return;
+      const token = {};
+      mutation.current = token;
+      const epoch = session.epoch;
+      const revision = session.commitRevision;
+      const selection = { ...session.committed };
+      const active = () =>
+        session.active && session.epoch === epoch && currentSession.current === session;
       session.adding = true;
       session.error = undefined;
       refresh();
       try {
-        const { start, end } = session.selection;
-        const result =
-          kind === "marker"
-            ? await client.call("markers.add", { documentId: info.documentId, frame: start, name })
-            : await client.call("regions.add", { documentId: info.documentId, start, end, name });
-        if (session.active && result.documentId === info.documentId) {
+        const work = async () => {
+          if (!active() || session.previewing || session.commitRevision !== revision) return;
+          const result = await request(client, selection);
+          if (!active() || result.documentId !== info.documentId) return;
           session.timelineRevision++;
-          session.timeline = result;
-        }
+          session.timeline = {
+            documentId: result.documentId,
+            markers: result.markers,
+            regions: result.regions,
+          };
+          if (result.changed && revision >= session.acknowledgedRevision) {
+            session.acknowledged = selection;
+            session.acknowledgedRevision = revision;
+            session.metadataAcknowledged = true;
+            if (session.commitRevision === revision) {
+              // A preceding SET may have failed while this atomic mutation was
+              // pending. The successful metadata snapshot adopted these controls.
+              session.committed = selection;
+              if (!session.previewing) session.selection = selection;
+              session.rejectedRevision = undefined;
+              session.error = undefined;
+            }
+          }
+          latestOptions.current.onTimelineChanged?.(result, info.documentId);
+        };
+        const wrapper = latestOptions.current.withOperation;
+        if (wrapper) await wrapper(work);
+        else await work();
       } catch (error) {
-        if (session.active) session.error = error instanceof Error ? error.message : String(error);
+        if (active()) session.error = error instanceof Error ? error.message : String(error);
       } finally {
         session.adding = false;
-        if (session.active) refresh();
+        if (mutation.current === token) mutation.current = undefined;
+        if (currentSession.current.active) refresh();
       }
     },
     [client, info, session],
   );
+  const addAnchor = (kind: "marker" | "region", name: string, color = "#a78bfa") =>
+    mutate((rpc, selection) =>
+      kind === "marker"
+        ? rpc.call("markers.add", {
+            documentId: info.documentId,
+            frame: selection.start,
+            name,
+            color,
+            selection,
+          })
+        : rpc.call("regions.add", {
+            documentId: info.documentId,
+            start: selection.start,
+            end: selection.end,
+            name,
+            color,
+            selection,
+          }),
+    );
+  const updateMarker = (changes: MarkerChanges) =>
+    mutate((rpc, selection) =>
+      rpc.call("markers.update", { documentId: info.documentId, ...changes, selection }),
+    );
+  const updateRegion = (changes: RegionChanges) =>
+    mutate((rpc, selection) =>
+      rpc.call("regions.update", { documentId: info.documentId, ...changes, selection }),
+    );
+  const removeMarker = (id: number) =>
+    mutate((rpc, selection) =>
+      rpc.call("markers.remove", { documentId: info.documentId, id, selection }),
+    );
+  const removeRegion = (id: number) =>
+    mutate((rpc, selection) =>
+      rpc.call("regions.remove", { documentId: info.documentId, id, selection }),
+    );
 
   return {
     selection: session.selection,
     previewing: session.previewing,
     timeline: session.timeline,
-    adding: session.adding,
+    adding: Boolean(mutation.current),
     error: session.error,
     preview,
     cancelPreview,
     commit,
     snap,
     addAnchor,
+    updateMarker,
+    updateRegion,
+    removeMarker,
+    removeRegion,
   };
 }

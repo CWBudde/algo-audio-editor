@@ -23,7 +23,8 @@ export function callKernel(
     ),
   ) as KernelResponse<unknown>;
   if (!response.ok) throw new Error(response.error);
-  if (method !== "peaks.get" && method !== "doc.export") return { result: response.result };
+  if (method !== "peaks.get" && method !== "doc.export" && method !== "timeline.export")
+    return { result: response.result };
 
   const bytes = bridge.takeData();
   const info = response.result as PeaksGetInfo | ExportInfo;

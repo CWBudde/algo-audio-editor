@@ -3,7 +3,6 @@ package engine
 import (
 	"fmt"
 	"math"
-	"slices"
 	"strings"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
@@ -22,8 +21,6 @@ type historySnapshot struct {
 }
 
 func cloneEditor(editor editorState) editorState {
-	editor.markers = slices.Clone(editor.markers)
-	editor.regions = slices.Clone(editor.regions)
 	return editor
 }
 

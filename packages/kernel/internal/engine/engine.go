@@ -157,7 +157,9 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 		}
 		return e.preparePaste(p)
 	case protocol.MethodSelectionGet, protocol.MethodSelectionSet, protocol.MethodSelectionSnap,
-		protocol.MethodTimelineGet, protocol.MethodMarkersAdd, protocol.MethodRegionsAdd:
+		protocol.MethodTimelineGet, protocol.MethodMarkersAdd, protocol.MethodRegionsAdd,
+		protocol.MethodMarkersUpdate, protocol.MethodMarkersRemove, protocol.MethodRegionsUpdate,
+		protocol.MethodRegionsRemove, protocol.MethodTimelineExport:
 		return e.dispatchEditor(method, payload)
 	case protocol.MethodDocumentOpen:
 		var p protocol.DocumentOpenParams

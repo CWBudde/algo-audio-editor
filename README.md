@@ -60,9 +60,28 @@ leave the field to apply it. Escape discards a draft. Invalid or out-of-document
 ranges leave the selection unchanged. Optional snapping targets markers/region
 edges, displayed ruler ticks and kernel-computed zero crossings within six CSS
 pixels. The zero-crossing search radius is also capped at approximately 20 ms
-and 8192 frames. Add
-named markers at the selection start or regions from a nonempty selection;
-their full management, persistence and edit shifting are planned in Phase 2.4.
+and 8192 frames. Add named, colored markers at the selection start or regions
+from a nonempty selection.
+
+## Markers and regions
+
+Expand **Markers and regions** to jump to, rename, recolor, reposition or delete
+annotations. Positions use the selected ruler format, with exact sample entry.
+These changes are undoable and mark the document dirty without interrupting
+playback or resetting its waveform/zoom. Names are limited to 256 UTF-8 bytes;
+the document supports up to 4096 markers and regions combined.
+
+Save writes standard WAV `cue` points and `LIST/adtl` labels/region lengths.
+An additional `aeMD` chunk retains colors and the next annotation identity,
+which standard WAV annotations cannot represent. Foreign cue zero is remapped
+to an unused positive identity. Imported annotations without colors use purple.
+Recognized annotation metadata is bounded to 2 MiB and validated before import;
+malformed annotations reject the open without changing the current document.
+General metadata preservation remains Phase 6.
+
+Export CSV includes IDs, names, colors, exact frames and seconds. Export labels
+writes Audacity-style start/end seconds and names; names containing tabs or
+line breaks require CSV instead. Sidecar exports never mark the WAV saved.
 
 ## Editing audio
 
@@ -91,17 +110,21 @@ to 512 MiB; same-format structural pastes do not have that materialization
 limit. Copy keeps playback running; audio-changing edits
 stop it. Commands wait until pointer selection and snapping are complete.
 
-Markers and regions currently clamp to valid bounds after edits; their full
-edit-aware shifting remains Phase 2.4.
+All-channel ripple edits shift annotations with the audio. Deleted points and
+fully deleted regions disappear; surviving regions shrink or expand at splice
+boundaries. Crop intersects and rebases annotations, retaining points on its
+closed boundaries. Subset-channel edits keep global annotation coordinates,
+as unselected channels retain their sample positions. Mute, swap and Mix keep
+coordinates unchanged. Copy/paste and Duplicate do not clone annotations.
 
 ## Undo and saving
 
-Ctrl/Cmd+Z undoes an audio edit; Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes it. The
+Ctrl/Cmd+Z undoes an audio or annotation edit; Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes it. The
 Edit menu and expandable Edit history panel offer the same controls; click a
 history row to jump to that state. Navigation restores audio, selection and
 anchor snapshots and stops playback, without changing the clipboard. Editing
-after undo discards the redo branch. Copy, selection changes and the current
-anchor-only controls do not create audio-history steps.
+after undo discards the redo branch. Copy, selection changes and unchanged
+annotation updates do not create history steps.
 
 History retains up to 100 edits plus their base state, sharing unchanged audio
 blocks. Its unique sample/peak budget is the greater of 512 MiB and twice the
@@ -110,13 +133,12 @@ that cannot retain even its immediate undo pair is rejected unchanged. The
 panel shows retained audio storage; block-list and runtime overhead are not
 included. Keep a separate original for work that must outlive this session.
 
-The history summary and an asterisk in the window title indicate unsaved audio
+The history summary and an asterisk in the window title indicate unsaved document
 changes. Save marks only the successfully written history state as saved;
 undo/redo back to that state becomes clean, while export alone does not. With
 File System Access, the write and close must succeed. The download fallback
 can observe only handoff to the browser, not disk completion or cancellation.
-Opening another file resets history. Unsaved-close prompts remain Phase 9;
-marker/region persistence and corresponding dirty tracking remain Phase 2.4.
+Opening another file resets history. Unsaved-close prompts remain Phase 9.
 
 ## Repository layout
 

@@ -60,7 +60,8 @@ class DocumentWorker implements WorkerLike {
     const reply: WorkerReply =
       request.method === "doc.info" ||
       (request.method === "doc.open" && this.rejectOpen) ||
-      (request.method === "doc.export" && this.rejectExport) ||
+      ((request.method === "doc.export" || request.method === "timeline.export") &&
+        this.rejectExport) ||
       (request.method === "doc.mark-saved" && this.rejectSave)
         ? { kind: "reply", id: request.id, ok: false, error: "invalid document" }
         : {
@@ -68,7 +69,7 @@ class DocumentWorker implements WorkerLike {
             id: request.id,
             ok: true,
             result:
-              request.method === "doc.export"
+              request.method === "doc.export" || request.method === "timeline.export"
                 ? exported
                 : request.method === "history.list"
                   ? dirtyHistory
@@ -432,6 +433,113 @@ describe("useDocument", () => {
       worker.sent.find((request) => request.op === "call" && request.method === "doc.export"),
     ).toMatchObject({ params: { format: "wav", bitDepth: 24, float: false } });
     expect(write).toHaveBeenCalledWith(exported);
+  });
+
+  it.each(["csv", "labels"] as const)(
+    "exports %s sidecars under the shared file lock without marking saved",
+    async (format) => {
+      const worker = new DocumentWorker();
+      const client = new KernelClient(worker);
+      const callbacks = options();
+      const writing = deferred<void>();
+      const write = vi.fn(() => writing.promise);
+      vi.mocked(chooseSaveTarget).mockResolvedValue({ write });
+      const { result } = renderHook(() => useDocument(client, callbacks));
+      await act(async () => result.current.openFile(file()));
+      const original = result.current.info;
+      await act(async () => result.current.exportTimeline(format));
+      expect(result.current.busy).toBe(true);
+      expect(chooseSaveTarget).toHaveBeenCalledWith(
+        `stereo.${format === "csv" ? "markers.csv" : "labels.txt"}`,
+        expect.arrayContaining([
+          expect.objectContaining({
+            accept: {
+              [format === "csv" ? "text/csv" : "text/plain"]: [format === "csv" ? ".csv" : ".txt"],
+            },
+          }),
+        ]),
+      );
+      expect(
+        worker.sent.find(
+          (request) => request.op === "call" && request.method === "timeline.export",
+        ),
+      ).toMatchObject({ params: { documentId: info.documentId, format } });
+      const ignored = file("ignored.wav");
+      act(() => result.current.openFile(ignored));
+      expect(ignored.arrayBuffer).not.toHaveBeenCalled();
+      await expect(result.current.withOperation(async () => {})).rejects.toThrow("in progress");
+      await act(async () => writing.resolve(undefined));
+      expect(result.current.busy).toBe(false);
+      expect(result.current.info).toBe(original);
+      expect(callbacks.beforeOpen).toHaveBeenCalledTimes(1);
+      expect(callbacks.onSaved).not.toHaveBeenCalled();
+      expect(
+        worker.sent.some((request) => request.op === "call" && request.method === "doc.mark-saved"),
+      ).toBe(false);
+    },
+  );
+
+  it("cancels sidecar export without calling the kernel or writing", async () => {
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const callbacks = options();
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openFile(file()));
+    vi.mocked(chooseSaveTarget).mockResolvedValue(undefined);
+    await act(async () => result.current.exportTimeline("csv"));
+    expect(
+      worker.sent.some((request) => request.op === "call" && request.method === "timeline.export"),
+    ).toBe(false);
+    expect(result.current.busy).toBe(false);
+    expect(callbacks.onSaved).not.toHaveBeenCalled();
+    expect(callbacks.reportError).not.toHaveBeenCalled();
+  });
+
+  it.each(["kernel", "write"])(
+    "reports %s sidecar failures without changing the save point",
+    async (failure) => {
+      const worker = new DocumentWorker();
+      const client = new KernelClient(worker);
+      const callbacks = options();
+      const write = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(chooseSaveTarget).mockResolvedValue({ write });
+      const { result } = renderHook(() => useDocument(client, callbacks));
+      await act(async () => result.current.openFile(file()));
+      if (failure === "kernel") worker.rejectExport = true;
+      else write.mockRejectedValue(new Error("disk full"));
+      await act(async () => result.current.exportTimeline("labels"));
+      if (failure === "kernel") expect(write).not.toHaveBeenCalled();
+      expect(callbacks.reportError).toHaveBeenCalledWith(
+        "Could not export markers and regions",
+        expect.any(Error),
+      );
+      expect(callbacks.onSaved).not.toHaveBeenCalled();
+      expect(result.current.busy).toBe(false);
+    },
+  );
+
+  it("does not write a stale sidecar result after client replacement", async () => {
+    const oldWorker = new DocumentWorker();
+    const oldClient = new KernelClient(oldWorker);
+    const callbacks = options();
+    const choosing = deferred<Awaited<ReturnType<typeof chooseSaveTarget>>>();
+    const write = vi.fn();
+    vi.mocked(chooseSaveTarget).mockReturnValue(choosing.promise);
+    const { result, rerender } = renderHook(({ client }) => useDocument(client, callbacks), {
+      initialProps: { client: oldClient },
+    });
+    await act(async () => result.current.openFile(file()));
+    act(() => result.current.exportTimeline("csv"));
+    const replacement = new KernelClient(new DocumentWorker());
+    rerender({ client: replacement });
+    await act(async () => choosing.resolve({ write }));
+    expect(write).not.toHaveBeenCalled();
+    expect(
+      oldWorker.sent.some(
+        (request) => request.op === "call" && request.method === "timeline.export",
+      ),
+    ).toBe(false);
+    expect(callbacks.onSaved).not.toHaveBeenCalled();
   });
 
   it("marks only the exported history state saved after writing and holds the lock through acknowledgement", async () => {

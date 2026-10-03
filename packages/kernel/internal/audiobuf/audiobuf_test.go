@@ -341,7 +341,10 @@ func TestDocumentSnapshots(t *testing.T) {
 		}
 		assertSamples(t, channel, []float32{samples[1], samples[2], samples[1], samples[2]})
 	}
-	renamed := document.WithMetadata(Metadata{Name: "renamed.wav"})
+	renamed, err := document.WithMetadata(Metadata{Name: "renamed.wav"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if renamed.Metadata().Name != "renamed.wav" || document.Metadata().Name != "original.wav" {
 		t.Fatal("WithMetadata mutated the original snapshot")
 	}
