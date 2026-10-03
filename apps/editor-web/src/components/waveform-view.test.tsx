@@ -183,6 +183,62 @@ async function painted(getByTestId: (id: string) => HTMLElement, channel = 0) {
 }
 
 describe("WaveformView", () => {
+  it("paints RAF cursor positions immediately and refreshes the clock on unrelated React commits", async () => {
+    const { getByTestId, handle, rerender, client, worker } = mounted();
+    await painted(getByTestId, 1);
+    const requests = worker.sent.length;
+    // The position prop intentionally remains zero: no React state update is
+    // needed to paint the current shared-clock position at an animation frame.
+    handle.current?.updatePlayback(24000);
+    expect(getByTestId("play-cursor-0").style.left).toBe("372px");
+    expect(getByTestId("play-cursor-1").dataset.frame).toBe("24000");
+    rerender(<WaveformView client={client} info={info} position={0} readPosition={() => 36000} />);
+    expect(getByTestId("play-cursor-0").style.left).toBe("558px");
+    expect(getByTestId("play-cursor-overview").dataset.frame).toBe("36000");
+    expect(worker.sent.length).toBe(requests);
+  });
+  it("draws the consumed-frame cursor in every channel without fetching new peaks", async () => {
+    const { getByTestId, rerender, client, worker } = mounted();
+    await painted(getByTestId, 1);
+    const requests = worker.sent.length;
+    rerender(<WaveformView client={client} info={info} position={24000} playing />);
+    expect(getByTestId("play-cursor-0").style.left).toBe("372px");
+    expect(getByTestId("play-cursor-1").dataset.frame).toBe("24000");
+    expect(getByTestId("play-cursor-overview").style.left).toBe("372px");
+    expect(worker.sent.length).toBe(requests);
+  });
+
+  it("seeks at completed pointer ranges but not cancelled drags", () => {
+    const onSeek = vi.fn();
+    const { getByTestId, rerender, client, handle } = mounted();
+    rerender(<WaveformView client={client} info={info} onSeek={onSeek} ref={handle} />);
+    const canvas = getByTestId("waveform-channel-0");
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 56 + 300 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 56 + 100 });
+    expect(onSeek).toHaveBeenCalledWith(6452);
+    expect(handle.current?.selection()).toEqual({ start: 6452, end: 19355 });
+    act(() => handle.current?.clearSelection());
+    expect(handle.current?.selection()).toBeUndefined();
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 56 + 100 });
+    fireEvent.pointerCancel(canvas, { pointerId: 1 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 56 + 400 });
+    expect(onSeek).toHaveBeenCalledTimes(1);
+  });
+
+  it("pages or continuously follows playback and leaves manual views alone when stopped", () => {
+    const { getByTestId, rerender, client, handle } = mounted();
+    act(() => handle.current?.zoomIn());
+    rerender(<WaveformView client={client} info={info} position={37000} playing follow="page" />);
+    expect(range(getByTestId("waveform-view"))).toEqual([24000, 48000]);
+    rerender(
+      <WaveformView client={client} info={info} position={18000} playing follow="continuous" />,
+    );
+    expect(range(getByTestId("waveform-view"))).toEqual([6000, 30000]);
+    rerender(<WaveformView client={client} info={info} position={0} follow="continuous" />);
+    expect(range(getByTestId("waveform-view"))).toEqual([6000, 30000]);
+    rerender(<WaveformView client={client} info={info} position={0} playing follow="off" />);
+    expect(range(getByTestId("waveform-view"))).toEqual([6000, 30000]);
+  });
   it("draws kernel peaks independently in every channel and the full-file overview", async () => {
     const { getByTestId, worker } = mounted();
     await painted(getByTestId, 1);

@@ -4,7 +4,11 @@ import { AudioEngine } from "@/audio/audio-engine";
 import type { RingBufferStats } from "@/audio/ring-buffer";
 import { AppMenubar } from "@/components/app-menubar";
 import { StatusBar } from "@/components/status-bar";
-import { TransportBar } from "@/components/transport-bar";
+import {
+  type PlaybackFollow,
+  TransportBar,
+  type TransportBarHandle,
+} from "@/components/transport-bar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WaveformPlaceholder } from "@/components/waveform-placeholder";
@@ -28,11 +32,15 @@ export default function App() {
   const engine = useMemo(() => (client ? new AudioEngine(client) : undefined), [client]);
 
   const [playing, setPlaying] = useState(false);
-  const [frequencyHz, setFrequencyHz] = useState(440);
-  const [amplitude, setAmplitude] = useState(0.2);
+  const [position, setPosition] = useState(0);
+  const [loop, setLoop] = useState(false);
+  const [follow, setFollow] = useState<PlaybackFollow>("page");
+  const playbackAction = useRef(0);
+  const playbackPending = useRef(false);
   const [stats, setStats] = useState<RingBufferStats>();
   const fileInput = useRef<HTMLInputElement>(null);
   const waveformView = useRef<WaveformViewHandle>(null);
+  const transportBar = useRef<TransportBarHandle>(null);
   const currentEngine = useRef(engine);
   currentEngine.current = engine;
 
@@ -46,6 +54,7 @@ export default function App() {
 
   const doc = useDocument(client, {
     async beforeOpen() {
+      playbackAction.current++;
       await engine?.stop();
       if (currentEngine.current === engine) {
         setPlaying(false);
@@ -57,7 +66,100 @@ export default function App() {
   });
 
   useEffect(() => {
+    if (doc.info) setPosition(0);
+  }, [doc.info]);
+
+  const readPosition = useCallback(
+    () => (playing && !playbackPending.current && engine ? engine.position() : position),
+    [engine, playing, position],
+  );
+
+  const play = useCallback(() => {
+    if (!engine || !doc.info || doc.busy || doc.info.frames === 0) return;
+    const action = ++playbackAction.current;
+    const selected = waveformView.current?.selection();
+    const range = selected && selected.end > selected.start ? selected : undefined;
+    const start = range ? range.start : position < doc.info.frames ? position : 0;
+    setPosition(start);
+    playbackPending.current = true;
+    setPlaying(true);
+    engine
+      .play(doc.info, { start, end: range?.end, loop })
+      .catch((err: unknown) => {
+        if (action !== playbackAction.current) return;
+        setPlaying(false);
+        reportError("Playback failed")(err);
+      })
+      .finally(() => {
+        if (action === playbackAction.current) playbackPending.current = false;
+      });
+  }, [engine, doc.info, doc.busy, position, loop]);
+
+  const stop = useCallback(() => {
+    if (!engine) return;
+    const action = ++playbackAction.current;
+    playbackPending.current = false;
+    setPosition(engine.position());
+    engine
+      .stop()
+      .then(() => {
+        if (action !== playbackAction.current) return;
+        setStats(engine.stats());
+        setPosition(engine.position());
+        setPlaying(false);
+      })
+      .catch(reportError("Stopping playback failed"));
+  }, [engine]);
+
+  const seek = useCallback(
+    (frame: number) => {
+      if (!engine || !doc.info || doc.busy) return;
+      const action = ++playbackAction.current;
+      playbackPending.current = true;
+      setPosition(frame);
+      engine
+        .seek(frame)
+        .then(() => {
+          if (action !== playbackAction.current) return;
+          setPlaying(engine.isPlaying());
+          setStats(engine.stats());
+        })
+        .catch((error: unknown) => {
+          if (action !== playbackAction.current) return;
+          setPlaying(engine.isPlaying());
+          setPosition(engine.position());
+          reportError("Seeking failed")(error);
+        })
+        .finally(() => {
+          if (action === playbackAction.current) playbackPending.current = false;
+        });
+    },
+    [engine, doc.info, doc.busy],
+  );
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      const target = event.target;
+      if (
+        event.defaultPrevented ||
+        (target instanceof HTMLElement &&
+          (target.isContentEditable || target.closest("input, textarea, select, [role='textbox']")))
+      )
+        return;
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && doc.info && !doc.busy) {
+        if (event.code === "Space" && !event.repeat) {
+          event.preventDefault();
+          if (playing) stop();
+          else play();
+          return;
+        }
+        if (event.key === "Home" || event.key === "End") {
+          event.preventDefault();
+          waveformView.current?.clearSelection();
+          seek(event.key === "Home" ? 0 : doc.info.frames);
+          return;
+        }
+      }
       if (!(event.ctrlKey || event.metaKey) || event.altKey || !client || doc.busy) return;
       if (event.key.toLowerCase() === "o") {
         event.preventDefault();
@@ -81,38 +183,32 @@ export default function App() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [client, doc.busy, doc.info, doc.open, doc.save]);
-
-  useEffect(() => {
-    if (!client) return;
-    client
-      .call("tone.configure", { frequencyHz, amplitude })
-      .catch(reportError("Could not configure the test tone"));
-  }, [client, frequencyHz, amplitude]);
+  }, [client, doc.busy, doc.info, doc.open, doc.save, playing, play, stop, seek]);
 
   useEffect(() => {
     if (!engine || !playing) return;
     const timer = setInterval(() => setStats(engine.stats()), STATS_INTERVAL_MS);
-    return () => clearInterval(timer);
+    let animation = 0;
+    const update = () => {
+      if (!playbackPending.current) {
+        const frame = engine.position();
+        waveformView.current?.updatePlayback(frame);
+        transportBar.current?.updatePosition(frame);
+        if (engine.ended()) {
+          setPosition(engine.position());
+          setStats(engine.stats());
+          setPlaying(false);
+          return;
+        }
+      }
+      animation = requestAnimationFrame(update);
+    };
+    animation = requestAnimationFrame(update);
+    return () => {
+      clearInterval(timer);
+      cancelAnimationFrame(animation);
+    };
   }, [engine, playing]);
-
-  const play = useCallback(() => {
-    if (!engine) return;
-    setPlaying(true);
-    engine.play().catch((err: unknown) => {
-      setPlaying(false);
-      reportError("Playback failed")(err);
-    });
-  }, [engine]);
-
-  const stop = useCallback(() => {
-    if (!engine) return;
-    engine
-      .stop()
-      .then(() => setStats(engine.stats()))
-      .catch(reportError("Stopping playback failed"))
-      .finally(() => setPlaying(false));
-  }, [engine]);
 
   const about =
     kernel.status === "ready"
@@ -137,14 +233,18 @@ export default function App() {
           />
         </header>
         <TransportBar
-          ready={engine !== undefined && !doc.busy}
+          ref={transportBar}
+          ready={engine !== undefined && !doc.busy && Boolean(doc.info?.frames)}
           playing={playing}
-          frequencyHz={frequencyHz}
-          amplitude={amplitude}
+          loop={loop}
+          follow={follow}
+          position={position}
+          sampleRate={doc.info?.sampleRate ?? 48000}
+          readPosition={readPosition}
           onPlay={play}
           onStop={stop}
-          onFrequencyChange={setFrequencyHz}
-          onAmplitudeChange={setAmplitude}
+          onLoopChange={setLoop}
+          onFollowChange={setFollow}
         />
         <input
           ref={fileInput}
@@ -181,6 +281,11 @@ export default function App() {
               ref={waveformView}
               client={doc.busy ? undefined : client}
               info={doc.info}
+              position={position}
+              playing={playing}
+              follow={follow}
+              onSeek={seek}
+              readPosition={readPosition}
             />
           ) : (
             <WaveformPlaceholder />

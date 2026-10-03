@@ -168,6 +168,8 @@ func (e *Engine) openDocument(p protocol.DocumentOpenParams, input []byte) (prot
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: create document: %w", err)
 	}
 	e.document, e.sourceBitDepth, e.sourceFloat = document, layout.bitDepth, layout.float
+	e.transport = nil
+	e.source = sourceStopped
 	return e.documentInfo()
 }
 

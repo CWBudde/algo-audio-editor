@@ -18,7 +18,7 @@ export function WaveformPlaceholder({ info }: { info?: DocumentInfoResult }) {
           -bit {info.float ? "float" : "PCM"}
         </p>
         <p className="text-sm text-muted-foreground">
-          Test tone playback is independent of this document.
+          Click the waveform to seek, or drag a range to select playback.
         </p>
       </section>
     );
@@ -29,7 +29,7 @@ export function WaveformPlaceholder({ info }: { info?: DocumentInfoResult }) {
         <FileAudio className="size-10 text-muted-foreground" />
         <p className="font-medium">No document open</p>
         <p className="text-sm text-muted-foreground">
-          Open a WAV file or drop it here to begin. The transport plays a test tone.
+          Open a WAV file or drop it here to view its waveform and play it.
         </p>
       </div>
     </div>

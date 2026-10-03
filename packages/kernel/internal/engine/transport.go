@@ -1,0 +1,178 @@
+package engine
+
+import (
+	"fmt"
+
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
+)
+
+const transportBlockFrames = 2048
+
+type renderSource uint8
+
+const (
+	sourceTone renderSource = iota
+	sourceDocument
+	sourceStopped
+)
+
+type documentTransport struct {
+	start, end, position int64
+	loop, playing        bool
+	channels             []audiobuf.Channel
+	mono                 []float32
+	resampled            *documentResampler
+}
+
+func (t *documentTransport) result() protocol.TransportResult {
+	return protocol.TransportResult{Start: t.start, End: t.end, Position: t.position, Loop: t.loop, Playing: t.playing}
+}
+
+func (e *Engine) playDocument(p protocol.TransportPlayParams) (protocol.TransportResult, error) {
+	if e.document.Channels() == 0 {
+		return protocol.TransportResult{}, fmt.Errorf("transport.play: no document is open")
+	}
+	end := e.document.Frames()
+	if p.End != nil {
+		end = *p.End
+	}
+	if p.Start < 0 || p.Start >= end || end > e.document.Frames() || end > 1<<53-1 {
+		return protocol.TransportResult{}, fmt.Errorf("transport.play: nonempty range [%d, %d) must be inside [0, %d)", p.Start, end, e.document.Frames())
+	}
+	t, err := e.makeTransport(p.Start, end, p.Start, p.Loop, true)
+	if err != nil {
+		return protocol.TransportResult{}, fmt.Errorf("transport.play: prepare playback: %w", err)
+	}
+	e.transport, e.source = t, sourceDocument
+	return t.result(), nil
+}
+
+func (e *Engine) makeTransport(start, end, position int64, loop, playing bool) (*documentTransport, error) {
+	if e.channels != e.document.Channels() {
+		return nil, fmt.Errorf("render channels %d must match document channels %d", e.channels, e.document.Channels())
+	}
+	t := &documentTransport{
+		start: start, end: end, position: position, loop: loop, playing: playing,
+		channels: make([]audiobuf.Channel, e.channels), mono: make([]float32, transportBlockFrames),
+	}
+	for i := range t.channels {
+		var err error
+		t.channels[i], err = e.document.Channel(i)
+		if err != nil {
+			return nil, fmt.Errorf("read channel %d: %w", i, err)
+		}
+	}
+	if playing && e.document.SampleRate() != int(e.sampleRate) {
+		var err error
+		t.resampled, err = newDocumentResampler(t, e.document.SampleRate(), int(e.sampleRate))
+		if err != nil {
+			return nil, fmt.Errorf("sample-rate conversion: %w", err)
+		}
+	}
+	return t, nil
+}
+
+func (e *Engine) stopDocument() protocol.TransportResult {
+	e.source = sourceStopped
+	if e.transport == nil {
+		return protocol.TransportResult{End: e.document.Frames()}
+	}
+	e.transport.playing = false
+	return e.transport.result()
+}
+
+func (e *Engine) seekDocument(p protocol.TransportSeekParams) (protocol.TransportResult, error) {
+	if e.document.Channels() == 0 {
+		return protocol.TransportResult{}, fmt.Errorf("transport.seek: no document is open")
+	}
+	if p.Frame < 0 || p.Frame > e.document.Frames() || p.Frame > 1<<53-1 {
+		return protocol.TransportResult{}, fmt.Errorf("transport.seek: frame %d must be inside [0, %d]", p.Frame, e.document.Frames())
+	}
+	start, end, loop, playing := int64(0), e.document.Frames(), false, false
+	if e.transport != nil {
+		start, end, loop = e.transport.start, e.transport.end, e.transport.loop
+		playing = e.source == sourceDocument && e.transport.playing
+		if p.Frame < start || p.Frame > end {
+			start, end = 0, e.document.Frames()
+		}
+	}
+	if p.Frame == end {
+		playing = false
+	}
+	// Paused seeks need no render workspace and are valid before configuration,
+	// including the harmless cursor at frame zero of an empty document.
+	var t *documentTransport
+	if playing {
+		var err error
+		t, err = e.makeTransport(start, end, p.Frame, loop, true)
+		if err != nil {
+			return protocol.TransportResult{}, fmt.Errorf("transport.seek: prepare playback: %w", err)
+		}
+	} else {
+		t = &documentTransport{start: start, end: end, position: p.Frame, loop: loop}
+	}
+	e.transport, e.source = t, sourceDocument
+	return t.result(), nil
+}
+
+// RenderWithPositions renders interleaved audio and optional document cursor
+// tags. Each tag describes the cursor after its corresponding output frame.
+// The worklet publishes only consumed tags, so render-ahead never moves the
+// visible cursor early. A short result marks EOF; unused whole frames are silent.
+func (e *Engine) RenderWithPositions(dst []float32, positions []int64) int {
+	if e.channels < 1 {
+		clear(dst)
+		clear(positions)
+		return 0
+	}
+	frames := len(dst) / e.channels
+	if positions != nil {
+		frames = min(frames, len(positions))
+		clear(positions[:frames])
+	}
+	output := dst[:frames*e.channels]
+	clear(output)
+	if frames == 0 || e.source == sourceStopped {
+		return 0
+	}
+	if e.source == sourceTone {
+		if e.tone == nil {
+			return 0
+		}
+		e.tone.render(output, e.channels)
+		return frames
+	}
+	t := e.transport
+	if t == nil || !t.playing {
+		return 0
+	}
+	if t.resampled != nil {
+		return t.renderResampled(output, positions)
+	}
+	written := 0
+	for written < frames && t.playing {
+		count := int(min(int64(frames-written), int64(len(t.mono)), t.end-t.position))
+		for channel, data := range t.channels {
+			data.Read(t.mono[:count], t.position)
+			for frame := range count {
+				output[(written+frame)*e.channels+channel] = t.mono[frame]
+			}
+		}
+		for frame := range count {
+			t.position++
+			if t.position == t.end {
+				if t.loop {
+					t.position = t.start
+				} else {
+					t.playing = false
+				}
+			}
+			if positions != nil {
+				positions[written+frame] = t.position
+			}
+		}
+		written += count
+	}
+	return written
+}

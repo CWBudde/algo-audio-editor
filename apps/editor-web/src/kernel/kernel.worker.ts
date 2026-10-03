@@ -7,6 +7,7 @@ import type { KernelBridge } from "@aae/protocol";
 import { FrameRingBuffer } from "@/audio/ring-buffer";
 import { callKernel } from "./kernel-call";
 import type { WorkerOp, WorkerReply, WorkerRequest, WorkerResult } from "./messages";
+import { StreamPump } from "./stream-pump";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -22,15 +23,13 @@ declare global {
   var __aaeKernelReady: (() => void) | undefined;
 }
 
-/** Frames rendered per kernel call while topping up the ring. */
-const PUMP_BLOCK_FRAMES = 512;
 /** How often the ring is topped up. Must drain far less than the ring holds. */
 const PUMP_INTERVAL_MS = 10;
 
 let kernel: KernelBridge | undefined;
 let ring: FrameRingBuffer | undefined;
 let pumpTimer: ReturnType<typeof setInterval> | undefined;
-let scratch = new Uint8Array(0);
+let streamPump: StreamPump | undefined;
 
 function post(msg: WorkerReply, transfer: Transferable[] = []) {
   self.postMessage(msg, transfer);
@@ -74,22 +73,15 @@ function requireKernel(): KernelBridge {
 
 /** Renders kernel output into the ring until it is (nearly) full. */
 function pump() {
-  if (!kernel || !ring) return;
-
-  const bytesPerBlock = PUMP_BLOCK_FRAMES * ring.channels * Float32Array.BYTES_PER_ELEMENT;
-  if (scratch.byteLength !== bytesPerBlock) {
-    scratch = new Uint8Array(bytesPerBlock);
-  }
-  const samples = new Float32Array(scratch.buffer);
-
-  while (ring.availableWrite() >= PUMP_BLOCK_FRAMES) {
-    const frames = kernel.render(scratch, PUMP_BLOCK_FRAMES);
-    if (frames <= 0) {
-      stopPump();
-      post({ kind: "fatal", error: `kernel render failed (${frames})` });
-      return;
-    }
-    ring.write(samples, frames);
+  if (!kernel || !streamPump) return false;
+  try {
+    streamPump.fill(kernel);
+    if (streamPump.ended) stopPump();
+    return !streamPump.ended;
+  } catch (err) {
+    stopPump();
+    post({ kind: "fatal", error: err instanceof Error ? err.message : String(err) });
+    return false;
   }
 }
 
@@ -109,11 +101,12 @@ async function handle(req: WorkerOp): Promise<WorkerResult> {
     case "stream.attach":
       stopPump();
       ring = FrameRingBuffer.attach(req.ring);
+      streamPump = undefined;
       return { result: undefined };
     case "stream.start":
       if (!ring) throw new Error("stream.start before stream.attach");
-      pump();
-      pumpTimer ??= setInterval(pump, PUMP_INTERVAL_MS);
+      streamPump = new StreamPump(ring);
+      if (pump()) pumpTimer ??= setInterval(pump, PUMP_INTERVAL_MS);
       return { result: ring.stats() };
     case "stream.stop":
       stopPump();

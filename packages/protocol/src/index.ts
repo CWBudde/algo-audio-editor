@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -103,6 +103,25 @@ export interface ExportResult extends ExportInfo {
   data: ArrayBuffer;
 }
 
+export interface TransportPlayParams {
+  start: number;
+  end?: number;
+  loop: boolean;
+}
+
+export interface TransportSeekParams {
+  frame: number;
+}
+
+/** Renderer state; the audible cursor comes from consumed SAB frame tags. */
+export interface TransportResult {
+  start: number;
+  end: number;
+  loop: boolean;
+  position: number;
+  playing: boolean;
+}
+
 /** Every kernel method with its params and result types. */
 export interface KernelMethods {
   hello: { params: undefined; result: HelloResult };
@@ -113,6 +132,9 @@ export interface KernelMethods {
   "doc.open": { params: DocumentOpenParams; result: DocumentInfoResult };
   "doc.info": { params: undefined; result: DocumentInfoResult };
   "doc.export": { params: DocumentExportParams; result: ExportResult };
+  "transport.play": { params: TransportPlayParams; result: TransportResult };
+  "transport.stop": { params: undefined; result: TransportResult };
+  "transport.seek": { params: TransportSeekParams; result: TransportResult };
 }
 
 export type KernelMethod = keyof KernelMethods;
@@ -127,7 +149,11 @@ export interface KernelBridge {
   takeData(): Uint8Array;
   /**
    * Renders `frames` interleaved float32 frames into `dst` (little-endian
-   * bytes) and returns the number written, or -1 on invalid arguments.
+   * bytes) and returns the number written, or -1 on invalid arguments. Requests
+   * must contain 1..65536 frames to keep worker buffers bounded. Optional
+   * positions receives one int64 little-endian document cursor per output frame,
+   * representing the cursor AFTER that frame is consumed. A short result signals
+   * EOF; unused sample bytes are zeroed. Diagnostics can omit position tags.
    */
-  render(dst: Uint8Array, frames: number): number;
+  render(dst: Uint8Array, frames: number, positions?: Uint8Array): number;
 }

@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import { expect, type Page, test } from "@playwright/test";
 import { PROTOCOL_VERSION } from "../../../packages/protocol/src/index.ts";
+import { playbackWAV } from "./playback-fixture.js";
 
 type ProbeReply =
   | { kind: "reply"; id: number; ok: true; result: unknown }
@@ -83,10 +84,18 @@ test("routes peak requests to the actual WASM kernel", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test("plays the test tone through the worklet and stops cleanly", async ({ page }) => {
+test("plays the loaded document through the worklet and stops cleanly", async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto("/");
   await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+
+  await expect(page.getByTestId("play")).toBeDisabled();
+  await page.getByTestId("audio-file-input").setInputFiles({
+    name: "playback.wav",
+    mimeType: "audio/wav",
+    buffer: playbackWAV(),
+  });
+  await expect(page.getByTestId("document-name")).toHaveText("playback.wav");
 
   await page.getByTestId("play").click();
 
@@ -100,6 +109,9 @@ test("plays the test tone through the worklet and stops cleanly", async ({ page 
   // The ring is primed before the context resumes, so playback starts without
   // a single starved frame.
   await expect(page.getByTestId("underruns")).toHaveText("0");
+  await expect
+    .poll(async () => Number(await page.getByTestId("play-position").getAttribute("data-frame")))
+    .toBeGreaterThan(48000);
 
   await page.getByTestId("stop").click();
   await expect(page.getByTestId("play")).toBeEnabled();

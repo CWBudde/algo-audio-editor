@@ -38,6 +38,8 @@ type Engine struct {
 	bulkData       []byte
 	sourceBitDepth int
 	sourceFloat    bool
+	source         renderSource
+	transport      *documentTransport
 }
 
 // New returns an engine configured for 48 kHz stereo.
@@ -101,10 +103,7 @@ func (e *Engine) TakeData() []byte {
 // returns the number of frames written. A trailing partial frame is left
 // untouched.
 func (e *Engine) Render(dst []float32) int {
-	frames := len(dst) / e.channels
-	e.tone.render(dst[:frames*e.channels], e.channels)
-
-	return frames
+	return e.RenderWithPositions(dst, nil)
 }
 
 func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
@@ -129,6 +128,20 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 		}
 
 		return e.exportDocument(p)
+	case protocol.MethodTransportPlay:
+		var p protocol.TransportPlayParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.playDocument(p)
+	case protocol.MethodTransportStop:
+		return e.stopDocument(), nil
+	case protocol.MethodTransportSeek:
+		var p protocol.TransportSeekParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.seekDocument(p)
 	case protocol.MethodPeaksGet:
 		var p protocol.PeaksGetParams
 		if err := decode(method, payload, &p); err != nil {
@@ -189,12 +202,20 @@ func (e *Engine) configure(p protocol.EngineConfigureParams) (protocol.EngineCon
 		)
 	}
 
-	if err := e.tone.configure(p.SampleRate, e.tone.frequency, e.tone.amplitude); err != nil {
+	frequency := e.tone.frequency
+	if e.source != sourceTone && frequency >= p.SampleRate/2 {
+		// An inactive diagnostic must not prevent a valid document render format.
+		frequency = defaultToneHz
+	}
+	if err := e.tone.configure(p.SampleRate, frequency, e.tone.amplitude); err != nil {
 		return protocol.EngineConfigureResult{}, fmt.Errorf("%s: %w", protocol.MethodEngineConfigure, err)
 	}
 
 	e.sampleRate = p.SampleRate
 	e.channels = p.Channels
+	if e.source == sourceDocument {
+		e.stopDocument()
+	}
 
 	return protocol.EngineConfigureResult{SampleRate: e.sampleRate, Channels: e.channels}, nil
 }
@@ -203,6 +224,10 @@ func (e *Engine) configureTone(p protocol.ToneConfigureParams) (protocol.ToneCon
 	if err := e.tone.configure(e.sampleRate, p.FrequencyHz, p.Amplitude); err != nil {
 		return protocol.ToneConfigureResult{}, fmt.Errorf("%s: %w", protocol.MethodToneConfigure, err)
 	}
+	if e.transport != nil {
+		e.transport.playing = false
+	}
+	e.source = sourceTone
 
 	return protocol.ToneConfigureResult{FrequencyHz: e.tone.frequency, Amplitude: e.tone.amplitude}, nil
 }

@@ -2,6 +2,7 @@
 import { type Download, expect, test } from "@playwright/test";
 import type { PeaksGetResult } from "../../../packages/protocol/src/index.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
+import { playbackWAV } from "./playback-fixture.js";
 
 function wavFixture(bitDepth: number, float = false): Buffer {
   const integers = [-32768, 32767, -16384, 16384, 0, 0, 8192, -8192];
@@ -68,6 +69,12 @@ for (const format of [
     await page.goto("/");
     await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
     if (format.bitDepth === 16) {
+      await page.getByTestId("audio-file-input").setInputFiles({
+        name: "previous-playback.wav",
+        mimeType: "audio/wav",
+        buffer: playbackWAV(480000),
+      });
+      await expect(page.getByTestId("document-name")).toHaveText("previous-playback.wav");
       await page.getByTestId("play").click();
       await expect
         .poll(async () => Number(await page.getByTestId("frames-played").textContent()))
@@ -98,7 +105,7 @@ for (const format of [
       )
       .toBeGreaterThan(0);
     const transfers = await page.evaluate(() => window.__aaeTest?.transfers);
-    expect(transfers).toEqual([{ before: source.length, after: 0 }]);
+    expect(transfers?.slice(-1)).toEqual([{ before: source.length, after: 0 }]);
 
     const peaks = await page.evaluate(async () => {
       const result = (await window.__aaeTest?.request("peaks.get", {

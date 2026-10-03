@@ -43,11 +43,21 @@ if (process.env.AAE_IMPORT_BENCHMARK === "1") {
       const transfer = new DataTransfer();
       transfer.items.add(new File([bytes], "ten-minute.wav", { type: "audio/wav" }));
       const started = performance.now();
+      let documentReadyMs = 0;
       await new Promise<void>((resolve, reject) => {
         const observer = new MutationObserver(() => {
           if (
             document.querySelector('[data-testid="document-name"]')?.textContent !==
             "ten-minute.wav"
+          )
+            return;
+          if (documentReadyMs === 0) documentReadyMs = performance.now() - started;
+          if (
+            document.querySelectorAll('[data-testid^="waveform-channel-"][data-rendered="true"]')
+              .length !== 2 ||
+            document
+              .querySelector('[data-testid="waveform-overview"]')
+              ?.getAttribute("data-rendered") !== "true"
           )
             return;
           observer.disconnect();
@@ -58,7 +68,13 @@ if (process.env.AAE_IMPORT_BENCHMARK === "1") {
           observer.disconnect();
           reject(new Error("import benchmark timed out"));
         }, 90_000);
-        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributes: true,
+          attributeFilter: ["data-rendered"],
+        });
         document
           .querySelector('[data-testid="document-drop-zone"]')
           ?.dispatchEvent(new DragEvent("drop", { bubbles: true, dataTransfer: transfer }));
@@ -70,6 +86,7 @@ if (process.env.AAE_IMPORT_BENCHMARK === "1") {
         bytes: bytes.length,
         frames,
         totalMs: elapsedMs,
+        documentReadyMs,
         rpcMs: rpc.rpcMs,
         readAndUiMs: elapsedMs - rpc.rpcMs,
       };
@@ -78,6 +95,9 @@ if (process.env.AAE_IMPORT_BENCHMARK === "1") {
       "48000 Hz · 2 channels · 28800000 frames · 600.000 s",
     );
     console.info(`WASM import benchmark: ${JSON.stringify(timing)}`);
-    expect(timing.totalMs, "ten-minute import including file read and UI").toBeLessThan(1_000);
+    expect(
+      timing.totalMs,
+      "ten-minute import including file read and painted waveforms",
+    ).toBeLessThan(1_000);
   });
 }

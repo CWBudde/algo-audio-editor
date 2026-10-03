@@ -23,6 +23,7 @@ declare function registerProcessor(
   name: string,
   ctor: new (options: AudioWorkletNodeOptions) => AudioWorkletProcessor,
 ): void;
+declare const currentFrame: number;
 
 class PlaybackProcessor extends AudioWorkletProcessor {
   private readonly ring: FrameRingBuffer;
@@ -36,7 +37,7 @@ class PlaybackProcessor extends AudioWorkletProcessor {
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     const out = outputs[0];
     if (out.length > 0) {
-      this.ring.readPlanar(out, out[0].length);
+      this.ring.readPlanar(out, out[0].length, currentFrame);
     }
     return true;
   }

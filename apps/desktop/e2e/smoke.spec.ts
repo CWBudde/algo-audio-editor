@@ -1,5 +1,6 @@
 import path from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
+import { playbackWAV } from "../../editor-web/e2e/playback-fixture.js";
 
 test("loads the editor over app:// with cross-origin isolation", async () => {
   const app = await electron.launch({
@@ -20,11 +21,19 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await expect(page.getByTestId("cross-origin-isolated")).toHaveText("yes");
     await expect(page.getByTestId("platform")).toContainText("Electron");
 
+    await expect(page.getByTestId("play")).toBeDisabled();
+    await page.getByTestId("audio-file-input").setInputFiles({
+      name: "desktop-playback.wav",
+      mimeType: "audio/wav",
+      buffer: playbackWAV(),
+    });
+    await expect(page.getByTestId("document-name")).toHaveText("desktop-playback.wav");
     await page.getByTestId("play").click();
     await expect
       .poll(async () => Number(await page.getByTestId("frames-played").textContent()))
       .toBeGreaterThan(48_000);
     await page.getByTestId("stop").click();
+    await expect(page.getByTestId("underruns")).toHaveText("0");
 
     // Drive the shared production file and peak path inside the Electron shell,
     // not just its unloaded app frame. Native dialogs arrive in Phase 9.

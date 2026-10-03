@@ -1,25 +1,45 @@
-import { AudioWaveform, Play, Square } from "lucide-react";
+import { Play, Square } from "lucide-react";
+import { type Ref, useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Slider } from "@/components/ui/slider";
+
+export type PlaybackFollow = "off" | "page" | "continuous";
+
+export interface TransportBarHandle {
+  updatePosition(frame: number): void;
+}
 
 interface TransportBarProps {
   ready: boolean;
   playing: boolean;
-  frequencyHz: number;
-  amplitude: number;
+  loop: boolean;
+  follow: PlaybackFollow;
+  position: number;
+  sampleRate: number;
+  ref?: Ref<TransportBarHandle>;
+  readPosition?(): number;
   onPlay(): void;
   onStop(): void;
-  onFrequencyChange(hz: number): void;
-  onAmplitudeChange(amplitude: number): void;
-}
-
-function first(value: number | readonly number[]): number {
-  return typeof value === "number" ? value : value[0];
+  onLoopChange(loop: boolean): void;
+  onFollowChange(follow: PlaybackFollow): void;
 }
 
 export function TransportBar(props: TransportBarProps) {
   const { ready, playing } = props;
+  const readout = useRef<HTMLOutputElement>(null);
+  const updatePosition = useCallback(
+    (frame: number) => {
+      const element = readout.current;
+      if (!element) return;
+      element.dataset.frame = String(frame);
+      element.textContent = `${(frame / props.sampleRate).toFixed(3)} s · ${frame} frames`;
+    },
+    [props.sampleRate],
+  );
+  useImperativeHandle(props.ref, () => ({ updatePosition }), [updatePosition]);
+  // React commits unrelated controls/stats asynchronously. Refresh from the
+  // shared clock at commit so they cannot overwrite an up-to-date RAF cursor.
+  useLayoutEffect(() => updatePosition(props.readPosition?.() ?? props.position));
 
   return (
     <div className="flex h-12 items-center gap-3 border-b px-3">
@@ -28,7 +48,7 @@ export function TransportBar(props: TransportBarProps) {
         variant={playing ? "secondary" : "default"}
         disabled={!ready || playing}
         onClick={props.onPlay}
-        aria-label="Play test tone"
+        aria-label="Play"
         data-testid="play"
       >
         <Play />
@@ -46,45 +66,38 @@ export function TransportBar(props: TransportBarProps) {
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 
-      <AudioWaveform className="size-4 text-muted-foreground" />
-      <span className="text-xs text-muted-foreground">Test tone</span>
-
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-muted-foreground">Freq</span>
-        <div className="w-40">
-          <Slider
-            min={50}
-            max={2000}
-            step={1}
-            value={[props.frequencyHz]}
-            disabled={!ready}
-            onValueChange={(v) => props.onFrequencyChange(first(v))}
-            aria-label="Tone frequency"
-          />
-        </div>
-        <span className="w-16 whitespace-nowrap tabular-nums">{props.frequencyHz} Hz</span>
-      </div>
-
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-muted-foreground">Level</span>
-        <div className="w-28">
-          <Slider
-            min={0}
-            max={1}
-            step={0.01}
-            value={[props.amplitude]}
-            disabled={!ready}
-            onValueChange={(v) => props.onAmplitudeChange(first(v))}
-            aria-label="Tone level"
-          />
-        </div>
-        <span className="w-16 whitespace-nowrap tabular-nums">{formatDb(props.amplitude)}</span>
-      </div>
+      <label className="flex items-center gap-1.5 text-xs">
+        <input
+          type="checkbox"
+          checked={props.loop}
+          disabled={!ready || playing}
+          onChange={(event) => props.onLoopChange(event.target.checked)}
+        />
+        Loop
+      </label>
+      <label className="flex items-center gap-1.5 text-xs">
+        Follow playback
+        <select
+          className="rounded border bg-background p-1"
+          aria-label="Follow playback"
+          value={props.follow}
+          onChange={(event) => props.onFollowChange(event.target.value as PlaybackFollow)}
+        >
+          <option value="off">Off</option>
+          <option value="page">Page</option>
+          <option value="continuous">Continuous</option>
+        </select>
+      </label>
+      <output
+        ref={readout}
+        className="ml-auto text-xs tabular-nums"
+        aria-label="Playback position"
+        aria-live="off"
+        data-testid="play-position"
+        data-frame={props.position}
+      >
+        {(props.position / props.sampleRate).toFixed(3)} s · {props.position} frames
+      </output>
     </div>
   );
-}
-
-function formatDb(amplitude: number): string {
-  if (amplitude <= 0) return "−∞ dB";
-  return `${(20 * Math.log10(amplitude)).toFixed(1)} dB`;
 }

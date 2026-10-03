@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 3
+const Version = 4
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -30,6 +30,12 @@ const (
 	MethodDocumentInfo = "doc.info"
 	// MethodDocumentExport encodes WAV bytes retrieved via takeData.
 	MethodDocumentExport = "doc.export"
+	// MethodTransportPlay starts document playback over a frame range.
+	MethodTransportPlay = "transport.play"
+	// MethodTransportStop preserves the cursor and stops rendering audio.
+	MethodTransportStop = "transport.stop"
+	// MethodTransportSeek changes the document playback cursor.
+	MethodTransportSeek = "transport.seek"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -133,4 +139,27 @@ type DocumentExportInfo struct {
 	Name      string `json:"name"`
 	MimeType  string `json:"mimeType"`
 	DataBytes int    `json:"dataBytes"`
+}
+
+// TransportPlayParams selects a nonempty document range. A missing End uses
+// the document's final frame. Loop repeats this range continuously.
+type TransportPlayParams struct {
+	Start int64  `json:"start"`
+	End   *int64 `json:"end,omitempty"`
+	Loop  bool   `json:"loop"`
+}
+
+// TransportSeekParams moves to a frame, including the document's final frame.
+type TransportSeekParams struct {
+	Frame int64 `json:"frame"`
+}
+
+// TransportResult reports the renderer's cursor. The audible cursor is taken
+// from per-output-frame int64 position tags once the AudioWorklet consumes them.
+type TransportResult struct {
+	Start    int64 `json:"start"`
+	End      int64 `json:"end"`
+	Loop     bool  `json:"loop"`
+	Position int64 `json:"position"`
+	Playing  bool  `json:"playing"`
 }

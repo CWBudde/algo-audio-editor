@@ -5,9 +5,9 @@ An audio editor that runs in the browser and as a desktop app. All audio work
 WebAssembly** on top of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp)
 family. The UI is **React + TypeScript + shadcn**.
 
-> **Status:** Phase 0 of [PLAN.md](PLAN.md). The full pipeline runs end to end
-> (Go kernel → worker → SharedArrayBuffer → AudioWorklet, in the browser and in
-> Electron); editing features start in Phase 1.
+> **Status:** Phase 1 of [PLAN.md](PLAN.md): WAV import/export, interactive
+> waveforms and document playback in the browser and Electron. Destructive
+> editing and undo/redo start in Phase 2.
 
 ## Architecture
 
@@ -19,8 +19,8 @@ AudioWorklet "playback"  ◀──── SharedArrayBuffer ring buffer
 ```
 
 - The kernel runs in a Web Worker and renders audio ahead into a lock-free ring
-  buffer. The AudioWorklet only copies, so Go's garbage collector never causes
-  dropouts.
+  buffer. The AudioWorklet only copies; render-ahead buffers absorb worker GC
+  pauses without running Go on the audio thread.
 - Electron serves the same build over a custom `app://` scheme with the COOP/COEP
   headers that SharedArrayBuffer needs.
 
@@ -35,6 +35,10 @@ just dev           # http://localhost:5173
 just desktop-dev   # the same app in Electron
 just ci            # everything CI checks
 ```
+
+Browser tests start their own production preview. If port 4173 is occupied,
+choose a separate port: `AAE_E2E_PORT=44873 just e2e` (also supported by
+`just bench-import-browser`).
 
 ## Repository layout
 

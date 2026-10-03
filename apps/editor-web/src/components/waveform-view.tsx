@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { PlaybackFollow } from "@/components/transport-bar";
 import { Button } from "@/components/ui/button";
 import { usePeaks } from "@/hooks/use-peaks";
 import type { KernelClient } from "@/kernel/client";
@@ -40,12 +41,20 @@ export interface WaveformViewHandle {
   zoomOut(): void;
   zoomFit(): void;
   zoomSelection(): void;
+  selection(): FrameRange | undefined;
+  clearSelection(): void;
+  updatePlayback(frame: number): void;
 }
 
 interface WaveformViewProps {
   client: KernelClient | undefined;
   info: DocumentInfoResult;
   ref?: Ref<WaveformViewHandle>;
+  position?: number;
+  playing?: boolean;
+  follow?: PlaybackFollow;
+  onSeek?(frame: number): void;
+  readPosition?(): number;
 }
 
 interface ViewState {
@@ -177,7 +186,16 @@ function PeakCanvas({
   );
 }
 
-export function WaveformView({ client, info, ref }: WaveformViewProps) {
+export function WaveformView({
+  client,
+  info,
+  ref,
+  position = 0,
+  playing = false,
+  follow = "off",
+  onSeek,
+  readPosition,
+}: WaveformViewProps) {
   const fullRange = useMemo(() => ({ start: 0, end: info.frames }), [info]);
   const [state, setState] = useState<ViewState>({
     document: info,
@@ -188,6 +206,8 @@ export function WaveformView({ client, info, ref }: WaveformViewProps) {
     state.document === info ? state : { document: info, viewport: fullRange, selection: undefined };
   const { viewport, selection } = current;
   const lanes = useRef<HTMLDivElement>(null);
+  const cursorLines = useRef<(HTMLDivElement | null)[]>([]);
+  const overviewCursor = useRef<HTMLDivElement>(null);
   const lanesId = useId();
   const { host, width, dpr } = useViewSize(lanes);
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("seconds");
@@ -214,7 +234,14 @@ export function WaveformView({ client, info, ref }: WaveformViewProps) {
           previous.document === info
             ? previous
             : { document: info, viewport: fullRange, selection: undefined };
-        return { ...base, viewport: clampViewport(change(base.viewport), info.frames) };
+        const next = clampViewport(change(base.viewport), info.frames);
+        if (
+          base === previous &&
+          next.start === base.viewport.start &&
+          next.end === base.viewport.end
+        )
+          return previous;
+        return { ...base, viewport: next };
       });
     },
     [info, fullRange],
@@ -245,12 +272,66 @@ export function WaveformView({ client, info, ref }: WaveformViewProps) {
   const zoomSelection = useCallback(() => {
     if (selection && selection.end > selection.start) updateViewport(() => selection);
   }, [selection, updateViewport]);
-  useImperativeHandle(ref, () => ({ zoomIn, zoomOut, zoomFit, zoomSelection }), [
-    zoomIn,
-    zoomOut,
-    zoomFit,
-    zoomSelection,
-  ]);
+  const paintPlayback = useCallback(
+    (frame: number) => {
+      const visible = frame >= viewport.start && frame <= viewport.end && info.frames > 0;
+      const x = Math.min(width - 1, frameToX(frame, viewport, width));
+      for (const line of cursorLines.current) {
+        if (!line) continue;
+        line.style.display = visible ? "" : "none";
+        line.style.left = `${x}px`;
+        line.setAttribute("data-frame", String(frame));
+      }
+      const overview = overviewCursor.current;
+      if (overview && info.frames > 0) {
+        overview.style.left = `${Math.min(width - 1, (frame / info.frames) * width)}px`;
+        overview.dataset.frame = String(frame);
+      }
+    },
+    [viewport, info.frames, width],
+  );
+  const followPlayback = useCallback(
+    (frame: number) => {
+      if (!playing || follow === "off" || info.frames === 0) return;
+      updateViewport((range) => {
+        const length = range.end - range.start;
+        if (length >= info.frames) return range;
+        if (follow === "page" && frame >= range.start && frame < range.end) return range;
+        const start =
+          follow === "continuous"
+            ? Math.round(frame - length / 2)
+            : Math.floor(frame / length) * length;
+        const next = clampViewport({ start, end: start + length }, info.frames);
+        return next.start === range.start && next.end === range.end ? range : next;
+      });
+    },
+    [playing, follow, info.frames, updateViewport],
+  );
+  const updatePlayback = useCallback(
+    (frame: number) => {
+      paintPlayback(frame);
+      followPlayback(frame);
+    },
+    [paintPlayback, followPlayback],
+  );
+  useImperativeHandle(
+    ref,
+    () => ({
+      zoomIn,
+      zoomOut,
+      zoomFit,
+      zoomSelection,
+      selection: () => selection,
+      clearSelection: () => setState((previous) => ({ ...previous, selection: undefined })),
+      updatePlayback,
+    }),
+    [zoomIn, zoomOut, zoomFit, zoomSelection, selection, updatePlayback],
+  );
+
+  useEffect(() => {
+    followPlayback(readPosition?.() ?? position);
+  }, [position, followPlayback, readPosition]);
+  useLayoutEffect(() => paintPlayback(readPosition?.() ?? position));
 
   useEffect(() => {
     const element = lanes.current;
@@ -316,7 +397,10 @@ export function WaveformView({ client, info, ref }: WaveformViewProps) {
     setSelection({ start: Math.min(drag.anchor, frame), end: Math.max(drag.anchor, frame) });
   };
   const endSelection = (event: PointerEvent<HTMLCanvasElement>) => {
+    const drag = selectionDrag.current;
+    if (!drag || drag.pointer !== event.pointerId) return;
     moveSelection(event);
+    onSeek?.(Math.min(drag.anchor, pointerFrame(event)));
     selectionDrag.current = undefined;
     if (event.currentTarget.hasPointerCapture?.(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -357,9 +441,6 @@ export function WaveformView({ client, info, ref }: WaveformViewProps) {
           {info.sampleRate} Hz · {info.channels} {info.channels === 1 ? "channel" : "channels"} ·{" "}
           {info.frames} frames · {(info.frames / info.sampleRate).toFixed(3)} s · {info.bitDepth}
           -bit {info.float ? "float" : "PCM"}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Test tone playback is independent of this document.
         </p>
       </header>
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1.5">
@@ -501,6 +582,18 @@ export function WaveformView({ client, info, ref }: WaveformViewProps) {
                       }}
                     />
                   )}
+                  {info.frames > 0 && (
+                    <div
+                      ref={(element) => {
+                        cursorLines.current[channel] = element;
+                      }}
+                      aria-hidden="true"
+                      data-testid={`play-cursor-${channel}`}
+                      data-frame={position}
+                      className="pointer-events-none absolute inset-y-0 border-l border-amber-300"
+                      style={{ left: Math.min(width - 1, frameToX(position, viewport, width)) }}
+                    />
+                  )}
                 </div>
               </div>
             </div>
@@ -596,6 +689,16 @@ export function WaveformView({ client, info, ref }: WaveformViewProps) {
               }
             }}
           />
+          {info.frames > 0 && (
+            <div
+              ref={overviewCursor}
+              aria-hidden="true"
+              data-testid="play-cursor-overview"
+              data-frame={position}
+              className="pointer-events-none absolute inset-y-0 border-l border-amber-300"
+              style={{ left: Math.min(width - 1, (position / info.frames) * width) }}
+            />
+          )}
         </div>
       </div>
       <div className="grid" style={sharedColumns}>

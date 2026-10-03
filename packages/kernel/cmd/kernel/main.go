@@ -8,7 +8,7 @@
 //
 //	AAEKernel.call(method: string, paramsJSON?: string, data?: Uint8Array): string // protocol.Response JSON
 //	AAEKernel.takeData(): Uint8Array                           // preceding call's bulk result
-//	AAEKernel.render(dst: Uint8Array, frames: number): number    // frames written
+//	AAEKernel.render(dst: Uint8Array, frames: number, positions?: Uint8Array): number
 //
 // Everything else is a protocol method behind call(), so adding features never
 // changes the control protocol; bulk results use takeData().
@@ -25,6 +25,10 @@ import (
 
 const bytesPerFloat32 = 4
 
+// Render-ahead requests are deliberately bounded independently of ring size.
+// Eight-channel sample/tag buffers stay below 7 MiB at this maximum.
+const maxRenderFrames = 65536
+
 // Keep byte lengths representable on wasm32. Phase 10 adds paged storage and
 // streaming file input instead of copying a whole multi-gigabyte source.
 const maxBinaryInputBytes = math.MaxInt32
@@ -35,11 +39,13 @@ const maxBinaryInputBytes = math.MaxInt32
 // the measurements behind this pattern. The Go-side buffers are reused, so the
 // steady state allocates nothing.
 type renderBridge struct {
-	samples []float32
-	raw     []byte
+	samples     []float32
+	raw         []byte
+	positions   []int64
+	positionRaw []byte
 }
 
-func (b *renderBridge) render(eng *engine.Engine, dst js.Value, frames int) int {
+func (b *renderBridge) render(eng *engine.Engine, dst, positionDst js.Value, frames int) int {
 	n := frames * eng.Channels()
 	if cap(b.samples) < n {
 		b.samples = make([]float32, n)
@@ -49,7 +55,15 @@ func (b *renderBridge) render(eng *engine.Engine, dst js.Value, frames int) int 
 	samples := b.samples[:n]
 	raw := b.raw[:n*bytesPerFloat32]
 
-	written := eng.Render(samples)
+	var positions []int64
+	if positionDst.Type() != js.TypeUndefined {
+		if cap(b.positions) < frames {
+			b.positions = make([]int64, frames)
+			b.positionRaw = make([]byte, frames*8)
+		}
+		positions = b.positions[:frames]
+	}
+	written := eng.RenderWithPositions(samples, positions)
 
 	// WASM is little-endian, as is a Float32Array over the same bytes.
 	for i, v := range samples {
@@ -57,8 +71,37 @@ func (b *renderBridge) render(eng *engine.Engine, dst js.Value, frames int) int 
 	}
 
 	js.CopyBytesToJS(dst, raw)
+	if positions != nil {
+		positionRaw := b.positionRaw[:frames*8]
+		for i, position := range positions {
+			binary.LittleEndian.PutUint64(positionRaw[i*8:], uint64(position))
+		}
+		js.CopyBytesToJS(positionDst, positionRaw)
+	}
 
 	return written
+}
+
+func (b *renderBridge) call(eng *engine.Engine, args []js.Value) int {
+	if len(args) < 2 || args[0].Type() != js.TypeObject || args[1].Type() != js.TypeNumber {
+		return -1
+	}
+	dst, count := args[0], args[1].Float()
+	if !dst.InstanceOf(js.Global().Get("Uint8Array")) || math.IsNaN(count) || math.IsInf(count, 0) || count != math.Trunc(count) || count <= 0 || count > maxRenderFrames {
+		return -1
+	}
+	frames := int(count)
+	if dst.Get("byteLength").Int() < frames*eng.Channels()*bytesPerFloat32 {
+		return -1
+	}
+	positionDst := js.Undefined()
+	if len(args) > 2 && args[2].Type() != js.TypeUndefined {
+		positionDst = args[2]
+		if positionDst.Type() != js.TypeObject || !positionDst.InstanceOf(js.Global().Get("Uint8Array")) || positionDst.Get("byteLength").Int() < frames*8 {
+			return -1
+		}
+	}
+	return b.render(eng, dst, positionDst, frames)
 }
 
 func main() {
@@ -108,16 +151,7 @@ func main() {
 	}))
 
 	api.Set("render", js.FuncOf(func(_ js.Value, args []js.Value) any {
-		if len(args) < 2 || args[0].Type() != js.TypeObject || args[1].Type() != js.TypeNumber {
-			return js.ValueOf(-1)
-		}
-
-		dst, frames := args[0], args[1].Int()
-		if frames <= 0 || dst.Get("byteLength").Int() < frames*eng.Channels()*bytesPerFloat32 {
-			return js.ValueOf(-1)
-		}
-
-		return js.ValueOf(bridge.render(eng, dst, frames))
+		return bridge.call(eng, args)
 	}))
 
 	js.Global().Set("AAEKernel", api)
