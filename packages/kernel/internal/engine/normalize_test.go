@@ -231,7 +231,7 @@ func TestNormalizeEngineRequiredABIFieldsAndSubnormalGain(t *testing.T) {
 	response := e.Call(protocol.MethodProcessStart, payload)
 	for _, key := range []string{"\"phase\"", "\"phaseIndex\"", "\"phaseCount\"", "\"planningSteps\"", "\"gainResolved\"", "\"inputPeak\"", "\"inputLufs\":null", "\"predictedLufs\":null", "\"outputLufs\":null"} {
 		if !strings.Contains(string(response), key) {
-			t.Fatalf("missing required ABI9 metadata %s: %s", key, response)
+			t.Fatalf("missing required ABI%d metadata %s: %s", protocol.Version, key, response)
 		}
 	}
 	var envelope struct {
@@ -239,7 +239,7 @@ func TestNormalizeEngineRequiredABIFieldsAndSubnormalGain(t *testing.T) {
 		Result protocol.ProcessJobResult `json:"result"`
 	}
 	if err := json.Unmarshal(response, &envelope); err != nil || !envelope.OK {
-		t.Fatal("ABI9 process.start failed", err)
+		t.Fatalf("ABI%d process.start failed: %v", protocol.Version, err)
 	}
 	result := finishEngineNormalization(t, e, envelope.Result)
 	if result.GainDB < 800 || result.Peak != 1 || result.NonFinite {

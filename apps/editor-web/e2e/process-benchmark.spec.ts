@@ -324,6 +324,8 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
             commitToUiMs: started + documentReadyMs - commit.endedAt,
             waveformMs: totalMs - documentReadyMs,
             progressEvents,
+            // ABI10 reports one event per bounded batch, not per DSP block.
+            progressUnit: "bounded batch replies",
             maxProgressGapMs,
             phaseTimings: Array.from(phases.values(), (phase) => ({
               ...phase,

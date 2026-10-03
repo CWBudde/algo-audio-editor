@@ -3,11 +3,11 @@
  * Kernel worker: hosts the Go WASM kernel off the main thread and keeps the
  * playback ring buffer filled.
  */
-import type { KernelBridge, ProcessJobResult } from "@aae/protocol";
+import type { KernelBridge } from "@aae/protocol";
 import { FrameRingBuffer } from "@/audio/ring-buffer";
 import { callKernel } from "./kernel-call";
 import type { WorkerReply, WorkerRequest, WorkerResult } from "./messages";
-import { runProcessJob } from "./process-runner";
+import { runProcessJob, stepProcessBatch } from "./process-runner";
 import { StreamPump } from "./stream-pump";
 import { createTaskYield } from "./task-yield";
 
@@ -109,7 +109,7 @@ async function handle(req: WorkerRequest): Promise<WorkerResult> {
       processRunning = true;
       try {
         const result = await runProcessJob(params, {
-          step: (target) => callKernel(bridge, "process.step", target).result as ProcessJobResult,
+          step: (target) => stepProcessBatch(bridge, target),
           yieldTask: taskYield.yieldTask,
           progress: (progress) => post({ kind: "process.progress", id: req.id, progress }),
         });

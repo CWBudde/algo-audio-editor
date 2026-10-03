@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -378,6 +378,8 @@ export interface KernelMethods {
   "doc.mark-saved": { params: MarkSavedParams; result: HistoryListResult };
   "process.start": { params: ProcessStartParams; result: ProcessJobResult };
   "process.step": { params: ProcessJobParams; result: ProcessJobResult };
+  /** At most four bounded steps, stopping at phase changes or terminal state. */
+  "process.stepBatch": { params: ProcessJobParams; result: ProcessJobResult };
   "process.cancel": { params: ProcessJobParams; result: ProcessJobResult };
   "process.commit": { params: ProcessJobParams; result: EditResult };
 }

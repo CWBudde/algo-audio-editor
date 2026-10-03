@@ -1,4 +1,5 @@
-import type { ProcessJobParams, ProcessJobResult } from "@aae/protocol";
+import type { KernelBridge, ProcessJobParams, ProcessJobResult } from "@aae/protocol";
+import { callKernel } from "./kernel-call";
 
 const gainPhases = ["processing"] as const;
 const peakPhases = ["analyzing", "processing"] as const;
@@ -12,6 +13,11 @@ export interface ProcessRunner {
   step(params: ProcessJobParams): ProcessJobResult;
   yieldTask(): Promise<void>;
   progress(value: ProcessJobResult): void;
+}
+
+/** One bridge crossing for <=4 Go blocks; phase transitions remain observable. */
+export function stepProcessBatch(bridge: KernelBridge, params: ProcessJobParams): ProcessJobResult {
+  return callKernel(bridge, "process.stepBatch", params).result as ProcessJobResult;
 }
 
 /** Validate control metadata only; no audio samples leave the Go process job. */
@@ -155,7 +161,7 @@ export function validProcessProgress(
   return true;
 }
 
-/** Each synchronous Go step is bounded; a real task yield lets Cancel run. */
+/** Each Go batch is bounded; a real task yield lets Cancel run between batches. */
 export async function runProcessJob(
   params: ProcessJobParams,
   runner: ProcessRunner,

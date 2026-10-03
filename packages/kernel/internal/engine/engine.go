@@ -128,7 +128,7 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 			return nil, err
 		}
 		return e.startProcess(p)
-	case protocol.MethodProcessStep, protocol.MethodProcessCancel, protocol.MethodProcessCommit:
+	case protocol.MethodProcessStep, protocol.MethodProcessStepBatch, protocol.MethodProcessCancel, protocol.MethodProcessCommit:
 		var p protocol.ProcessJobParams
 		if err := decode(method, payload, &p); err != nil {
 			return nil, err
@@ -136,6 +136,8 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 		switch method {
 		case protocol.MethodProcessStep:
 			return e.stepProcess(p)
+		case protocol.MethodProcessStepBatch:
+			return e.stepProcessBatch(p)
 		case protocol.MethodProcessCancel:
 			return e.cancelProcess(p)
 		default:

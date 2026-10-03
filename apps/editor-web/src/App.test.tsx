@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from "@aae/protocol";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -47,7 +48,7 @@ vi.mock("@/hooks/use-kernel", () => {
   const kernel = {
     status: "ready",
     client: {},
-    hello: { kernelVersion: "test", protocolVersion: 9, goVersion: "go1.test" },
+    hello: { kernelVersion: "test", protocolVersion: PROTOCOL_VERSION, goVersion: "go1.test" },
   };
   return { useKernel: () => kernel };
 });

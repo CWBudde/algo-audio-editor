@@ -1,7 +1,7 @@
-import type { ProcessJobResult } from "@aae/protocol";
+import type { KernelBridge, ProcessJobResult } from "@aae/protocol";
 import { describe, expect, it, vi } from "vitest";
 import processWireGolden from "../../../../packages/kernel/internal/protocol/testdata/process-jobs.json?raw";
-import { runProcessJob, validProcessProgress } from "./process-runner";
+import { runProcessJob, stepProcessBatch, validProcessProgress } from "./process-runner";
 
 const params = { documentId: "doc-1", jobId: "job-1" };
 const progress: ProcessJobResult = {
@@ -49,6 +49,93 @@ const loudnessAnalysis: ProcessJobResult = {
 };
 
 describe("processing runner", () => {
+  it("uses the bounded Go batch bridge and yields between all visible phases", async () => {
+    const resolved: ProcessJobResult = {
+      ...loudnessAnalysis,
+      phase: "processing",
+      phaseIndex: 1,
+      processedFrames: 0,
+      gainResolved: true,
+      gainDb: -5,
+      inputLufs: -18,
+      predictedLufs: -23,
+      planningSteps: 1,
+    };
+    const values: ProcessJobResult[] = [
+      loudnessAnalysis,
+      resolved,
+      { ...resolved, processedFrames: 20, peak: 0.1405853 },
+      { ...resolved, phase: "verifying", phaseIndex: 2, peak: 0.1405853 },
+      {
+        ...resolved,
+        state: "ready",
+        phase: "verifying",
+        phaseIndex: 2,
+        processedFrames: 20,
+        peak: 0.1405853,
+        planningSteps: 2,
+        outputLufs: -23.0000001,
+      },
+    ];
+    const calls = vi.fn((method: string, payload?: string, data?: Uint8Array) => {
+      expect(method).toBe("process.stepBatch");
+      expect(JSON.parse(payload ?? "null")).toEqual(params);
+      expect(data).toBeUndefined();
+      const result = values.shift();
+      if (!result) throw new Error("unexpected extra batch");
+      return JSON.stringify({ ok: true, result });
+    });
+    const bridge: KernelBridge = {
+      call: calls,
+      takeData: vi.fn(() => new Uint8Array()),
+      render: vi.fn(() => 0),
+    };
+    const listener = vi.fn();
+    const yieldTask = vi.fn(async () => {});
+    await expect(
+      runProcessJob(params, {
+        step: (target) => stepProcessBatch(bridge, target),
+        progress: listener,
+        yieldTask,
+      }),
+    ).resolves.toMatchObject({ state: "ready", outputLufs: -23.0000001 });
+    expect(calls).toHaveBeenCalledTimes(5);
+    expect(yieldTask).toHaveBeenCalledTimes(4);
+    expect(listener.mock.calls.map(([value]) => value.phase)).toEqual([
+      "analyzing",
+      "processing",
+      "processing",
+      "verifying",
+      "verifying",
+    ]);
+    expect(bridge.takeData).not.toHaveBeenCalled();
+    expect(bridge.render).not.toHaveBeenCalled();
+  });
+
+  it("propagates a rejected batch without inventing progress or a commit", async () => {
+    const bridge: KernelBridge = {
+      call: vi.fn(() => JSON.stringify({ ok: false, error: "process.stepBatch: source changed" })),
+      takeData: vi.fn(() => new Uint8Array()),
+      render: vi.fn(() => 0),
+    };
+    const listener = vi.fn();
+    const yieldTask = vi.fn(async () => {});
+    await expect(
+      runProcessJob(params, {
+        step: (target) => stepProcessBatch(bridge, target),
+        progress: listener,
+        yieldTask,
+      }),
+    ).rejects.toThrow("source changed");
+    expect(listener).not.toHaveBeenCalled();
+    expect(yieldTask).not.toHaveBeenCalled();
+    expect(bridge.call).toHaveBeenCalledExactlyOnceWith(
+      "process.stepBatch",
+      JSON.stringify(params),
+      undefined,
+    );
+  });
+
   it("accepts the raw JSON wire golden also checked against Go serialization", () => {
     const values: unknown[] = JSON.parse(processWireGolden);
     expect(values).toHaveLength(3);

@@ -86,7 +86,9 @@ func NewBuilder(document audiobuf.Document, selected ops.Range, process Process,
 			builder.blocks[channel] = make([]*audiobuf.Block, 0, capacity)
 		}
 	}
-	builder.mono = make([]float32, audiobuf.BlockFrames)
+	if builder.identity {
+		builder.mono = make([]float32, audiobuf.BlockFrames)
+	}
 	builder.dsp = make([]float64, audiobuf.BlockFrames)
 	return builder, nil
 }
@@ -135,8 +137,8 @@ func runProcessor(processor Processor, block []float64) (err error) {
 }
 
 // Step processes one <=BlockFrames chunk across every selected channel, then
-// returns to its caller. A worker must yield its event loop between these calls
-// to receive cancellation; a loop inside one JS bridge callback cannot do so.
+// returns to its caller. A worker must yield its event loop between bounded
+// batches to receive cancellation; it must not drain a job in one bridge call.
 func (b *Builder) Step(ctx context.Context) (Progress, error) {
 	if b.failure != nil {
 		return b.progress, b.failure
@@ -157,12 +159,11 @@ func (b *Builder) Step(ctx context.Context) (Progress, error) {
 		if err := ctx.Err(); err != nil {
 			return b.fail(fmt.Errorf("process.step: %w", err))
 		}
-		if n := b.channels[channel].Read(b.mono[:count], b.selected.Start+b.progress.FramesDone); n != count {
-			return b.fail(fmt.Errorf("process.step: channel %d read %d of %d frames", b.indices[channel], n, count))
-		}
 		finite := 0
 		if !b.identity {
-			widenSamples(b.dsp[:count], b.mono[:count])
+			if n := b.channels[channel].ReadFloat64(b.dsp[:count], b.selected.Start+b.progress.FramesDone); n != count {
+				return b.fail(fmt.Errorf("process.step: channel %d read %d of %d frames", b.indices[channel], n, count))
+			}
 			if err := runProcessor(b.processors[channel], b.dsp[:count]); err != nil {
 				return b.fail(fmt.Errorf("process.step: channel %d: %w", b.indices[channel], err))
 			}
@@ -194,6 +195,9 @@ func (b *Builder) Step(ctx context.Context) (Progress, error) {
 			}
 		} else {
 			// Identity never rewrites samples, including signaling NaN bits.
+			if n := b.channels[channel].Read(b.mono[:count], b.selected.Start+b.progress.FramesDone); n != count {
+				return b.fail(fmt.Errorf("process.step: channel %d read %d of %d frames", b.indices[channel], n, count))
+			}
 			for _, value := range b.mono[:count] {
 				if math.Float32bits(value)&0x7f800000 == 0x7f800000 {
 					nonfinite = true
@@ -231,20 +235,6 @@ func (b *Builder) Step(ctx context.Context) (Progress, error) {
 		b.release()
 	}
 	return b.progress, nil
-}
-
-// widenSamples only moves representations into private upstream-DSP scratch.
-// Grouped copies avoid redundant per-sample bounds checks in the WASM path.
-func widenSamples(dst []float64, src []float32) {
-	i := 0
-	for ; i+8 <= len(src); i += 8 {
-		in, out := src[i:i+8], dst[i:i+8]
-		out[0], out[1], out[2], out[3] = float64(in[0]), float64(in[1]), float64(in[2]), float64(in[3])
-		out[4], out[5], out[6], out[7] = float64(in[4]), float64(in[5]), float64(in[6]), float64(in[7])
-	}
-	for ; i < len(src); i++ {
-		dst[i] = float64(src[i])
-	}
 }
 
 func (b *Builder) buildResult() (audiobuf.Document, error) {

@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 9
+const Version = 10
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -35,30 +35,31 @@ const (
 	// MethodTransportStop preserves the cursor and stops rendering audio.
 	MethodTransportStop = "transport.stop"
 	// MethodTransportSeek changes the document playback cursor.
-	MethodTransportSeek  = "transport.seek"
-	MethodSelectionGet   = "selection.get"
-	MethodSelectionSet   = "selection.set"
-	MethodSelectionSnap  = "selection.snap"
-	MethodTimelineGet    = "timeline.get"
-	MethodMarkersAdd     = "markers.add"
-	MethodRegionsAdd     = "regions.add"
-	MethodMarkersUpdate  = "markers.update"
-	MethodMarkersRemove  = "markers.remove"
-	MethodRegionsUpdate  = "regions.update"
-	MethodRegionsRemove  = "regions.remove"
-	MethodTimelineExport = "timeline.export"
-	MethodEditState      = "edit.state"
-	MethodEditApply      = "edit.apply"
-	MethodPreparePaste   = "edit.prepare-paste"
-	MethodHistoryList    = "history.list"
-	MethodHistoryJump    = "history.jump"
-	MethodEditUndo       = "edit.undo"
-	MethodEditRedo       = "edit.redo"
-	MethodMarkSaved      = "doc.mark-saved"
-	MethodProcessStart   = "process.start"
-	MethodProcessStep    = "process.step"
-	MethodProcessCancel  = "process.cancel"
-	MethodProcessCommit  = "process.commit"
+	MethodTransportSeek    = "transport.seek"
+	MethodSelectionGet     = "selection.get"
+	MethodSelectionSet     = "selection.set"
+	MethodSelectionSnap    = "selection.snap"
+	MethodTimelineGet      = "timeline.get"
+	MethodMarkersAdd       = "markers.add"
+	MethodRegionsAdd       = "regions.add"
+	MethodMarkersUpdate    = "markers.update"
+	MethodMarkersRemove    = "markers.remove"
+	MethodRegionsUpdate    = "regions.update"
+	MethodRegionsRemove    = "regions.remove"
+	MethodTimelineExport   = "timeline.export"
+	MethodEditState        = "edit.state"
+	MethodEditApply        = "edit.apply"
+	MethodPreparePaste     = "edit.prepare-paste"
+	MethodHistoryList      = "history.list"
+	MethodHistoryJump      = "history.jump"
+	MethodEditUndo         = "edit.undo"
+	MethodEditRedo         = "edit.redo"
+	MethodMarkSaved        = "doc.mark-saved"
+	MethodProcessStart     = "process.start"
+	MethodProcessStep      = "process.step"
+	MethodProcessStepBatch = "process.stepBatch"
+	MethodProcessCancel    = "process.cancel"
+	MethodProcessCommit    = "process.commit"
 )
 
 // Response is the envelope every call returns, serialized as JSON.

@@ -13,6 +13,10 @@ import (
 
 const maxProcessOutputBytes = 512 << 20
 
+// maxProcessBatchSteps bounds work before the worker yields to cancellation.
+// Each individual processing step still scans at most BlockFrames frames.
+const maxProcessBatchSteps = 4
+
 type processingJob struct {
 	result       protocol.ProcessJobResult
 	builder      processing.Stepper
@@ -34,7 +38,7 @@ func (e *Engine) guardProcessing(method string) error {
 		protocol.MethodHistoryList, protocol.MethodSelectionGet, protocol.MethodSelectionSnap,
 		protocol.MethodTimelineGet, protocol.MethodTimelineExport, protocol.MethodPeaksGet,
 		protocol.MethodEngineConfigure, protocol.MethodTransportStop, protocol.MethodTransportPlay,
-		protocol.MethodProcessStart, protocol.MethodProcessStep, protocol.MethodProcessCancel,
+		protocol.MethodProcessStart, protocol.MethodProcessStep, protocol.MethodProcessStepBatch, protocol.MethodProcessCancel,
 		protocol.MethodProcessCommit:
 		return nil
 	default:
@@ -208,6 +212,28 @@ func (e *Engine) stepProcess(p protocol.ProcessJobParams) (protocol.ProcessJobRe
 		job.builder = nil
 	}
 	return job.result, nil
+}
+
+// stepProcessBatch preserves every single-step validation and failure path.
+// A phase boundary is an immediate return, even when batch capacity remains:
+// callers must observe analysis/planning completion before rendering/verification.
+func (e *Engine) stepProcessBatch(p protocol.ProcessJobParams) (protocol.ProcessJobResult, error) {
+	phase := -1
+	if job := e.processJob; job != nil {
+		phase = job.result.PhaseIndex
+	}
+	var result protocol.ProcessJobResult
+	for range maxProcessBatchSteps {
+		var err error
+		result, err = e.stepProcess(p)
+		if err != nil {
+			return protocol.ProcessJobResult{}, fmt.Errorf("%s: %w", protocol.MethodProcessStepBatch, err)
+		}
+		if result.State != "running" || result.PhaseIndex != phase {
+			return result, nil
+		}
+	}
+	return result, nil
 }
 
 // discardProcess releases both workspace and transient render references. It

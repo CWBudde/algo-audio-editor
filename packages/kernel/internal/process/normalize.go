@@ -44,6 +44,7 @@ type Normalizer struct {
 	channels     []audiobuf.Channel
 	storage      []float32
 	block        [][]float32
+	feed         audiobuf.TargetFeedBuffer
 	analyzer     *loudness.TargetAnalyzer
 	verification *loudness.TargetAnalyzer
 	builder      *Builder
@@ -152,14 +153,33 @@ func (n *Normalizer) readBlock(ctx context.Context, frames int) error {
 	return nil
 }
 
+func (n *Normalizer) processLoudnessBlock(ctx context.Context, analyzer *loudness.TargetAnalyzer, frames int) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("process.normalize: %w", err)
+	}
+	fed, err := n.feed.Feed(analyzer, n.channels, n.selected.Start+n.progress.FramesDone, frames)
+	if err != nil {
+		return fmt.Errorf("process.normalize: feed loudness: %w", err)
+	}
+	if !fed {
+		if err := n.readBlock(ctx, frames); err != nil {
+			return err
+		}
+		if err := analyzer.ProcessPlanar32(n.block); err != nil {
+			return fmt.Errorf("process.normalize: analyze copied range: %w", err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("process.normalize: %w", err)
+	}
+	return nil
+}
+
 func (n *Normalizer) analyze(ctx context.Context) (Progress, error) {
 	if n.progress.FramesDone < n.progress.FramesTotal {
 		frames := int(min(int64(audiobuf.BlockFrames), n.progress.FramesTotal-n.progress.FramesDone))
 		if n.analyzer != nil {
-			if err := n.readBlock(ctx, frames); err != nil {
-				return n.fail(err)
-			}
-			if err := n.analyzer.ProcessPlanar32(n.block); err != nil {
+			if err := n.processLoudnessBlock(ctx, n.analyzer, frames); err != nil {
 				return n.fail(fmt.Errorf("process.normalize: analyze loudness: %w", err))
 			}
 			n.status.InputPeak = n.analyzer.SamplePeak()
@@ -319,10 +339,7 @@ func (n *Normalizer) verify(ctx context.Context) (Progress, error) {
 	}
 	if n.progress.FramesDone < n.progress.FramesTotal {
 		frames := int(min(int64(audiobuf.BlockFrames), n.progress.FramesTotal-n.progress.FramesDone))
-		if err := n.readBlock(ctx, frames); err != nil {
-			return n.fail(err)
-		}
-		if err := n.verification.ProcessPlanar32(n.block); err != nil {
+		if err := n.processLoudnessBlock(ctx, n.verification, frames); err != nil {
 			return n.fail(fmt.Errorf("process.normalize: verify output: %w", err))
 		}
 		n.progress.FramesDone += int64(frames)
