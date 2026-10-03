@@ -22,6 +22,43 @@
 
 **Product shape (decided 2026-10-02):** a waveform editor first, in the spirit of ocenaudio, Sound Forge or Audition's waveform view. Multitrack comes in Phase 11 and is built on the same block-based document model.
 
+## Phase U: Editor Clarity & Sample Detail
+
+**Priority:** User-requested next work (2026-10-03); the unfinished Phase 3.2 LUFS performance requirement remains pending, not waived.
+
+**Goal:** Reduce persistent chrome, give the waveform more space, and show actual signed sample dots above one CSS pixel per sample. Deliver each subphase with tests and its own main-branch commit; delegate shell and waveform work separately.
+
+### Phase U.1: File footer and on-demand diagnostics
+
+- [ ] Move filename, saved/unsaved state, sample rate, channels, frame count, duration and encoding from the waveform header into a responsive footer.
+- [ ] Replace persistent kernel/version/memory/isolation/platform/playback-statistics text with an information icon and shared Help → About / Status dialog. Diagnostics remain live; errors remain actionable outside it. Preserve playback, modal shortcut fencing, Escape and focus restoration.
+
+### Phase U.2: Compact icon bands
+
+- [ ] Group transport, history/clipboard edits and zoom/view actions into compact separated icon bands, preserving accessible names, shortcut tooltips, focus and command-registry availability.
+- [ ] Put secondary edits and silence length behind an additional-edits disclosure without removing menu or command-palette access.
+
+### Phase U.3: Secondary controls on demand
+
+- [ ] Retain compact editable selection start/end/length; disclose channel choices, snapping, display settings and marker/region naming/color controls. Preserve visible active-state indicators and quick annotation actions.
+- [ ] Make history and marker management optional panels rather than persistent collapsed rows. Default controls above the ruler occupy at most 160 CSS pixels at 1920-pixel desktop width; narrow layouts do not overlap or lose actions.
+
+### Phase U.4: Purple and warm-color theme
+
+- [ ] Centralize dark semantic colors: purple primary/focus/selection, orange waveform peaks/dots, subdued purple RMS, yellow playhead/warnings and red destructive/errors. Apply colors to canvases as well as CSS, retain user marker colors and readable/non-color state indicators.
+
+### Phase U.5: Sample dots and connecting lines
+
+- [ ] Above one CSS pixel per sample (independent of DPR), draw actual signed sample dots with default linear connections and optional sample-and-hold steps; suppress bars/RMS in this mode.
+- [ ] Reuse binary `peaks.get` one-frame records in pages of at most 8192 frames, including clamped neighboring samples. Preserve exact frame coordinates, NaN gaps, infinity clipping, EOF, chunk continuity and stale-safe coalescing; line changes redraw without RPC/history/audio mutation. No ABI change or JS DSP.
+- [ ] Leave overview and ≤1 CSS pixel/sample envelopes unchanged; sinc interpolation and the undecided zoomed-out redesign are explicitly outside this phase.
+
+### Phase U.6: Integration and acceptance
+
+- [ ] Cover footer/disclosures/icons/modal behavior, responsive layouts and sample geometry/query edge cases with component tests and actual browser pixel checks.
+- [ ] Migrate diagnostics assertions without weakening playback/isolation/underrun checks; run full CI, all kernel WASM tests, browser regressions and Electron smoke.
+- [ ] Capture desktop/narrow screenshots and run existing hardware performance gates serially without relaxing limits. Record measured outcomes, including the still-pending LUFS gate.
+
 ---
 
 ## ✅ Phase 0: Scaffolding & End-to-End Pipeline — COMPLETE (2026-10-02)
