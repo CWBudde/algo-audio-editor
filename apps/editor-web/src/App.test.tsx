@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { CommandId, ResolvedCommand } from "@/lib/commands";
 import App from "./App";
 
 const fake = vi.hoisted(() => ({
@@ -19,6 +20,7 @@ const fake = vi.hoisted(() => ({
   undo: vi.fn(),
   redo: vi.fn(),
   jump: vi.fn(),
+  processOpen: vi.fn(),
 }));
 
 vi.mock("@/audio/audio-engine", () => ({
@@ -45,7 +47,7 @@ vi.mock("@/hooks/use-kernel", () => {
   const kernel = {
     status: "ready",
     client: {},
-    hello: { kernelVersion: "test", protocolVersion: 8, goVersion: "go1.test" },
+    hello: { kernelVersion: "test", protocolVersion: 9, goVersion: "go1.test" },
   };
   return { useKernel: () => kernel };
 });
@@ -94,8 +96,47 @@ vi.mock("@/hooks/use-history", () => ({
     accept: vi.fn(),
   }),
 }));
+vi.mock("@/hooks/use-process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/use-process")>();
+  return {
+    ...actual,
+    useProcess: () => ({
+      view: undefined,
+      open: fake.processOpen,
+      setParameterText: vi.fn(),
+      setOperation: vi.fn(),
+      preview: vi.fn(),
+      apply: vi.fn(),
+      stopPreview: vi.fn(),
+      cancel: vi.fn(),
+    }),
+  };
+});
 vi.mock("@/components/waveform-view", () => ({ WaveformView: () => null }));
-vi.mock("@/components/app-menubar", () => ({ AppMenubar: () => null }));
+vi.mock("@/components/app-menubar", () => ({
+  AppMenubar: ({
+    commands,
+    onExecute,
+  }: {
+    commands: ResolvedCommand[];
+    onExecute(id: CommandId): void;
+  }) => (
+    <>
+      {commands
+        .filter((command) => command.id === "process.amplify" || command.id === "process.normalize")
+        .map((command) => (
+          <button
+            key={command.id}
+            type="button"
+            disabled={!command.enabled}
+            onClick={() => onExecute(command.id)}
+          >
+            {command.label}
+          </button>
+        ))}
+    </>
+  ),
+}));
 vi.mock("@/components/status-bar", () => ({ StatusBar: () => null }));
 vi.mock("@/components/ui/sonner", () => ({ Toaster: () => null }));
 vi.mock("@/components/ui/tooltip", () => ({
@@ -119,6 +160,17 @@ beforeEach(() => {
   fake.dispose.mockResolvedValue(undefined);
 });
 afterEach(cleanup);
+
+it("routes Amplify and Normalize commands into the shared processing dialog", () => {
+  const ui = render(<App />);
+  fireEvent.click(ui.getByRole("button", { name: "Amplify…" }));
+  expect(fake.processOpen).toHaveBeenLastCalledWith({ start: 0, end: 0, channelMask: 3 });
+  fireEvent.click(ui.getByRole("button", { name: "Normalize…" }));
+  expect(fake.processOpen).toHaveBeenLastCalledWith(
+    { start: 0, end: 0, channelMask: 3 },
+    "normalize-peak",
+  );
+});
 
 it("plays the document using Space, ignores repeats and stops cleanly", async () => {
   const { getByTestId } = render(<App />);

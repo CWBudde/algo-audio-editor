@@ -15,7 +15,8 @@ const maxProcessOutputBytes = 512 << 20
 
 type processingJob struct {
 	result       protocol.ProcessJobResult
-	builder      *processing.Builder
+	builder      processing.Stepper
+	identity     bool
 	candidate    audiobuf.Document
 	before       historySnapshot
 	historyState string
@@ -55,8 +56,8 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams) (protocol.ProcessJo
 	if err := e.validateChannelMask(method, p.ChannelMask); err != nil {
 		return protocol.ProcessJobResult{}, err
 	}
-	if p.Operation != "gain" || math.IsNaN(p.GainDB) || math.IsInf(p.GainDB, 0) || p.GainDB < -120 || p.GainDB > 60 {
-		return protocol.ProcessJobResult{}, fmt.Errorf("%s: gain requires finite dB in [-120, 60]", method)
+	if err := validateProcessParameters(p); err != nil {
+		return protocol.ProcessJobResult{}, err
 	}
 	if e.document.Frames() == 0 {
 		return protocol.ProcessJobResult{}, fmt.Errorf("%s: document is empty", method)
@@ -71,23 +72,65 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams) (protocol.ProcessJo
 	if selection.Start == selection.End {
 		selection.Start, selection.End = 0, e.document.Frames()
 	}
-	builder, err := processing.NewBuilder(e.document, ops.Range{Start: selection.Start, End: selection.End, ChannelMask: selection.ChannelMask}, processing.Gain{DB: p.GainDB}, processing.Limits{MaxOutputBytes: maxProcessOutputBytes})
+	builder, err := e.prepareProcess(p, selection)
 	if err != nil {
 		return protocol.ProcessJobResult{}, fmt.Errorf("%s: prepare processing: %w", method, err)
 	}
 	before := cloneEditor(e.editor)
 	before.selection = p.SelectionRange
+	phase, phaseCount, gainResolved, gainDB := "processing", 1, true, p.GainDB
+	var target *float64
+	if p.Operation != "gain" {
+		phase, phaseCount, gainResolved, gainDB = "analyzing", 2, false, 0
+		if p.Operation == "normalize-loudness" {
+			phaseCount = 3
+		}
+		value := *p.Target
+		target = &value
+	}
 	e.processSequence++
 	e.processJob = &processingJob{
 		result: protocol.ProcessJobResult{
 			SelectionResult: protocol.SelectionResult{DocumentID: p.DocumentID, SelectionRange: selection},
 			JobID:           fmt.Sprintf("process-%d", e.processSequence), State: "running", Operation: p.Operation,
-			GainDB: p.GainDB, TotalFrames: selection.End - selection.Start,
+			GainDB: gainDB, TotalFrames: selection.End - selection.Start,
+			Phase: phase, PhaseCount: phaseCount, GainResolved: gainResolved, Target: target,
 		},
 		builder: builder, before: historySnapshot{document: e.document, editor: before},
 		historyState: e.history.CurrentID(),
 	}
 	return e.processJob.result, nil
+}
+
+func validateProcessParameters(p protocol.ProcessStartParams) error {
+	const method = protocol.MethodProcessStart
+	if p.Operation == "gain" {
+		if p.Target != nil || math.IsNaN(p.GainDB) || math.IsInf(p.GainDB, 0) || p.GainDB < -120 || p.GainDB > 60 {
+			return fmt.Errorf("%s: gain requires finite dB in [-120, 60] and no target", method)
+		}
+		return nil
+	}
+	minimum := -120.0
+	switch p.Operation {
+	case "normalize-peak":
+	case "normalize-loudness":
+		minimum = -69
+	default:
+		return fmt.Errorf("%s: unsupported operation %q", method, p.Operation)
+	}
+	if p.Target == nil || math.IsNaN(*p.Target) || math.IsInf(*p.Target, 0) || *p.Target < minimum || *p.Target > 0 {
+		return fmt.Errorf("%s: normalization requires a finite target in [%g, 0]", method, minimum)
+	}
+	return nil
+}
+
+func (e *Engine) prepareProcess(p protocol.ProcessStartParams, selection protocol.SelectionRange) (processing.Stepper, error) {
+	selected := ops.Range{Start: selection.Start, End: selection.End, ChannelMask: selection.ChannelMask}
+	limits := processing.Limits{MaxOutputBytes: maxProcessOutputBytes}
+	if p.Operation == "gain" {
+		return processing.NewBuilder(e.document, selected, processing.Gain{DB: p.GainDB}, limits)
+	}
+	return processing.NewNormalizer(e.document, selected, p.Operation, *p.Target, limits)
 }
 
 func (e *Engine) validateProcessSource(method string, job *processingJob) error {
@@ -141,11 +184,20 @@ func (e *Engine) stepProcess(p protocol.ProcessJobParams) (protocol.ProcessJobRe
 		return protocol.ProcessJobResult{}, fmt.Errorf("process.step: process block: %w", err)
 	}
 	job.result.ProcessedFrames, job.result.TotalFrames = progress.FramesDone, progress.FramesTotal
+	if normalizer, ok := job.builder.(*processing.Normalizer); ok {
+		status := normalizer.Status()
+		job.result.Phase, job.result.PhaseIndex, job.result.PhaseCount = status.Phase, status.PhaseIndex, status.PhaseCount
+		job.result.GainDB, job.result.GainResolved, job.result.InputPeak = status.GainDB, status.GainResolved, status.InputPeak
+		job.result.PlanningSteps = status.PlanningSteps
+		job.result.InputLUFS, job.result.PredictedLUFS, job.result.OutputLUFS = status.InputLUFS, status.PredictedLUFS, status.OutputLUFS
+		job.result.UnchangedReason = status.UnchangedReason
+	}
 	job.result.Peak, job.result.NonFinite = job.builder.Peak()
 	if math.IsNaN(job.result.Peak) || math.IsInf(job.result.Peak, 0) {
 		job.result.Peak, job.result.NonFinite = 0, true
 	}
 	if progress.Done {
+		job.identity = job.builder.Identity()
 		candidate, err := job.builder.Result()
 		if err != nil {
 			e.discardProcess(job)
@@ -194,7 +246,7 @@ func (e *Engine) commitProcess(p protocol.ProcessJobParams) (protocol.EditResult
 	if job.result.State != "ready" {
 		return protocol.EditResult{}, fmt.Errorf("%s: processing job is not ready", method)
 	}
-	if job.result.GainDB == 0 {
+	if job.identity {
 		e.discardProcess(job)
 		return e.editResult(false), nil
 	}
@@ -203,7 +255,14 @@ func (e *Engine) commitProcess(p protocol.ProcessJobParams) (protocol.EditResult
 	}
 	editor := cloneEditor(e.editor)
 	editor.selection = job.result.SelectionRange
-	staged, err := e.history.StagePush("Gain", job.before, historySnapshot{document: job.candidate, editor: editor})
+	label := "Gain"
+	switch job.result.Operation {
+	case "normalize-peak":
+		label = "Normalize peak"
+	case "normalize-loudness":
+		label = "Normalize loudness"
+	}
+	staged, err := e.history.StagePush(label, job.before, historySnapshot{document: job.candidate, editor: editor})
 	if err != nil {
 		return protocol.EditResult{}, fmt.Errorf("%s: retain undo history: %w", method, err)
 	}

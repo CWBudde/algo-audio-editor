@@ -25,6 +25,17 @@ type Progress struct {
 	Done                    bool
 }
 
+// Stepper owns one private, cancellable candidate. Engine orchestration does
+// not depend on whether it is a simple processor or a multi-phase normalizer.
+type Stepper interface {
+	Step(context.Context) (Progress, error)
+	Result() (audiobuf.Document, error)
+	Cancel()
+	Peak() (float64, bool)
+	MemoryDocument() (audiobuf.Document, error)
+	Identity() bool
+}
+
 // Builder is a single-owner, length-preserving job. Step/Result/Cancel must not
 // run concurrently; Step's context may be cancelled from another goroutine.
 // No result or partial blocks are ever published into the input document.
@@ -151,19 +162,29 @@ func (b *Builder) Step(ctx context.Context) (Progress, error) {
 		}
 		finite := 0
 		if !b.identity {
-			for frame, value := range b.mono[:count] {
-				b.dsp[frame] = float64(value)
-			}
+			widenSamples(b.dsp[:count], b.mono[:count])
 			if err := runProcessor(b.processors[channel], b.dsp[:count]); err != nil {
 				return b.fail(fmt.Errorf("process.step: channel %d: %w", b.indices[channel], err))
 			}
+			// Round directly into immutable owned storage. Its already-computed
+			// summaries prove finiteness and give the exact stored amplitude, so
+			// ordinary output needs neither another copy nor another peak scan.
+			var err error
+			staged[channel], err = audiobuf.NewBlockFromFloat64(b.dsp[:count])
+			if err != nil {
+				return b.fail(fmt.Errorf("process.step: channel %d store: %w", b.indices[channel], err))
+			}
+			if amplitude, err := staged[channel].FinitePeak(0, count); err == nil {
+				peak = math.Max(peak, amplitude)
+				continue
+			}
 			// Round to the stored representation before measuring amplitude.
-			// Compacting scratch is safe: finite never exceeds frame, so writes
+			// Only unsafe output needs finite-only warning telemetry. Compacting
+			// scratch is safe: finite never exceeds frame, so writes
 			// cannot overwrite an unread processor output. Algorithms/reductions
 			// stay upstream; this loop only moves and classifies representations.
-			for frame, value := range b.dsp[:count] {
+			for _, value := range b.dsp[:count] {
 				rounded := float32(value)
-				b.mono[frame] = rounded
 				if math.Float32bits(rounded)&0x7f800000 == 0x7f800000 {
 					nonfinite = true
 					continue
@@ -185,13 +206,6 @@ func (b *Builder) Step(ctx context.Context) (Progress, error) {
 		// Finite reduction belongs to upstream Peak; its SIMD alternative has
 		// different NaN semantics on unclassified input.
 		peak = math.Max(peak, timestats.Peak(b.dsp[:finite]))
-		if !b.identity {
-			var err error
-			staged[channel], err = audiobuf.NewBlock(b.mono[:count])
-			if err != nil {
-				return b.fail(fmt.Errorf("process.step: channel %d store: %w", b.indices[channel], err))
-			}
-		}
 	}
 	if err := ctx.Err(); err != nil {
 		return b.fail(fmt.Errorf("process.step: %w", err))
@@ -217,6 +231,20 @@ func (b *Builder) Step(ctx context.Context) (Progress, error) {
 		b.release()
 	}
 	return b.progress, nil
+}
+
+// widenSamples only moves representations into private upstream-DSP scratch.
+// Grouped copies avoid redundant per-sample bounds checks in the WASM path.
+func widenSamples(dst []float64, src []float32) {
+	i := 0
+	for ; i+8 <= len(src); i += 8 {
+		in, out := src[i:i+8], dst[i:i+8]
+		out[0], out[1], out[2], out[3] = float64(in[0]), float64(in[1]), float64(in[2]), float64(in[3])
+		out[4], out[5], out[6], out[7] = float64(in[4]), float64(in[5]), float64(in[6]), float64(in[7])
+	}
+	for ; i < len(src); i++ {
+		dst[i] = float64(src[i])
+	}
 }
 
 func (b *Builder) buildResult() (audiobuf.Document, error) {
@@ -285,6 +313,9 @@ func (b *Builder) Result() (audiobuf.Document, error) {
 // Peak reports only finite processed float32 amplitude, with a separate flag
 // for NaN/Inf. It is always safe to serialize the numeric value as JSON.
 func (b *Builder) Peak() (float64, bool) { return b.peak, b.nonfinite }
+
+// Identity reports whether this builder retains the exact original document.
+func (b *Builder) Identity() bool { return b.identity }
 
 // MemoryDocument returns the completed result, or a packed equal-length
 // document containing only newly owned output so far, for dedup accounting.

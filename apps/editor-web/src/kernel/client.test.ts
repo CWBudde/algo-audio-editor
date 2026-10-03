@@ -55,6 +55,15 @@ const progress: ProcessJobResult = {
   channelMask: 3,
   state: "running",
   operation: "gain",
+  phase: "processing",
+  phaseIndex: 0,
+  phaseCount: 1,
+  gainResolved: true,
+  inputPeak: 0,
+  inputLufs: null,
+  predictedLufs: null,
+  outputLufs: null,
+  planningSteps: 0,
   gainDb: 6,
   processedFrames: 1,
   totalFrames: 20,
@@ -355,6 +364,8 @@ describe("KernelClient", () => {
     { processedFrames: 21 },
     { peak: Number.NaN },
     { totalFrames: 1.5 },
+    { phaseIndex: 1, phase: undefined },
+    { planningSteps: 1 },
   ])(
     "ignores malformed or wrong-job progress %j without refreshing the watchdog",
     async (changes) => {
@@ -365,7 +376,12 @@ describe("KernelClient", () => {
       const pending = client.runProcess(job, listener);
       const assertion = expect(pending).rejects.toBeInstanceOf(KernelTimeoutError);
       vi.advanceTimersByTime(60);
-      worker.emit({ kind: "process.progress", id: 1, progress: { ...progress, ...changes } });
+      worker.emit({
+        kind: "process.progress",
+        id: 1,
+        // Deliberately violate the typed ABI to exercise untrusted worker data.
+        progress: { ...progress, ...changes } as ProcessJobResult,
+      });
       worker.emit({ kind: "process.progress", id: 999, progress });
       vi.advanceTimersByTime(40);
       await assertion;
@@ -388,6 +404,66 @@ describe("KernelClient", () => {
     vi.advanceTimersByTime(40);
     await assertion;
     expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes inactivity for bounded planning work and phase resets, not unchanged heartbeats", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const client = new KernelClient(worker, { processTimeoutMs: 100 });
+    const listener = vi.fn();
+    const pending = client.runProcess(job, listener);
+    const analysis: ProcessJobResult = {
+      ...progress,
+      operation: "normalize-loudness",
+      target: -23,
+      phase: "analyzing",
+      phaseIndex: 0,
+      phaseCount: 3,
+      gainResolved: false,
+      gainDb: 0,
+      processedFrames: 20,
+      peak: 0,
+      inputPeak: 0.5,
+    };
+    for (let planningSteps = 0; planningSteps <= 3; planningSteps++) {
+      vi.advanceTimersByTime(60);
+      worker.emit({ kind: "process.progress", id: 1, progress: { ...analysis, planningSteps } });
+    }
+    const processing: ProcessJobResult = {
+      ...analysis,
+      planningSteps: 3,
+      phase: "processing",
+      phaseIndex: 1,
+      processedFrames: 0,
+      gainResolved: true,
+      gainDb: -2,
+      inputLufs: -21,
+      predictedLufs: -23,
+    };
+    vi.advanceTimersByTime(60);
+    worker.emit({ kind: "process.progress", id: 1, progress: processing });
+    const verifying: ProcessJobResult = {
+      ...processing,
+      phase: "verifying",
+      phaseIndex: 2,
+      peak: 0.397164,
+    };
+    vi.advanceTimersByTime(60);
+    worker.emit({ kind: "process.progress", id: 1, progress: verifying });
+    vi.advanceTimersByTime(60);
+    const ready = {
+      ...verifying,
+      processedFrames: 20,
+      planningSteps: 4,
+      outputLufs: -23,
+      state: "ready" as const,
+    };
+    worker.emit({ kind: "process.progress", id: 1, progress: ready });
+    worker.emit({ kind: "reply", id: 1, ok: true, result: ready });
+    await expect(pending).resolves.toEqual(ready);
+    expect(listener).toHaveBeenCalledTimes(7);
+    expect(worker.terminated).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("contains subscriber exceptions and does not let listener mutations poison progress validation", async () => {

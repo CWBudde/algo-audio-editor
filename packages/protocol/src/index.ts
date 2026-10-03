@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -221,10 +221,12 @@ export interface EditResult {
   history: HistoryListResult;
 }
 
-export interface ProcessStartParams extends SelectionResult {
-  operation: "gain";
-  gainDb: number;
-}
+export type ProcessOperation = "gain" | "normalize-peak" | "normalize-loudness";
+export type ProcessStartParams = SelectionResult &
+  (
+    | { operation: "gain"; gainDb: number }
+    | { operation: "normalize-peak" | "normalize-loudness"; target: number }
+  );
 
 export interface ProcessJobParams {
   documentId: string;
@@ -235,10 +237,29 @@ export interface ProcessJobParams {
 export interface ProcessJobResult extends SelectionResult {
   jobId: string;
   state: "running" | "ready" | "cancelled";
-  operation: "gain";
+  operation: ProcessOperation;
+  /** Requested normalization target, not the resolved gain. Absent for gain. */
+  target?: number;
+  phase: "analyzing" | "processing" | "verifying";
+  phaseIndex: number;
+  phaseCount: number;
+  /** Gain is unknown while normalizing input is being analyzed. */
+  gainResolved: boolean;
   gainDb: number;
+  /** Counters are local to a phase and reset only when phaseIndex advances. */
   processedFrames: number;
   totalFrames: number;
+  /** Actual bounded planning calls; advances even while analysis frames are complete. */
+  planningSteps: number;
+  /** Source amplitude, separate from processed-output peak. */
+  inputPeak: number;
+  /** Null when source loudness is undefined or not yet measured. */
+  inputLufs: number | null;
+  /** Energy-domain output prediction, not a claim of actual output metering. */
+  predictedLufs: number | null;
+  /** Actual float32 candidate metering; null when verified by a rounding bound. */
+  outputLufs: number | null;
+  unchangedReason?: "silent";
   /** Maximum finite absolute float32 output; nonfinite values are separate. */
   peak: number;
   nonFinite: boolean;

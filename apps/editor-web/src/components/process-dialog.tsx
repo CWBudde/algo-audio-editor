@@ -1,9 +1,14 @@
 import { useId, useLayoutEffect, useRef } from "react";
-import { type ProcessView, parseGain } from "@/hooks/use-process";
+import {
+  matchesProcessSettings,
+  type ProcessView,
+  parseProcessParameter,
+} from "@/hooks/use-process";
 
 interface ProcessDialogProps {
   view?: ProcessView;
-  onGainTextChange(value: string): void;
+  onParameterTextChange(value: string): void;
+  onOperationChange(value: "normalize-peak" | "normalize-loudness"): void;
   onPreview(): void;
   onStopPreview(): void;
   onApply(allowClipping: boolean): void;
@@ -12,7 +17,8 @@ interface ProcessDialogProps {
 
 export function ProcessDialog({
   view,
-  onGainTextChange,
+  onParameterTextChange,
+  onOperationChange,
   onPreview,
   onStopPreview,
   onApply,
@@ -44,10 +50,11 @@ export function ProcessDialog({
       opener.current = undefined;
     };
   }, [open]);
-  const gainDb = view ? parseGain(view.gainText) : undefined;
+  const value = view ? parseProcessParameter(view.operation, view.parameterText) : undefined;
+  const normalize = Boolean(view && view.operation !== "gain");
   const working =
     view?.phase === "processing" || view?.phase === "committing" || view?.phase === "cancelling";
-  const ready = view?.job?.state === "ready" && view.job.gainDb === gainDb;
+  const ready = view ? matchesProcessSettings(view.job, view.operation, value) : false;
   const warning = Boolean(ready && view?.job && (view.job.peak > 1 || view.job.nonFinite));
   const cancellable = view?.phase !== "committing" && view?.phase !== "cancelling";
   return (
@@ -63,7 +70,7 @@ export function ProcessDialog({
       }}
     >
       <h2 id={`${id}-title`} className="text-lg font-medium">
-        Amplify
+        {normalize ? "Normalize" : "Amplify"}
       </h2>
       <p id={`${id}-help`} className="mt-1 text-sm text-muted-foreground">
         Preview a private processed copy. Apply creates one undoable edit; Cancel discards it.
@@ -74,24 +81,58 @@ export function ProcessDialog({
             {view.info.name} · frames {view.selection.start}–{view.selection.end} · channel mask{" "}
             {view.selection.channelMask}
           </p>
+          {normalize && (
+            <>
+              <p className="mt-1 text-xs text-muted-foreground">
+                One linked gain across the selected channels; other channels stay unchanged.
+              </p>
+              <label className="mt-3 block text-sm" htmlFor={`${id}-mode`}>
+                Normalization mode
+              </label>
+              <select
+                id={`${id}-mode`}
+                value={view.operation}
+                disabled={working}
+                className="mt-1 w-full rounded border bg-background px-3 py-2"
+                onChange={(event) =>
+                  onOperationChange(
+                    event.target.value === "normalize-loudness"
+                      ? "normalize-loudness"
+                      : "normalize-peak",
+                  )
+                }
+              >
+                <option value="normalize-peak">Peak (dBFS)</option>
+                <option value="normalize-loudness">Integrated loudness (LUFS)</option>
+              </select>
+            </>
+          )}
           <label className="mt-3 block text-sm" htmlFor={`${id}-gain`}>
-            Gain (dB)
+            {view.operation === "gain"
+              ? "Gain (dB)"
+              : view.operation === "normalize-peak"
+                ? "Target peak (dBFS)"
+                : "Target loudness (LUFS)"}
           </label>
           <input
             ref={gain}
             id={`${id}-gain`}
             type="text"
             inputMode="decimal"
-            value={view.gainText}
+            value={view.parameterText}
             disabled={working}
-            aria-invalid={gainDb === undefined}
-            aria-describedby={gainDb === undefined ? `${id}-error` : undefined}
+            aria-invalid={value === undefined}
+            aria-describedby={value === undefined ? `${id}-error` : undefined}
             className="mt-1 w-full rounded border bg-background px-3 py-2"
-            onChange={(event) => onGainTextChange(event.target.value)}
+            onChange={(event) => onParameterTextChange(event.target.value)}
           />
-          {gainDb === undefined && (
+          {value === undefined && (
             <p id={`${id}-error`} role="alert" className="mt-1 text-sm text-destructive">
-              Enter a finite gain between −120 and 60 dB.
+              {view.operation === "gain"
+                ? "Enter a finite gain between −120 and 60 dB."
+                : view.operation === "normalize-peak"
+                  ? "Enter a finite target between −120 and 0 dBFS."
+                  : "Enter a finite target between −69 and 0 LUFS."}
             </p>
           )}
           <div className="mt-4" aria-live="polite">
@@ -101,26 +142,60 @@ export function ProcessDialog({
                 : view.phase === "committing"
                   ? "Applying…"
                   : view.phase === "processing"
-                    ? "Processing…"
+                    ? view.job?.phase === "analyzing"
+                      ? "Analyzing…"
+                      : view.job?.phase === "verifying"
+                        ? "Verifying loudness…"
+                        : "Processing…"
                     : view.previewing
-                      ? `Previewing ${view.job?.gainDb ?? gainDb} dB`
+                      ? "Previewing processed copy"
                       : ready
-                        ? "Processed copy ready"
+                        ? view.job?.unchangedReason === "silent"
+                          ? "No change: selected audio is silent"
+                          : "Processed copy ready"
                         : "Ready to process"}
             </p>
             {view.job && (
-              <progress
-                aria-label="Processing progress"
-                className="mt-2 w-full"
-                max={view.job.totalFrames}
-                value={view.job.processedFrames}
-              />
+              <>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Phase {view.job.phaseIndex + 1} of {view.job.phaseCount}
+                </p>
+                <progress
+                  aria-label="Processing progress"
+                  className="mt-2 w-full"
+                  max={view.job.totalFrames}
+                  value={view.job.processedFrames}
+                />
+              </>
             )}
             {ready && view.job && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Predicted peak: {view.job.peak.toFixed(6)}
-                {view.job.nonFinite ? " · nonfinite samples present" : ""}
-              </p>
+              <div className="mt-1 text-xs text-muted-foreground">
+                <p>
+                  Output sample peak: {view.job.peak.toFixed(6)}
+                  {view.job.nonFinite ? " · nonfinite samples present" : ""}
+                </p>
+                {view.job.gainResolved && view.job.unchangedReason !== "silent" && (
+                  <p>Resolved gain: {view.job.gainDb.toFixed(3)} dB</p>
+                )}
+                {normalize && <p>Input sample peak: {view.job.inputPeak.toFixed(6)}</p>}
+                {view.operation === "normalize-loudness" && (
+                  <>
+                    <p>
+                      {view.job.inputLufs === null
+                        ? view.job.unchangedReason === "silent"
+                          ? "Source loudness unavailable: silence"
+                          : "Source loudness unavailable: below the absolute gate"
+                        : `Source integrated loudness: ${view.job.inputLufs.toFixed(2)} LUFS`}
+                    </p>
+                    {view.job.predictedLufs !== null && (
+                      <p>Predicted output loudness: {view.job.predictedLufs.toFixed(2)} LUFS</p>
+                    )}
+                    {view.job.outputLufs !== null && (
+                      <p>Measured output loudness: {view.job.outputLufs.toFixed(2)} LUFS</p>
+                    )}
+                  </>
+                )}
+              </div>
             )}
             {warning && (
               <p role="alert" className="mt-2 text-sm text-amber-400">
@@ -138,7 +213,7 @@ export function ProcessDialog({
             <button
               type="button"
               className="rounded border px-3 py-2 text-sm disabled:opacity-50"
-              disabled={working || gainDb === undefined}
+              disabled={working || value === undefined}
               onClick={onPreview}
             >
               Preview
@@ -162,7 +237,7 @@ export function ProcessDialog({
             <button
               type="button"
               className="rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
-              disabled={working || gainDb === undefined}
+              disabled={working || value === undefined}
               onClick={() => onApply(warning)}
             >
               {warning ? "Apply anyway" : "Apply"}

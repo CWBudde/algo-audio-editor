@@ -2,6 +2,33 @@ import path from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { playbackWAV } from "../../editor-web/e2e/playback-fixture.js";
 
+/** Independent EBU3341 stereo 1 kHz calibration fixture, not frontend DSP. */
+function loudnessWAV(): Buffer {
+  const frames = 48_000 * 2;
+  const wav = Buffer.alloc(44 + frames * 4);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(wav.length - 8, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(2, 22);
+  wav.writeUInt32LE(48_000, 24);
+  wav.writeUInt32LE(192_000, 28);
+  wav.writeUInt16LE(4, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(wav.length - 44, 40);
+  const amplitude = 10 ** (-33 / 20);
+  const period = Array.from({ length: 48 }, (_, frame) =>
+    Math.round(32_768 * amplitude * Math.sin((2 * Math.PI * frame) / 48)),
+  );
+  for (let frame = 0; frame < frames; frame++) {
+    wav.writeInt16LE(period[frame % 48], 44 + frame * 4);
+    wav.writeInt16LE(period[frame % 48], 46 + frame * 4);
+  }
+  return wav;
+}
+
 test("loads the editor over app:// with cross-origin isolation", async () => {
   const app = await electron.launch({
     args: [path.join(__dirname, ".."), "--autoplay-policy=no-user-gesture-required"],
@@ -129,6 +156,121 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await expect(page.getByTestId("document-details")).toContainText("· 16 frames");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
+
+    // Normalize shares the real app:// kernel, preview and history paths. The
+    // selected 4..8/all-channel range stays intact until authoritative Apply.
+    const beforePeak = {
+      details: await page.getByTestId("document-details").textContent(),
+      documentId: await page.getByTestId("waveform-view").getAttribute("data-document-id"),
+      states: await page.locator('[data-testid^="history-state-"]').count(),
+    };
+    const waveforms = () =>
+      page.evaluate(() =>
+        [0, 1].map((channel) => {
+          const canvas = document.querySelector<HTMLCanvasElement>(
+            `[data-testid="waveform-channel-${channel}"]`,
+          );
+          if (canvas?.getAttribute("data-rendered") !== "true") return null;
+          return canvas.toDataURL();
+        }),
+      );
+    const sourceWaveforms = await waveforms();
+    expect(sourceWaveforms.every(Boolean)).toBe(true);
+    const openNormalize = async () => {
+      await page.getByRole("menuitem", { name: "Process", exact: true }).click();
+      await page.locator('[role="menuitem"][data-command-id="process.normalize"]').click();
+      const dialog = page.getByRole("dialog", { name: "Normalize", exact: true });
+      await expect(dialog).toBeVisible();
+      return dialog;
+    };
+    let normalize = await openNormalize();
+    await normalize.getByLabel("Target peak (dBFS)").fill("-12.041199826559248");
+    await normalize.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(normalize.getByTestId("process-status")).toContainText("Previewing");
+    await expect(normalize.getByText("Output sample peak: 0.250000")).toBeVisible();
+    await expect(page.getByTestId("underruns")).toHaveText("0");
+    await normalize.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(normalize).not.toBeVisible();
+    await expect(page.getByTestId("document-details")).toHaveText(beforePeak.details ?? "");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute(
+      "data-document-id",
+      beforePeak.documentId ?? "",
+    );
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-channel-mask", "3");
+    await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
+    await expect(page.locator('[data-testid^="history-state-"]')).toHaveCount(beforePeak.states);
+    expect(await waveforms()).toEqual(sourceWaveforms);
+    normalize = await openNormalize();
+    await normalize.getByLabel("Target peak (dBFS)").fill("-12.041199826559248");
+    await normalize.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect(normalize).not.toBeVisible();
+    await expect(page.locator('[data-testid^="history-state-"]')).toHaveCount(
+      beforePeak.states + 1,
+    );
+    await expect.poll(waveforms).not.toEqual(sourceWaveforms);
+    await expect(page.getByTestId("waveform-channel-0")).toHaveAttribute("data-rendered", "true");
+    await expect(page.getByTestId("waveform-channel-1")).toHaveAttribute("data-rendered", "true");
+    const normalizedWaveforms = await waveforms();
+    expect(normalizedWaveforms.every(Boolean)).toBe(true);
+    expect(normalizedWaveforms[0]).not.toEqual(sourceWaveforms[0]);
+    expect(normalizedWaveforms[1]).not.toEqual(sourceWaveforms[1]);
+    await page.getByTestId("document-details").click();
+    await page.keyboard.press("Control+z");
+    await expect.poll(waveforms).toEqual(sourceWaveforms);
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
+    await page.keyboard.press("Control+Shift+z");
+    await expect.poll(waveforms).toEqual(normalizedWaveforms);
+
+    // A full 2-second source gives genuine complete loudness windows. Assert
+    // source calibration and ACTUAL rendered float32 measurement, not merely
+    // the planner's predicted target, before applying the private candidate.
+    await page.getByTestId("audio-file-input").setInputFiles({
+      name: "desktop-loudness.wav",
+      mimeType: "audio/wav",
+      buffer: loudnessWAV(),
+    });
+    await expect(page.getByTestId("document-name")).toHaveText("desktop-loudness.wav");
+    await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
+    await expect(page.getByTestId("waveform-channel-0")).toHaveAttribute("data-rendered", "true");
+    await expect(page.getByTestId("waveform-channel-1")).toHaveAttribute("data-rendered", "true");
+    const lufsSourceWaveforms = await waveforms();
+    expect(lufsSourceWaveforms.every(Boolean)).toBe(true);
+    const lufsStates = await page.locator('[data-testid^="history-state-"]').count();
+    const lufsSourceId = await page.getByTestId("waveform-view").getAttribute("data-document-id");
+    normalize = await openNormalize();
+    await normalize.getByLabel("Normalization mode").selectOption("normalize-loudness");
+    await expect(normalize.getByLabel("Target loudness (LUFS)")).toHaveValue("-23");
+    await normalize.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(normalize.getByTestId("process-status")).toContainText("Previewing");
+    const sourceReading = await normalize.getByText(/Source integrated loudness:/).textContent();
+    const outputReading = await normalize.getByText(/Measured output loudness:/).textContent();
+    expect(Math.abs(Number(sourceReading?.match(/(-?\d+\.\d+) LUFS/)?.[1]) + 33)).toBeLessThan(0.1);
+    expect(
+      Math.abs(Number(outputReading?.match(/(-?\d+\.\d+) LUFS/)?.[1]) + 23),
+    ).toBeLessThanOrEqual(0.011);
+    await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
+    await expect(page.locator('[data-testid^="history-state-"]')).toHaveCount(lufsStates);
+    await expect(page.getByTestId("underruns")).toHaveText("0");
+    await normalize.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect(normalize).not.toBeVisible();
+    await expect(page.getByTestId("document-details")).toContainText("· 96000 frames");
+    await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
+    await expect(page.locator('[data-testid^="history-state-"]')).toHaveCount(lufsStates + 1);
+    await expect.poll(waveforms).not.toEqual(lufsSourceWaveforms);
+    await page.getByTestId("document-details").click();
+    await page.keyboard.press("Control+z");
+    await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
+    await expect(page.getByTestId("waveform-view")).not.toHaveAttribute(
+      "data-document-id",
+      lufsSourceId ?? "",
+    );
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "0");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "0");
+    await expect.poll(waveforms).toEqual(lufsSourceWaveforms);
+    await expect(page.getByTestId("underruns")).toHaveText("0");
     expect(errors).toEqual([]);
   } finally {
     await app.close();

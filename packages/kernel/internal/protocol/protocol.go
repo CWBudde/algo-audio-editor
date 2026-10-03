@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 8
+const Version = 9
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -285,8 +285,9 @@ type EditResult struct {
 // publishes it; preview playback and cancellation leave the document unchanged.
 type ProcessStartParams struct {
 	SelectionResult
-	Operation string  `json:"operation"`
-	GainDB    float64 `json:"gainDb"`
+	Operation string   `json:"operation"`
+	GainDB    float64  `json:"gainDb"`
+	Target    *float64 `json:"target,omitempty"`
 }
 
 type ProcessJobParams struct {
@@ -296,14 +297,25 @@ type ProcessJobParams struct {
 
 type ProcessJobResult struct {
 	SelectionResult
-	JobID           string  `json:"jobId"`
-	State           string  `json:"state"`
-	Operation       string  `json:"operation"`
-	GainDB          float64 `json:"gainDb"`
-	ProcessedFrames int64   `json:"processedFrames"`
-	TotalFrames     int64   `json:"totalFrames"`
-	Peak            float64 `json:"peak"`
-	NonFinite       bool    `json:"nonFinite"`
+	JobID           string   `json:"jobId"`
+	State           string   `json:"state"`
+	Operation       string   `json:"operation"`
+	GainDB          float64  `json:"gainDb"`
+	ProcessedFrames int64    `json:"processedFrames"`
+	TotalFrames     int64    `json:"totalFrames"`
+	Peak            float64  `json:"peak"`
+	NonFinite       bool     `json:"nonFinite"`
+	Phase           string   `json:"phase"`
+	PhaseIndex      int      `json:"phaseIndex"`
+	PhaseCount      int      `json:"phaseCount"`
+	GainResolved    bool     `json:"gainResolved"`
+	PlanningSteps   int64    `json:"planningSteps"`
+	InputPeak       float64  `json:"inputPeak"`
+	InputLUFS       *float64 `json:"inputLufs"`
+	PredictedLUFS   *float64 `json:"predictedLufs"`
+	OutputLUFS      *float64 `json:"outputLufs"`
+	Target          *float64 `json:"target,omitempty"`
+	UnchangedReason string   `json:"unchangedReason,omitempty"`
 }
 
 type HistoryListParams struct {

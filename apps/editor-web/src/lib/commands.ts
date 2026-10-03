@@ -319,7 +319,12 @@ const definitions: readonly Definition[] = [
     menu: "Process",
     enabled: (c) => validSelection(c) && Boolean(c.info?.frames),
   },
-  { id: "process.normalize", label: "Normalize…", menu: "Process", enabled: () => false },
+  {
+    id: "process.normalize",
+    label: "Normalize…",
+    menu: "Process",
+    enabled: (c) => validSelection(c) && Boolean(c.info?.frames),
+  },
   { id: "process.fade", label: "Fade In / Out", menu: "Process", enabled: () => false },
   { id: "effects.equalizer", label: "Equalizer…", menu: "Effects", enabled: () => false },
   { id: "effects.dynamics", label: "Dynamics…", menu: "Effects", enabled: () => false },

@@ -185,7 +185,15 @@ export class KernelClient {
       if (
         previous &&
         previous.state === msg.progress.state &&
+        previous.phaseIndex === msg.progress.phaseIndex &&
         previous.processedFrames === msg.progress.processedFrames &&
+        previous.planningSteps === msg.progress.planningSteps &&
+        previous.gainResolved === msg.progress.gainResolved &&
+        previous.gainDb === msg.progress.gainDb &&
+        previous.inputPeak === msg.progress.inputPeak &&
+        previous.inputLufs === msg.progress.inputLufs &&
+        previous.predictedLufs === msg.progress.predictedLufs &&
+        previous.outputLufs === msg.progress.outputLufs &&
         previous.peak === msg.progress.peak &&
         previous.nonFinite === msg.progress.nonFinite
       )

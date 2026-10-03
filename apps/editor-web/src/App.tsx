@@ -379,6 +379,10 @@ export default function App() {
         const range = waveformView.current ? waveformView.current.selectionState() : selection;
         if (range) processing.open(range);
       },
+      "process.normalize": () => {
+        const range = waveformView.current ? waveformView.current.selectionState() : selection;
+        if (range) processing.open(range, "normalize-peak");
+      },
       "help.about": () => {
         toast("algo-audio-editor", { description: about });
       },
@@ -532,7 +536,8 @@ export default function App() {
       />
       <ProcessDialog
         view={processing.view}
-        onGainTextChange={processing.setGainText}
+        onParameterTextChange={processing.setParameterText}
+        onOperationChange={processing.setOperation}
         onPreview={() => {
           void processing.preview();
         }}

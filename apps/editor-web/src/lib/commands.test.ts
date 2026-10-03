@@ -70,6 +70,15 @@ afterEach(() => {
 });
 
 describe("central command registry", () => {
+  it("exposes Amplify and Normalize for valid nonempty document selections and cursors", () => {
+    for (const id of ["process.amplify", "process.normalize"] as const) {
+      expect(enabled(id)).toBe(true);
+      expect(enabled(id, { selection: { start: 0, end: 0, channelMask: 2 } })).toBe(true);
+      expect(enabled(id, { busy: true })).toBe(false);
+      expect(enabled(id, { ready: false })).toBe(false);
+      expect(enabled(id, { info: undefined })).toBe(false);
+    }
+  });
   it("owns unique IDs, menu order and metadata for every command", () => {
     const resolved = resolveCommands(context, "other", actions);
     expect(new Set(allIds).size).toBe(allIds.length);
@@ -106,7 +115,6 @@ describe("central command registry", () => {
     expect(resolveCommands(context, "other", {}).every((command) => !command.enabled)).toBe(true);
     for (const id of [
       "file.new",
-      "process.normalize",
       "process.fade",
       "effects.equalizer",
       "effects.dynamics",
@@ -166,6 +174,8 @@ describe("central command registry", () => {
       "timeline.add-region",
       "view.zoom-selection",
       "transport.toggle-playback",
+      "process.amplify",
+      "process.normalize",
     ] as const)
       expect(enabled(id, empty), id).toBe(false);
     expect(enabled("transport.stop", { playing: false })).toBe(false);
@@ -189,6 +199,8 @@ describe("central command registry", () => {
       "edit.paste-insert",
       "edit.insert-silence",
       "timeline.add-marker",
+      "process.amplify",
+      "process.normalize",
     ] as const)
       expect(enabled(id, { selection }), id).toBe(false);
   });

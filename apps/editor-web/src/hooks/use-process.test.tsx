@@ -1,8 +1,20 @@
-import type { DocumentInfoResult, EditResult, ProcessJobResult } from "@aae/protocol";
+import type {
+  DocumentInfoResult,
+  EditResult,
+  ProcessJobParams,
+  ProcessJobResult,
+  ProcessStartParams,
+} from "@aae/protocol";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { KernelClient } from "@/kernel/client";
-import { type ProcessOptions, parseGain, useProcess } from "./use-process";
+import {
+  type ProcessOperation,
+  type ProcessOptions,
+  parseGain,
+  parseProcessParameter,
+  useProcess,
+} from "./use-process";
 
 const info: DocumentInfoResult = {
   documentId: "doc-1",
@@ -26,6 +38,15 @@ const initialJob: ProcessJobResult = {
   totalFrames: 6,
   peak: 0,
   nonFinite: false,
+  phase: "processing",
+  phaseIndex: 0,
+  phaseCount: 1,
+  gainResolved: true,
+  inputPeak: 0,
+  inputLufs: null,
+  predictedLufs: null,
+  outputLufs: null,
+  planningSteps: 0,
 };
 function deferred<T>() {
   let resolve: (value: T) => void = () => {};
@@ -36,14 +57,23 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
-function setup() {
+function setup(operation: ProcessOperation = "gain") {
   let held = false;
   let job = initialJob;
   const call = vi.fn(async (method: string, params?: unknown): Promise<unknown> => {
     if (method === "process.start") {
-      const p = params as ProcessJobResult;
+      const p = params as ProcessStartParams;
       const selection = p.start === p.end ? { start: 0, end: info.frames } : p;
-      job = { ...initialJob, ...p, ...selection, totalFrames: selection.end - selection.start };
+      job = {
+        ...initialJob,
+        ...p,
+        ...selection,
+        gainDb: p.operation === "gain" ? p.gainDb : 0,
+        gainResolved: p.operation === "gain",
+        phase: p.operation === "gain" ? "processing" : "analyzing",
+        phaseCount: p.operation === "gain" ? 1 : p.operation === "normalize-peak" ? 2 : 3,
+        totalFrames: selection.end - selection.start,
+      };
       return job;
     }
     if (method === "process.cancel") return { ...job, state: "cancelled" };
@@ -51,11 +81,22 @@ function setup() {
     throw new Error(`Unexpected ${method}`);
   });
   const runProcess = vi.fn(
-    async (): Promise<ProcessJobResult> => ({
+    async (
+      _params: ProcessJobParams,
+      _onProgress?: (job: ProcessJobResult) => void,
+    ): Promise<ProcessJobResult> => ({
       ...job,
       state: "ready",
       processedFrames: job.totalFrames,
       peak: 0.25,
+      gainDb: job.operation === "gain" ? job.gainDb : 12,
+      gainResolved: true,
+      phase: job.operation === "normalize-loudness" ? "verifying" : "processing",
+      phaseIndex: job.phaseCount - 1,
+      inputPeak: 0.125,
+      inputLufs: job.operation === "normalize-loudness" ? -35 : null,
+      predictedLufs: job.operation === "normalize-loudness" ? (job.target ?? null) : null,
+      outputLufs: job.operation === "normalize-loudness" ? (job.target ?? null) : null,
     }),
   );
   const options: ProcessOptions = {
@@ -78,8 +119,8 @@ function setup() {
   };
   const view = renderHook((props: ProcessOptions) => useProcess(props), { initialProps: options });
   act(() => {
-    view.result.current.open(range);
-    view.result.current.setGainText("6");
+    view.result.current.open(range, operation);
+    if (operation === "gain") view.result.current.setParameterText("6");
   });
   return { ...view, options, call, runProcess, held: () => held };
 }
@@ -140,7 +181,7 @@ it("requires a separate clipping acknowledgement and reuses the prepared candida
 it("changed parameters discard the old preview before building another candidate", async () => {
   const s = setup();
   await act(async () => s.result.current.preview());
-  act(() => s.result.current.setGainText("-6"));
+  act(() => s.result.current.setParameterText("-6"));
   await act(async () => s.result.current.preview());
   expect(s.call.mock.calls.map(([method]) => method)).toEqual([
     "process.start",
@@ -351,5 +392,168 @@ it("a failed in-flight commit releases its stale session after the document is r
   act(() => s.result.current.open(range));
   expect(s.result.current.view?.info.documentId).toBe("doc-new");
   await act(async () => s.result.current.cancel());
+  expect(s.held()).toBe(false);
+});
+
+it.each([
+  ["normalize-peak", "-120", -120],
+  ["normalize-peak", "0", 0],
+  ["normalize-loudness", "-69", -69],
+  ["normalize-loudness", "-23", -23],
+] as const)("accepts typed %s target %s", (operation, text, value) =>
+  expect(parseProcessParameter(operation, text)).toBe(value),
+);
+it.each([
+  ["normalize-peak", "-121"],
+  ["normalize-peak", "1"],
+  ["normalize-loudness", "-70"],
+  ["normalize-loudness", "0.1"],
+  ["normalize-loudness", "Infinity"],
+  ["normalize-peak", ""],
+] as const)("rejects typed %s target %s", (operation, text) =>
+  expect(parseProcessParameter(operation, text)).toBeUndefined(),
+);
+
+it("opens Normalize with peak default and permits only normalization mode switches", async () => {
+  const s = setup("normalize-peak");
+  expect(s.result.current.view).toMatchObject({ operation: "normalize-peak", parameterText: "-1" });
+  act(() => s.result.current.setOperation("normalize-loudness"));
+  expect(s.result.current.view).toMatchObject({
+    operation: "normalize-loudness",
+    parameterText: "-23",
+  });
+  act(() => s.result.current.setOperation("normalize-peak"));
+  expect(s.result.current.view?.parameterText).toBe("-1");
+  await act(async () => s.result.current.cancel());
+  const gain = setup();
+  act(() => gain.result.current.setOperation("normalize-loudness"));
+  expect(gain.result.current.view?.operation).toBe("gain");
+  await act(async () => gain.result.current.cancel());
+});
+
+it.each(["normalize-peak", "normalize-loudness"] as const)(
+  "reuses %s candidate by requested target rather than resolved gain",
+  async (operation) => {
+    const s = setup(operation);
+    await act(async () => s.result.current.preview());
+    expect(s.call).toHaveBeenCalledWith("process.start", {
+      documentId: info.documentId,
+      ...range,
+      operation,
+      target: operation === "normalize-peak" ? -1 : -23,
+    });
+    expect(s.result.current.view?.job?.gainDb).toBe(12);
+    await act(async () => s.result.current.apply());
+    expect(s.runProcess).toHaveBeenCalledOnce();
+    expect(s.options.onEdited).toHaveBeenCalledOnce();
+    expect(s.held()).toBe(false);
+  },
+);
+
+it("target and mode changes discard stale preview/candidate before rebuilding", async () => {
+  const s = setup("normalize-peak");
+  await act(async () => s.result.current.preview());
+  act(() => s.result.current.setParameterText("-6"));
+  await act(async () => s.result.current.preview());
+  expect(s.call).toHaveBeenLastCalledWith(
+    "process.start",
+    expect.objectContaining({ operation: "normalize-peak", target: -6 }),
+  );
+  act(() => s.result.current.setOperation("normalize-loudness"));
+  await act(async () => s.result.current.preview());
+  expect(s.call).toHaveBeenLastCalledWith(
+    "process.start",
+    expect.objectContaining({ operation: "normalize-loudness", target: -23 }),
+  );
+  expect(s.call.mock.calls.filter(([method]) => method === "process.cancel")).toHaveLength(2);
+  await act(async () => s.result.current.cancel());
+});
+
+it.each(["analyzing", "processing", "verifying"] as const)(
+  "cancels normalization during %s while retaining ownership through terminal reply",
+  async (phase) => {
+    const s = setup("normalize-loudness");
+    const running = deferred<ProcessJobResult>();
+    let progress: ProcessJobResult | undefined;
+    s.runProcess.mockImplementation((_, onProgress) => {
+      progress = {
+        ...initialJob,
+        operation: "normalize-loudness",
+        target: -23,
+        phase,
+        phaseIndex: phase === "analyzing" ? 0 : phase === "processing" ? 1 : 2,
+        phaseCount: 3,
+        gainResolved: phase !== "analyzing",
+        gainDb: phase === "analyzing" ? 0 : 12,
+        processedFrames: 2,
+        inputPeak: 0.125,
+        inputLufs: phase === "analyzing" ? null : -35,
+        predictedLufs: phase === "analyzing" ? null : -23,
+      };
+      onProgress?.(progress);
+      return running.promise;
+    });
+    act(() => {
+      void s.result.current.apply();
+    });
+    await waitFor(() => expect(s.result.current.view?.job?.phase).toBe(phase));
+    act(() => s.result.current.setOperation("normalize-peak"));
+    expect(s.result.current.view?.operation).toBe("normalize-loudness");
+    let closing: Promise<void> | undefined;
+    act(() => {
+      closing = s.result.current.cancel();
+    });
+    await waitFor(() => expect(s.call).toHaveBeenCalledWith("process.cancel", expect.anything()));
+    expect(s.held()).toBe(true);
+    await act(async () => {
+      running.resolve({ ...(progress as ProcessJobResult), state: "cancelled" });
+      await closing;
+    });
+    expect(s.options.onEdited).not.toHaveBeenCalled();
+    expect(s.held()).toBe(false);
+  },
+);
+
+it.each(["too short", "nonfinite input", "unstable target"])(
+  "normalization %s failure cleans candidate but keeps retryable dialog",
+  async (message) => {
+    const s = setup("normalize-loudness");
+    s.runProcess.mockRejectedValue(new Error(message));
+    await act(async () => s.result.current.apply());
+    expect(s.call).toHaveBeenCalledWith("process.cancel", expect.anything());
+    expect(s.result.current.view).toMatchObject({ phase: "idle", job: undefined });
+    expect(s.options.onEdited).not.toHaveBeenCalled();
+    expect(s.held()).toBe(true);
+    await act(async () => s.result.current.cancel());
+  },
+);
+
+it("silent normalization commits the authoritative unchanged result without inventing a metric", async () => {
+  const s = setup("normalize-loudness");
+  s.runProcess.mockResolvedValue({
+    ...initialJob,
+    operation: "normalize-loudness",
+    target: -23,
+    state: "ready",
+    phase: "verifying",
+    phaseIndex: 2,
+    phaseCount: 3,
+    gainResolved: true,
+    gainDb: 0,
+    unchangedReason: "silent",
+    processedFrames: 6,
+    peak: 0,
+    inputPeak: 0,
+    inputLufs: null,
+    predictedLufs: null,
+    outputLufs: null,
+  });
+  const original = s.call.getMockImplementation();
+  const unchanged = { ...result, document: info, changed: false };
+  s.call.mockImplementation(async (method, params) =>
+    method === "process.commit" ? unchanged : original?.(method, params),
+  );
+  await act(async () => s.result.current.apply());
+  expect(s.options.onEdited).toHaveBeenCalledExactlyOnceWith(unchanged, info.documentId);
   expect(s.held()).toBe(false);
 });

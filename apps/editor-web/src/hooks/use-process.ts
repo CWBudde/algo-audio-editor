@@ -2,6 +2,7 @@ import type {
   DocumentInfoResult,
   EditResult,
   ProcessJobResult,
+  ProcessStartParams,
   SelectionRange,
 } from "@aae/protocol";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
@@ -21,10 +22,12 @@ export interface ProcessOptions {
 }
 
 export type ProcessPhase = "idle" | "processing" | "ready" | "committing" | "cancelling";
+export type ProcessOperation = ProcessStartParams["operation"];
 export interface ProcessView {
   info: DocumentInfoResult;
   selection: SelectionRange;
-  gainText: string;
+  operation: ProcessOperation;
+  parameterText: string;
   phase: ProcessPhase;
   job?: ProcessJobResult;
   previewing: boolean;
@@ -42,7 +45,8 @@ interface Session {
   client: KernelClient;
   info: DocumentInfoResult;
   selection: SelectionRange;
-  gainText: string;
+  operation: ProcessOperation;
+  parameterText: string;
   acquired: ReturnType<typeof deferred>;
   done: ReturnType<typeof deferred>;
   released: ReturnType<typeof deferred>;
@@ -60,6 +64,34 @@ export function parseGain(text: string): number | undefined {
   if (!text.trim()) return;
   const value = Number(text);
   return Number.isFinite(value) && value >= -120 && value <= 60 ? value : undefined;
+}
+
+export function parseProcessParameter(
+  operation: ProcessOperation,
+  text: string,
+): number | undefined {
+  if (operation === "gain") return parseGain(text);
+  if (!text.trim()) return;
+  const value = Number(text);
+  const minimum = operation === "normalize-peak" ? -120 : -69;
+  return Number.isFinite(value) && value >= minimum && value <= 0 ? value : undefined;
+}
+
+export function defaultProcessParameter(operation: ProcessOperation): string {
+  return operation === "gain" ? "0" : operation === "normalize-peak" ? "-1" : "-23";
+}
+
+export function matchesProcessSettings(
+  job: ProcessJobResult | undefined,
+  operation: ProcessOperation,
+  value: number | undefined,
+): boolean {
+  return Boolean(
+    job?.state === "ready" &&
+      value !== undefined &&
+      job.operation === operation &&
+      (operation === "gain" ? job.gainDb === value : job.target === value),
+  );
 }
 
 /** Own a shared document lock until a candidate is committed or discarded. */
@@ -146,7 +178,7 @@ export function useProcess(options: ProcessOptions) {
   }, [options.client, options.info?.documentId, cancel]);
 
   const open = useCallback(
-    (selection: SelectionRange) => {
+    (selection: SelectionRange, operation: ProcessOperation = "gain") => {
       const initial = latest.current;
       const { client, info } = initial;
       if (!mounted.current || !client || !info || initial.busy || session.current || !info.frames)
@@ -159,7 +191,8 @@ export function useProcess(options: ProcessOptions) {
         client,
         info,
         selection: { ...selection },
-        gainText: "0",
+        operation,
+        parameterText: defaultProcessParameter(operation),
         acquired: deferred(),
         done: deferred(),
         released: deferred(),
@@ -170,7 +203,14 @@ export function useProcess(options: ProcessOptions) {
         stopPreview: initial.stopPreview,
       };
       session.current = s;
-      setView({ info, selection: range, gainText: "0", phase: "idle", previewing: false });
+      setView({
+        info,
+        selection: range,
+        operation,
+        parameterText: s.parameterText,
+        phase: "idle",
+        previewing: false,
+      });
       void initial
         .withOperation(async () => {
           s.acquired.resolve();
@@ -190,12 +230,31 @@ export function useProcess(options: ProcessOptions) {
     [report],
   );
 
-  const setGainText = useCallback(
-    (gainText: string) => {
+  const setParameterText = useCallback(
+    (parameterText: string) => {
       const s = session.current;
       if (!s || s.closing || s.pending || s.committing) return;
-      s.gainText = gainText;
-      update(s, { gainText });
+      s.parameterText = parameterText;
+      update(s, { parameterText });
+    },
+    [update],
+  );
+
+  const setOperation = useCallback(
+    (operation: Exclude<ProcessOperation, "gain">) => {
+      const s = session.current;
+      if (
+        !s ||
+        s.operation === "gain" ||
+        s.closing ||
+        s.pending ||
+        s.committing ||
+        operation === s.operation
+      )
+        return;
+      s.operation = operation;
+      s.parameterText = defaultProcessParameter(operation);
+      update(s, { operation, parameterText: s.parameterText });
     },
     [update],
   );
@@ -204,8 +263,9 @@ export function useProcess(options: ProcessOptions) {
     (mode: "preview" | "apply", allowClipping = false) => {
       const s = session.current;
       if (!s || s.closing || s.pending || s.committing) return;
-      const gainDb = parseGain(s.gainText);
-      if (gainDb === undefined) return;
+      const value = parseProcessParameter(s.operation, s.parameterText);
+      if (value === undefined) return;
+      const operation = s.operation;
       // Invoke before the first await: AudioContext activation belongs to this
       // button gesture, not to the eventual job-completion task.
       let preparation: Promise<void>;
@@ -227,15 +287,17 @@ export function useProcess(options: ProcessOptions) {
           if (s.closing || !owns(s)) return;
           s.previewing = false;
           update(s, { previewing: false });
-          if (s.job?.state !== "ready" || s.job.gainDb !== gainDb) {
+          if (!matchesProcessSettings(s.job, operation, value)) {
             await discard(s);
             if (s.closing || !owns(s)) return;
-            s.job = await s.client.call("process.start", {
+            const params: ProcessStartParams = {
               documentId: s.info.documentId,
               ...s.selection,
-              operation: "gain",
-              gainDb,
-            });
+              ...(operation === "gain"
+                ? { operation, gainDb: value }
+                : { operation, target: value }),
+            };
+            s.job = await s.client.call("process.start", params);
             if (s.closing || !owns(s)) {
               await discard(s);
               return;
@@ -250,7 +312,7 @@ export function useProcess(options: ProcessOptions) {
             );
           }
           if (s.closing || !owns(s)) return;
-          if (s.job.state !== "ready") {
+          if (s.job?.state !== "ready") {
             s.job = undefined;
             update(s, { phase: "idle", job: undefined });
             return;
@@ -321,7 +383,8 @@ export function useProcess(options: ProcessOptions) {
   return {
     view,
     open,
-    setGainText,
+    setParameterText,
+    setOperation,
     preview: () => run("preview"),
     apply: (allowClipping = false) => run("apply", allowClipping),
     stopPreview,
