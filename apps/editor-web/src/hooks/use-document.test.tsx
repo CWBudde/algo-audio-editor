@@ -1,4 +1,4 @@
-import type { DocumentInfoResult, ExportResult } from "@aae/protocol";
+import type { DocumentInfoResult, ExportResult, HistoryListResult } from "@aae/protocol";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KernelClient, type WorkerLike } from "@/kernel/client";
@@ -27,18 +27,41 @@ const exported: ExportResult = {
   dataBytes: 8,
   data: new ArrayBuffer(8),
 };
+const dirtyHistory: HistoryListResult = {
+  documentId: info.documentId,
+  currentStateId: "state-2",
+  savedStateId: "state-1",
+  dirty: true,
+  canUndo: true,
+  canRedo: false,
+  entries: [
+    { stateId: "state-1", label: "Opened document" },
+    { stateId: "state-2", label: "Mute" },
+  ],
+  maxEntries: 100,
+  maxBytes: 512 << 20,
+  retainedBytes: 64,
+};
+const cleanHistory = { ...dirtyHistory, savedStateId: "state-2", dirty: false };
 
 class DocumentWorker implements WorkerLike {
   sent: WorkerRequest[] = [];
   private listener?: (event: MessageEvent<WorkerReply>) => void;
   rejectOpen = false;
   holdInfo = false;
+  holdSave = false;
+  rejectExport = false;
+  rejectSave = false;
   postMessage(request: WorkerRequest) {
     this.sent.push(request);
     if (request.op !== "call") return;
     if (request.method === "doc.info" && this.holdInfo) return;
+    if (request.method === "doc.mark-saved" && this.holdSave) return;
     const reply: WorkerReply =
-      request.method === "doc.info" || this.rejectOpen
+      request.method === "doc.info" ||
+      (request.method === "doc.open" && this.rejectOpen) ||
+      (request.method === "doc.export" && this.rejectExport) ||
+      (request.method === "doc.mark-saved" && this.rejectSave)
         ? { kind: "reply", id: request.id, ok: false, error: "invalid document" }
         : {
             kind: "reply",
@@ -47,7 +70,11 @@ class DocumentWorker implements WorkerLike {
             result:
               request.method === "doc.export"
                 ? exported
-                : { ...info, name: (request.params as { name: string }).name },
+                : request.method === "history.list"
+                  ? dirtyHistory
+                  : request.method === "doc.mark-saved"
+                    ? cleanHistory
+                    : { ...info, name: (request.params as { name: string }).name },
           };
     queueMicrotask(() => this.emit(reply));
   }
@@ -87,6 +114,7 @@ function options() {
     beforeOpen: vi.fn().mockResolvedValue(undefined),
     fallbackOpen: vi.fn(),
     reportError: vi.fn(),
+    onSaved: vi.fn(),
   };
 }
 
@@ -406,6 +434,117 @@ describe("useDocument", () => {
     expect(write).toHaveBeenCalledWith(exported);
   });
 
+  it("marks only the exported history state saved after writing and holds the lock through acknowledgement", async () => {
+    const worker = new DocumentWorker();
+    worker.holdSave = true;
+    const client = new KernelClient(worker);
+    const callbacks = options();
+    const writing = deferred<void>();
+    const write = vi.fn(() => writing.promise);
+    vi.mocked(chooseSaveTarget).mockResolvedValue({ write });
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openFile(file()));
+    await act(async () => result.current.save());
+    expect(write).toHaveBeenCalledWith(exported);
+    expect(result.current.busy).toBe(true);
+    expect(
+      worker.sent.some((request) => request.op === "call" && request.method === "doc.mark-saved"),
+    ).toBe(false);
+    const ignored = file("ignored.wav");
+    act(() => result.current.openFile(ignored));
+    expect(ignored.arrayBuffer).not.toHaveBeenCalled();
+    await act(async () => writing.resolve(undefined));
+    const acknowledgement = worker.sent.find(
+      (request) => request.op === "call" && request.method === "doc.mark-saved",
+    );
+    expect(acknowledgement).toMatchObject({
+      params: { documentId: info.documentId, stateId: "state-2" },
+    });
+    expect(result.current.busy).toBe(true);
+    expect(callbacks.onSaved).not.toHaveBeenCalled();
+    if (!acknowledgement) throw new Error("missing saved-state acknowledgement");
+    await act(async () =>
+      worker.emit({ kind: "reply", id: acknowledgement.id, ok: true, result: cleanHistory }),
+    );
+    expect(callbacks.onSaved).toHaveBeenCalledExactlyOnceWith(cleanHistory);
+    expect(result.current.busy).toBe(false);
+  });
+
+  it.each(["export", "write", "acknowledgement"] as const)(
+    "does not publish a save point after %s failure",
+    async (phase) => {
+      const worker = new DocumentWorker();
+      worker.rejectExport = phase === "export";
+      worker.rejectSave = phase === "acknowledgement";
+      const client = new KernelClient(worker);
+      const callbacks = options();
+      const write = vi.fn(async () => {
+        if (phase === "write") throw new Error("write failed");
+      });
+      vi.mocked(chooseSaveTarget).mockResolvedValue({ write });
+      const { result } = renderHook(() => useDocument(client, callbacks));
+      await act(async () => result.current.openFile(file()));
+      await act(async () => result.current.save());
+      expect(callbacks.onSaved).not.toHaveBeenCalled();
+      expect(callbacks.reportError).toHaveBeenCalledWith("Could not save audio", expect.any(Error));
+      expect(result.current.busy).toBe(false);
+      if (phase !== "acknowledgement")
+        expect(
+          worker.sent.some(
+            (request) => request.op === "call" && request.method === "doc.mark-saved",
+          ),
+        ).toBe(false);
+    },
+  );
+
+  it("does not acknowledge a successful late write after unmount", async () => {
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const callbacks = options();
+    const writing = deferred<void>();
+    vi.mocked(chooseSaveTarget).mockResolvedValue({ write: () => writing.promise });
+    const { result, unmount } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openFile(file()));
+    await act(async () => result.current.save());
+    unmount();
+    await act(async () => writing.resolve(undefined));
+    expect(
+      worker.sent.some((request) => request.op === "call" && request.method === "doc.mark-saved"),
+    ).toBe(false);
+    expect(callbacks.onSaved).not.toHaveBeenCalled();
+    expect(callbacks.reportError).not.toHaveBeenCalled();
+  });
+
+  it("does not apply an old client's saved reply or release a new client's import lock", async () => {
+    const oldWorker = new DocumentWorker();
+    oldWorker.holdSave = true;
+    const oldClient = new KernelClient(oldWorker);
+    const newWorker = new DocumentWorker();
+    const newClient = new KernelClient(newWorker);
+    const callbacks = options();
+    vi.mocked(chooseSaveTarget).mockResolvedValue({ write: async () => {} });
+    const { result, rerender } = renderHook(({ client }) => useDocument(client, callbacks), {
+      initialProps: { client: oldClient },
+    });
+    await act(async () => result.current.openFile(file()));
+    await act(async () => result.current.save());
+    const acknowledgement = oldWorker.sent.find(
+      (request) => request.op === "call" && request.method === "doc.mark-saved",
+    );
+    if (!acknowledgement) throw new Error("missing saved-state acknowledgement");
+    rerender({ client: newClient });
+    const reading = deferred<ArrayBuffer>();
+    await act(async () => result.current.openFile(file("new.wav", () => reading.promise)));
+    await act(async () =>
+      oldWorker.emit({ kind: "reply", id: acknowledgement.id, ok: true, result: cleanHistory }),
+    );
+    expect(callbacks.onSaved).not.toHaveBeenCalled();
+    expect(result.current.busy).toBe(true);
+    await act(async () => reading.resolve(new ArrayBuffer(4)));
+    expect(result.current.info?.name).toBe("new.wav");
+    expect(result.current.busy).toBe(false);
+  });
+
   it("does not export when the user cancels saving", async () => {
     const worker = new DocumentWorker();
     const client = new KernelClient(worker);
@@ -417,6 +556,9 @@ describe("useDocument", () => {
       worker.sent.filter((request) => request.op === "call" && request.method === "doc.export"),
     ).toHaveLength(0);
     expect(result.current.busy).toBe(false);
+    expect(
+      worker.sent.some((request) => request.op === "call" && request.method === "doc.mark-saved"),
+    ).toBe(false);
   });
 
   it("does not continue importing after unmount", async () => {

@@ -1,4 +1,4 @@
-import type { DocumentInfoResult } from "@aae/protocol";
+import type { DocumentInfoResult, HistoryListResult } from "@aae/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KernelClient } from "@/kernel/client";
 import { chooseAudioFile, chooseSaveTarget, isFileDialogCancelled } from "@/lib/file-access";
@@ -7,6 +7,7 @@ interface DocumentOptions {
   beforeOpen(): Promise<void>;
   fallbackOpen(): void;
   reportError(action: string, error: unknown): void;
+  onSaved?(history: HistoryListResult): void;
 }
 
 /** Owns document revisions and serializes file and edit workflows. */
@@ -127,12 +128,23 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     run("Could not save audio", async (target, active) => {
       const destination = await chooseSaveTarget(info.name);
       if (!destination || !active()) return;
+      const history = await target.call("history.list", { documentId: info.documentId });
+      if (!active()) return;
       const result = await target.call("doc.export", {
         format: "wav",
         bitDepth: info.bitDepth,
         float: info.float,
       });
-      if (active()) await destination.write(result);
+      if (!active()) return;
+      await destination.write(result);
+      if (!active()) return;
+      // Exporting does not save: only acknowledge the exact state after a
+      // successful destination write, still under the shared operation lock.
+      const saved = await target.call("doc.mark-saved", {
+        documentId: info.documentId,
+        stateId: history.currentStateId,
+      });
+      if (active()) latest.current.options.onSaved?.(saved);
     });
   }, [client, info, run]);
 

@@ -170,14 +170,19 @@ func (e *Engine) openDocument(p protocol.DocumentOpenParams, input []byte) (prot
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: create document: %w", err)
 	}
+	editor := editorState{
+		documentID: fmt.Sprintf("doc-%d", e.documentSequence+1),
+		selection:  protocol.SelectionRange{ChannelMask: (1 << layout.channels) - 1},
+	}
+	stagedHistory, err := newDocumentHistory(document, editor)
+	if err != nil {
+		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: initialize history: %w", err)
+	}
 	e.document, e.sourceBitDepth, e.sourceFloat = document, layout.bitDepth, layout.float
 	e.transport = nil
 	e.source = sourceStopped
 	e.documentSequence++
-	e.editor = editorState{
-		documentID: fmt.Sprintf("doc-%d", e.documentSequence),
-		selection:  protocol.SelectionRange{ChannelMask: (1 << layout.channels) - 1},
-	}
+	e.editor, e.history = editor, stagedHistory
 	return e.documentInfo()
 }
 

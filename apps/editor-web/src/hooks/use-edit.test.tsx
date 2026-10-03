@@ -50,6 +50,21 @@ const edited: EditResult = {
   timeline: { documentId: "doc-2", markers: [], regions: [] },
   clipboard: copied,
   changed: true,
+  history: {
+    documentId: "doc-2",
+    currentStateId: "state-2",
+    savedStateId: "state-1",
+    dirty: true,
+    canUndo: true,
+    canRedo: false,
+    entries: [
+      { stateId: "state-1", label: "Opened document" },
+      { stateId: "state-2", label: "Cut" },
+    ],
+    maxEntries: 100,
+    maxBytes: 512 << 20,
+    retainedBytes: 0,
+  },
 };
 
 class DeferredWorker implements WorkerLike {

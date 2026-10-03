@@ -1,10 +1,17 @@
-import type { EditOperation, EditResult, PastePlan, SelectionRange } from "@aae/protocol";
+import type {
+  EditOperation,
+  EditResult,
+  HistoryListResult,
+  PastePlan,
+  SelectionRange,
+} from "@aae/protocol";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AudioEngine } from "@/audio/audio-engine";
 import type { RingBufferStats } from "@/audio/ring-buffer";
 import { AppMenubar } from "@/components/app-menubar";
 import { EditToolbar, PasteConversionDialog } from "@/components/edit-toolbar";
+import { HistoryPanel } from "@/components/history-panel";
 import { StatusBar } from "@/components/status-bar";
 import {
   type PlaybackFollow,
@@ -18,6 +25,7 @@ import { WaveformView, type WaveformViewHandle } from "@/components/waveform-vie
 import { useDocument } from "@/hooks/use-document";
 import { useDocumentMemory } from "@/hooks/use-document-memory";
 import { useEdit } from "@/hooks/use-edit";
+import { useHistory } from "@/hooks/use-history";
 import { useKernel } from "@/hooks/use-kernel";
 
 const STATS_INTERVAL_MS = 200;
@@ -50,6 +58,7 @@ export default function App() {
   const [selected, setSelected] = useState<{ documentId: string; range: SelectionRange }>();
   const [editSnapshot, setEditSnapshot] = useState<{ client: typeof client; result: EditResult }>();
   const [pastePlan, setPastePlan] = useState<PastePlan>();
+  const acceptHistory = useRef<((history: HistoryListResult) => void) | undefined>(undefined);
   const confirmation = useRef<
     | {
         client: typeof client;
@@ -78,6 +87,7 @@ export default function App() {
     },
     fallbackOpen: () => fileInput.current?.click(),
     reportError: (action, error) => reportError(action)(error),
+    onSaved: (history) => acceptHistory.current?.(history),
   });
 
   useEffect(() => {
@@ -115,6 +125,7 @@ export default function App() {
   );
   const onEdited = useCallback(
     (result: EditResult, sourceDocumentId: string) => {
+      acceptHistory.current?.(result.history);
       if (!result.changed) return;
       editedDocument.current = { client, id: result.document.documentId };
       doc.replaceInfo(result.document, sourceDocumentId);
@@ -125,26 +136,42 @@ export default function App() {
     },
     [client, doc.replaceInfo],
   );
-  const edit = useEdit({
+  const beforeEdit = useCallback(async () => {
+    playbackAction.current++;
+    playbackPending.current = false;
+    await engine?.stop();
+    if (currentEngine.current === engine) {
+      setPlaying(false);
+      setStats(engine?.stats());
+      setPosition(engine?.position() ?? 0);
+    }
+  }, [engine]);
+  const history = useHistory({
     client,
     info: doc.info,
     busy: doc.busy,
     withOperation: doc.withOperation,
-    async beforeEdit() {
-      playbackAction.current++;
-      playbackPending.current = false;
-      await engine?.stop();
-      if (currentEngine.current === engine) {
-        setPlaying(false);
-        setStats(engine?.stats());
-        setPosition(engine?.position() ?? 0);
-      }
-    },
+    beforeEdit,
+    onEdited,
+    onError: (action, error) => reportError(action)(error),
+  });
+  acceptHistory.current = history.accept;
+  const edit = useEdit({
+    client,
+    info: doc.info,
+    busy: doc.busy || history.busy,
+    withOperation: doc.withOperation,
+    beforeEdit,
     onEdited,
     confirmConversion,
     onError: (action, error) => reportError(action)(error),
   });
-  const busy = doc.busy || edit.busy;
+  const busy = doc.busy || edit.busy || history.busy;
+  useEffect(() => {
+    document.title = doc.info
+      ? `${history.history?.dirty ? "* " : ""}${doc.info.name} — algo-audio-editor`
+      : "algo-audio-editor";
+  }, [doc.info, history.history?.dirty]);
   const selection: SelectionRange | undefined = doc.info
     ? selected?.documentId === doc.info.documentId
       ? selected.range
@@ -251,7 +278,8 @@ export default function App() {
         return;
       if (!event.ctrlKey && !event.metaKey && !event.altKey && doc.info && !busy) {
         if (event.code === "Space" && !event.repeat) {
-          if (target instanceof HTMLElement && target.closest("button, [role='button']")) return;
+          if (target instanceof HTMLElement && target.closest("button, [role='button'], summary"))
+            return;
           event.preventDefault();
           if (playing) stop();
           else play();
@@ -265,7 +293,16 @@ export default function App() {
         }
       }
       if (!(event.ctrlKey || event.metaKey) || event.altKey || !client || busy) return;
-      if (event.key.toLowerCase() === "o") {
+      if (
+        doc.info &&
+        (event.key.toLowerCase() === "z" || (event.key.toLowerCase() === "y" && !event.shiftKey))
+      ) {
+        event.preventDefault();
+        if (!event.repeat) {
+          if (event.shiftKey || event.key.toLowerCase() === "y") void history.redo();
+          else void history.undo();
+        }
+      } else if (event.key.toLowerCase() === "o") {
         event.preventDefault();
         doc.open();
       } else if (event.key.toLowerCase() === "s" && doc.info) {
@@ -311,6 +348,8 @@ export default function App() {
     selection,
     edit.clipboard,
     runEdit,
+    history.undo,
+    history.redo,
   ]);
 
   useEffect(() => {
@@ -352,6 +391,20 @@ export default function App() {
             aboutText={about}
             onOpen={client && !busy ? doc.open : undefined}
             onSave={doc.info && !busy ? doc.save : undefined}
+            onUndo={
+              !busy && history.history?.canUndo
+                ? () => {
+                    void history.undo();
+                  }
+                : undefined
+            }
+            onRedo={
+              !busy && history.history?.canRedo
+                ? () => {
+                    void history.redo();
+                  }
+                : undefined
+            }
             onCut={
               !busy && selection && selection.end > selection.start
                 ? () => runEdit("cut")
@@ -401,6 +454,21 @@ export default function App() {
           busy={busy}
           onRun={(operation, _range, frames) => runEdit(operation, frames)}
         />
+        {doc.info && (
+          <HistoryPanel
+            history={history.history}
+            busy={busy}
+            onUndo={() => {
+              void history.undo();
+            }}
+            onRedo={() => {
+              void history.redo();
+            }}
+            onJump={(stateId) => {
+              void history.jump(stateId);
+            }}
+          />
+        )}
         <input
           ref={fileInput}
           type="file"

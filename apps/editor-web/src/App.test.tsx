@@ -15,6 +15,9 @@ const fake = vi.hoisted(() => ({
   save: vi.fn(),
   openFile: vi.fn(),
   edit: vi.fn(),
+  undo: vi.fn(),
+  redo: vi.fn(),
+  jump: vi.fn(),
 }));
 
 vi.mock("@/audio/audio-engine", () => ({
@@ -41,7 +44,7 @@ vi.mock("@/hooks/use-kernel", () => {
   const kernel = {
     status: "ready",
     client: {},
-    hello: { kernelVersion: "test", protocolVersion: 5, goVersion: "go1.test" },
+    hello: { kernelVersion: "test", protocolVersion: 6, goVersion: "go1.test" },
   };
   return { useKernel: () => kernel };
 });
@@ -68,6 +71,16 @@ vi.mock("@/hooks/use-document", () => {
 vi.mock("@/hooks/use-document-memory", () => ({ useDocumentMemory: () => undefined }));
 vi.mock("@/hooks/use-edit", () => ({
   useEdit: () => ({ busy: false, clipboard: undefined, run: fake.edit }),
+}));
+vi.mock("@/hooks/use-history", () => ({
+  useHistory: () => ({
+    busy: false,
+    history: undefined,
+    undo: fake.undo,
+    redo: fake.redo,
+    jump: fake.jump,
+    accept: vi.fn(),
+  }),
 }));
 vi.mock("@/components/waveform-view", () => ({ WaveformView: () => null }));
 vi.mock("@/components/app-menubar", () => ({ AppMenubar: () => null }));
@@ -133,6 +146,34 @@ it("keeps Space on focused buttons available for native button activation", asyn
     key: " ",
   });
   await act(async () => getByTestId("play").dispatchEvent(event));
+  expect(event.defaultPrevented).toBe(false);
+  expect(fake.play).not.toHaveBeenCalled();
+});
+
+it("routes undo/redo shortcuts without stealing input undo or key repeats", async () => {
+  const { getByLabelText } = render(<App />);
+  await act(async () => fireEvent.keyDown(window, { key: "z", ctrlKey: true }));
+  expect(fake.undo).toHaveBeenCalledOnce();
+  await act(async () => fireEvent.keyDown(window, { key: "Z", metaKey: true, shiftKey: true }));
+  await act(async () => fireEvent.keyDown(window, { key: "y", ctrlKey: true }));
+  expect(fake.redo).toHaveBeenCalledTimes(2);
+  fireEvent.keyDown(window, { key: "z", ctrlKey: true, repeat: true });
+  fireEvent.keyDown(window, { key: "z", ctrlKey: true, altKey: true });
+  fireEvent.keyDown(getByLabelText("Silence frames"), { key: "z", ctrlKey: true });
+  expect(fake.undo).toHaveBeenCalledOnce();
+});
+
+it("preserves Space on the focused history summary for native disclosure activation", async () => {
+  const { container } = render(<App />);
+  const summary = container.querySelector("summary");
+  if (!summary) throw new Error("missing history disclosure");
+  const event = new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    code: "Space",
+    key: " ",
+  });
+  await act(async () => summary.dispatchEvent(event));
   expect(event.defaultPrevented).toBe(false);
   expect(fake.play).not.toHaveBeenCalled();
 });

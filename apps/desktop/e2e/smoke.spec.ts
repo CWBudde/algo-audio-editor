@@ -86,6 +86,12 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await page.getByRole("button", { name: "Paste", exact: true }).click();
     await expect(page.getByTestId("document-details")).toContainText("· 16 frames");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
+    await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
+    await page.keyboard.press("Control+z");
+    await expect(page.getByTestId("document-details")).toContainText("· 12 frames");
+    await page.keyboard.press("Control+Shift+z");
+    await expect(page.getByTestId("document-details")).toContainText("· 16 frames");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
     expect(errors).toEqual([]);
   } finally {
     await app.close();

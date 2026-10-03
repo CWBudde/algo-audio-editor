@@ -11,6 +11,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/buildinfo"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/history"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
@@ -45,6 +46,7 @@ type Engine struct {
 	editor            editorState
 	clipboard         ops.Clipboard
 	clipboardSequence uint64
+	history           *history.History[historySnapshot]
 }
 
 // New returns an engine configured for 48 kHz stereo.
@@ -121,6 +123,27 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 		return e.documentInfo()
 	case protocol.MethodEditState:
 		return e.clipboardInfo(), nil
+	case protocol.MethodHistoryList, protocol.MethodEditUndo, protocol.MethodEditRedo:
+		var p protocol.HistoryListParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		if method == protocol.MethodHistoryList {
+			return e.listHistory(p)
+		}
+		return e.navigateHistory(method, p.DocumentID, "")
+	case protocol.MethodHistoryJump:
+		var p protocol.HistoryJumpParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.navigateHistory(method, p.DocumentID, p.StateID)
+	case protocol.MethodMarkSaved:
+		var p protocol.MarkSavedParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.markSaved(p)
 	case protocol.MethodEditApply:
 		var p protocol.EditApplyParams
 		if err := decode(method, payload, &p); err != nil {
@@ -191,7 +214,11 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 }
 
 func (e *Engine) documentMemory() protocol.DocumentMemoryResult {
-	stats := audiobuf.CountMemoryWithWindows([]audiobuf.Document{e.document}, e.clipboard.Windows()...)
+	documents := []audiobuf.Document{e.document}
+	if e.history != nil {
+		documents = e.history.Documents()
+	}
+	stats := audiobuf.CountMemoryWithWindows(documents, e.clipboard.Windows()...)
 
 	return protocol.DocumentMemoryResult{
 		SampleBytes: stats.SampleBytes, PeakBytes: stats.PeakBytes,

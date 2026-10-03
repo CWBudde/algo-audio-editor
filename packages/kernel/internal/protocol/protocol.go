@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 5
+const Version = 6
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -45,6 +45,11 @@ const (
 	MethodEditState     = "edit.state"
 	MethodEditApply     = "edit.apply"
 	MethodPreparePaste  = "edit.prepare-paste"
+	MethodHistoryList   = "history.list"
+	MethodHistoryJump   = "history.jump"
+	MethodEditUndo      = "edit.undo"
+	MethodEditRedo      = "edit.redo"
+	MethodMarkSaved     = "doc.mark-saved"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -231,6 +236,39 @@ type EditResult struct {
 	Timeline  TimelineResult     `json:"timeline"`
 	Clipboard ClipboardInfo      `json:"clipboard"`
 	Changed   bool               `json:"changed"`
+	History   HistoryListResult  `json:"history"`
+}
+
+type HistoryListParams struct {
+	DocumentID string `json:"documentId"`
+}
+
+type HistoryJumpParams struct {
+	DocumentID string `json:"documentId"`
+	StateID    string `json:"stateId"`
+}
+
+type MarkSavedParams struct {
+	DocumentID string `json:"documentId"`
+	StateID    string `json:"stateId"`
+}
+
+type HistoryEntry struct {
+	StateID string `json:"stateId"`
+	Label   string `json:"label"`
+}
+
+type HistoryListResult struct {
+	DocumentID     string         `json:"documentId"`
+	CurrentStateID string         `json:"currentStateId"`
+	SavedStateID   string         `json:"savedStateId"`
+	Dirty          bool           `json:"dirty"`
+	CanUndo        bool           `json:"canUndo"`
+	CanRedo        bool           `json:"canRedo"`
+	Entries        []HistoryEntry `json:"entries"`
+	MaxEntries     int            `json:"maxEntries"`
+	MaxBytes       int64          `json:"maxBytes"`
+	RetainedBytes  int64          `json:"retainedBytes"`
 }
 
 type PreparePasteParams struct {

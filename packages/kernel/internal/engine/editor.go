@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"unicode/utf8"
 
@@ -16,13 +17,15 @@ const (
 	maxAnchorName  = 256
 )
 
-// Editor state belongs to one successful import, not its source file name.
-// Marker/region edit shifting, persistence and history are later foundations.
+// Editor state belongs to an immutable audio-history snapshot. Navigation
+// restores selection and anchors while assigning a fresh document identity.
+// Edit-aware anchor shifting and persistence are later foundations.
 type editorState struct {
-	documentID string
-	selection  protocol.SelectionRange
-	markers    []protocol.TimelineMarker
-	regions    []protocol.TimelineRegion
+	documentID     string
+	selection      protocol.SelectionRange
+	markers        []protocol.TimelineMarker
+	regions        []protocol.TimelineRegion
+	anchorSequence int
 }
 
 func (e *Engine) dispatchEditor(method string, payload []byte) (any, error) {
@@ -189,10 +192,20 @@ func (e *Engine) getTimeline(p protocol.TimelineGetParams) (protocol.TimelineRes
 }
 
 func (e *Engine) anchorName(method, name, kind string) (string, int, error) {
-	id := len(e.editor.markers) + len(e.editor.regions) + 1
-	if id > maxAnchors {
+	if len(e.editor.markers)+len(e.editor.regions) >= maxAnchors {
 		return "", 0, fmt.Errorf("%s: document already contains %d anchors", method, maxAnchors)
 	}
+	sequence := e.editor.anchorSequence
+	for _, marker := range e.editor.markers {
+		sequence = max(sequence, marker.ID)
+	}
+	for _, region := range e.editor.regions {
+		sequence = max(sequence, region.ID)
+	}
+	if sequence == math.MaxInt {
+		return "", 0, fmt.Errorf("%s: anchor identity exhausted", method)
+	}
+	id := sequence + 1
 	name = strings.TrimSpace(name)
 	if len(name) > maxAnchorName || !utf8.ValidString(name) {
 		return "", 0, fmt.Errorf("%s: name must be valid UTF-8 and at most %d bytes", method, maxAnchorName)
@@ -216,6 +229,7 @@ func (e *Engine) addMarker(p protocol.MarkerAddParams) (protocol.TimelineResult,
 		return protocol.TimelineResult{}, err
 	}
 	e.editor.markers = append(e.editor.markers, protocol.TimelineMarker{ID: id, Frame: p.Frame, Name: name})
+	e.editor.anchorSequence = id
 	return e.timelineResult(), nil
 }
 
@@ -235,5 +249,6 @@ func (e *Engine) addRegion(p protocol.RegionAddParams) (protocol.TimelineResult,
 		return protocol.TimelineResult{}, err
 	}
 	e.editor.regions = append(e.editor.regions, protocol.TimelineRegion{ID: id, Start: p.Start, End: p.End, Name: name})
+	e.editor.anchorSequence = id
 	return e.timelineResult(), nil
 }

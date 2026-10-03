@@ -40,7 +40,7 @@ func (e *Engine) preparePaste(p protocol.PreparePasteParams) (protocol.PastePlan
 func (e *Engine) editResult(changed bool) protocol.EditResult {
 	// applyEdit has already validated that a document is open.
 	document, _ := e.documentInfo()
-	return protocol.EditResult{Document: document, Selection: e.selectionResult(), Timeline: e.timelineResult(), Clipboard: e.clipboardInfo(), Changed: changed}
+	return protocol.EditResult{Document: document, Selection: e.selectionResult(), Timeline: e.timelineResult(), Clipboard: e.clipboardInfo(), Changed: changed, History: e.historyResult()}
 }
 
 // applyEdit stages every fallible operation before publishing any engine state.
@@ -142,11 +142,44 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 		return protocol.EditResult{}, fmt.Errorf("%s: document identity exhausted", method)
 	}
 	document := e.document
+	editor := cloneEditor(e.editor)
+	stagedHistory := e.history
 	if changed {
 		var err error
 		document, err = operation.Apply(document)
 		if err != nil {
 			return protocol.EditResult{}, fmt.Errorf("%s: %w", method, err)
+		}
+		// Until edit-aware anchor shifting (Phase 2.4), clamp coordinates and
+		// discard collapsed regions rather than retaining invalid anchors.
+		for i := range editor.markers {
+			editor.markers[i].Frame = min(editor.markers[i].Frame, document.Frames())
+		}
+		regions := editor.regions[:0]
+		for _, region := range editor.regions {
+			region.Start, region.End = min(region.Start, document.Frames()), min(region.End, document.Frames())
+			if region.Start < region.End {
+				regions = append(regions, region)
+			}
+		}
+		editor.regions = regions
+	}
+	selection.Start, selection.End = min(selection.Start, document.Frames()), min(selection.End, document.Frames())
+	editor.selection = selection
+	if changed {
+		if stagedHistory == nil {
+			var err error
+			stagedHistory, err = newDocumentHistory(e.document, e.editor)
+			if err != nil {
+				return protocol.EditResult{}, fmt.Errorf("%s: initialize history: %w", method, err)
+			}
+		}
+		before := cloneEditor(e.editor)
+		before.selection = p.SelectionRange
+		var err error
+		stagedHistory, err = stagedHistory.StagePush(editHistoryLabel(p.Operation), historySnapshot{document: e.document, editor: before}, historySnapshot{document: document, editor: cloneEditor(editor)})
+		if err != nil {
+			return protocol.EditResult{}, fmt.Errorf("%s: retain undo history: %w", method, err)
 		}
 	}
 	if copying {
@@ -154,25 +187,11 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 		e.clipboardSequence++
 	}
 	if changed {
-		e.document = document
+		e.document, e.history = document, stagedHistory
 		e.documentSequence++
-		e.editor.documentID = fmt.Sprintf("doc-%d", e.documentSequence)
+		editor.documentID = fmt.Sprintf("doc-%d", e.documentSequence)
 		e.transport, e.source = nil, sourceStopped
-		// Until edit-aware anchor shifting (Phase 2.4), clamp coordinates and
-		// discard collapsed regions rather than retaining invalid anchors.
-		for i := range e.editor.markers {
-			e.editor.markers[i].Frame = min(e.editor.markers[i].Frame, document.Frames())
-		}
-		regions := e.editor.regions[:0]
-		for _, region := range e.editor.regions {
-			region.Start, region.End = min(region.Start, document.Frames()), min(region.End, document.Frames())
-			if region.Start < region.End {
-				regions = append(regions, region)
-			}
-		}
-		e.editor.regions = regions
 	}
-	selection.Start, selection.End = min(selection.Start, e.document.Frames()), min(selection.End, e.document.Frames())
-	e.editor.selection = selection
+	e.editor = editor
 	return e.editResult(changed), nil
 }

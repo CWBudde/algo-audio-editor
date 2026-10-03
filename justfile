@@ -98,7 +98,7 @@ bench:
 bench-wasm:
     cd {{kernel}} && GOOS=js GOARCH=wasm go test \
         -exec="env -i $(command -v node) --stack-size=8192 $(go env GOROOT)/lib/wasm/wasm_exec_node.js" \
-        -run '^$' -bench . -benchtime=1x -benchmem ./internal/audiobuf ./internal/engine ./internal/ops
+        -run '^$' -bench . -benchtime=1x -benchmem ./internal/audiobuf ./internal/engine ./internal/ops ./internal/history
 
 # Opt-in hardware timing gate: full ten-minute import, including file read and UI.
 # Run in isolation on the target laptop; this is not part of shared-runner CI.

@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -188,6 +188,33 @@ export interface EditResult {
   timeline: TimelineResult;
   clipboard: ClipboardInfo;
   changed: boolean;
+  history: HistoryListResult;
+}
+
+export interface HistoryListParams {
+  documentId: string;
+}
+export interface HistoryJumpParams extends HistoryListParams {
+  stateId: string;
+}
+export interface MarkSavedParams extends HistoryListParams {
+  stateId: string;
+}
+export interface HistoryEntry {
+  stateId: string;
+  label: string;
+}
+export interface HistoryListResult {
+  documentId: string;
+  currentStateId: string;
+  savedStateId: string;
+  dirty: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  entries: HistoryEntry[];
+  maxEntries: number;
+  maxBytes: number;
+  retainedBytes: number;
 }
 
 export interface PreparePasteParams {
@@ -264,6 +291,11 @@ export interface KernelMethods {
   "edit.state": { params: undefined; result: ClipboardInfo };
   "edit.apply": { params: EditApplyParams; result: EditResult };
   "edit.prepare-paste": { params: PreparePasteParams; result: PastePlan };
+  "history.list": { params: HistoryListParams; result: HistoryListResult };
+  "history.jump": { params: HistoryJumpParams; result: EditResult };
+  "edit.undo": { params: HistoryListParams; result: EditResult };
+  "edit.redo": { params: HistoryListParams; result: EditResult };
+  "doc.mark-saved": { params: MarkSavedParams; result: HistoryListResult };
 }
 
 export type KernelMethod = keyof KernelMethods;

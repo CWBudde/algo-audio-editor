@@ -46,6 +46,8 @@ interface AppMenubarProps {
   aboutText: string;
   onOpen?: () => void;
   onSave?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
   onCut?: () => void;
   onCopy?: () => void;
   onPaste?: () => void;
@@ -60,6 +62,8 @@ export function AppMenubar({
   aboutText,
   onOpen,
   onSave,
+  onUndo,
+  onRedo,
   onCut,
   onCopy,
   onPaste,
@@ -73,6 +77,8 @@ export function AppMenubar({
     "Open…": onOpen,
     Save: onSave,
     "Export…": onSave,
+    Undo: onUndo,
+    Redo: onRedo,
     Cut: onCut,
     Copy: onCopy,
     Paste: onPaste,

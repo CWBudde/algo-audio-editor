@@ -5,9 +5,9 @@ An audio editor that runs in the browser and as a desktop app. All audio work
 WebAssembly** on top of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp)
 family. The UI is **React + TypeScript + shadcn**.
 
-> **Status:** Phases 1–2.2 of [PLAN.md](PLAN.md): WAV import/export,
+> **Status:** Phases 1–2.3 of [PLAN.md](PLAN.md): WAV import/export,
 > interactive waveforms, playback, channel-aware selections and editing in the
-> browser and Electron. Undo/redo is next; edits currently cannot be undone.
+> browser and Electron, with undo/redo history and save-point tracking.
 
 ## Architecture
 
@@ -91,9 +91,32 @@ to 512 MiB; same-format structural pastes do not have that materialization
 limit. Copy keeps playback running; audio-changing edits
 stop it. Commands wait until pointer selection and snapping are complete.
 
-Save a separate original before editing: undo/redo and dirty tracking are
-planned for Phase 2.3. Markers and regions currently clamp to valid bounds after
-edits; their full edit-aware shifting remains Phase 2.4.
+Markers and regions currently clamp to valid bounds after edits; their full
+edit-aware shifting remains Phase 2.4.
+
+## Undo and saving
+
+Ctrl/Cmd+Z undoes an audio edit; Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes it. The
+Edit menu and expandable Edit history panel offer the same controls; click a
+history row to jump to that state. Navigation restores audio, selection and
+anchor snapshots and stops playback, without changing the clipboard. Editing
+after undo discards the redo branch. Copy, selection changes and the current
+anchor-only controls do not create audio-history steps.
+
+History retains up to 100 edits plus their base state, sharing unchanged audio
+blocks. Its unique sample/peak budget is the greater of 512 MiB and twice the
+opened document's storage. Oldest undo states are evicted when needed; an edit
+that cannot retain even its immediate undo pair is rejected unchanged. The
+panel shows retained audio storage; block-list and runtime overhead are not
+included. Keep a separate original for work that must outlive this session.
+
+The history summary and an asterisk in the window title indicate unsaved audio
+changes. Save marks only the successfully written history state as saved;
+undo/redo back to that state becomes clean, while export alone does not. With
+File System Access, the write and close must succeed. The download fallback
+can observe only handoff to the browser, not disk completion or cancellation.
+Opening another file resets history. Unsaved-close prompts remain Phase 9;
+marker/region persistence and corresponding dirty tracking remain Phase 2.4.
 
 ## Repository layout
 
