@@ -1,7 +1,9 @@
 /// <reference lib="dom" />
+
 import { expect, type Page, test } from "@playwright/test";
 import { info, LEFT, load, RIGHT, samples, select } from "./edit-fixture.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
+import { revealControl } from "./ui-disclosures.ts";
 
 async function palette(page: Page, query: string) {
   await page.keyboard.press("Control+k");
@@ -17,7 +19,7 @@ test.beforeEach(async ({ page }) => {
   await captureKernelWorker(page);
   await page.addInitScript(() => Object.assign(window, { showSaveFilePicker: undefined }));
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
 });
 
 test("palette discovers disabled commands without a document, restores focus and toggles", async ({
@@ -73,8 +75,8 @@ test("select-all and silence palette commands use the live channel mask and exac
   page,
 }) => {
   await load(page);
-  await page.getByRole("button", { name: "Right", exact: true }).click();
-  const silence = page.getByLabel("Silence frames", { exact: true });
+  await (await revealControl(page.getByRole("button", { name: "Right", exact: true }))).click();
+  const silence = await revealControl(page.getByLabel("Silence frames", { exact: true }));
   await silence.fill("3");
   await silence.press("Control+a");
   await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "0");
@@ -118,7 +120,7 @@ test("macOS displays and executes Cmd shortcuts, preserving the other modifier",
     Object.defineProperty(navigator, "platform", { value: "MacIntel" }),
   );
   await page.reload();
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
   await page.keyboard.press("Control+k");
   await expect(page.getByRole("dialog", { name: "Command palette" })).not.toBeVisible();
   await page.keyboard.press("Meta+k");

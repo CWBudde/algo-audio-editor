@@ -9,7 +9,7 @@ if (process.env.AAE_IMPORT_BENCHMARK === "1") {
     test.setTimeout(120_000);
     await captureKernelWorker(page);
     await page.goto("/");
-    await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+    await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
     const timing = await page.evaluate(async () => {
       const frames = 48_000 * 600;
       const dataBytes = frames * 2 * 2;

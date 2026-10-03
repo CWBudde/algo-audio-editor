@@ -1,4 +1,5 @@
 /// <reference lib="dom" />
+
 import type {
   DocumentInfoResult,
   HistoryListResult,
@@ -18,6 +19,7 @@ import {
   select,
 } from "./edit-fixture.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
+import { revealControl } from "./ui-disclosures.ts";
 
 async function history(page: Page) {
   return page.evaluate(async () => {
@@ -73,7 +75,7 @@ test.beforeEach(async ({ page }) => {
   await captureKernelWorker(page);
   await page.addInitScript(() => Object.assign(window, { showSaveFilePicker: undefined }));
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
 });
 
 for (const operation of [
@@ -98,10 +100,10 @@ for (const operation of [
       await expect.poll(async () => (await clipboard(page)).frames).toBe(2);
     }
     await select(page, 2, 6);
-    await page.getByLabel("Marker or region name").fill("History region");
+    await (await revealControl(page.getByLabel("Marker or region name"))).fill("History region");
     await page.getByRole("button", { name: "Add region", exact: true }).click();
     await expect(page.getByTestId("timeline-region-1")).toBeVisible();
-    await page.getByLabel("Marker or region name").fill("History cue");
+    await (await revealControl(page.getByLabel("Marker or region name"))).fill("History cue");
     await page.getByRole("button", { name: "Add marker", exact: true }).click();
     await expect(page.getByTestId("timeline-marker-2")).toBeVisible();
     const before = await editorState(page);
@@ -109,7 +111,7 @@ for (const operation of [
     expect(beforeHistory.entries).toHaveLength(3);
     expect(beforeHistory.dirty).toBe(true);
     if (operation.name === "Insert silence")
-      await page.getByLabel("Silence frames", { exact: true }).fill("2");
+      await (await revealControl(page.getByLabel("Silence frames", { exact: true }))).fill("2");
     await edit(page, operation.name, operation.frames);
     const changed = await samples(page);
     const after = await editorState(page);

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { toast } from "sonner";
 import { AudioEngine } from "@/audio/audio-engine";
 import type { RingBufferStats } from "@/audio/ring-buffer";
+import { AboutStatusDialog } from "@/components/about-status-dialog";
 import { AppMenubar } from "@/components/app-menubar";
 import { CommandPalette } from "@/components/command-palette";
 import { EditToolbar, PasteConversionDialog } from "@/components/edit-toolbar";
@@ -64,6 +65,8 @@ export default function App() {
   const [editSnapshot, setEditSnapshot] = useState<{ client: typeof client; result: EditResult }>();
   const [pastePlan, setPastePlan] = useState<PastePlan>();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [informationOpen, setInformationOpen] = useState(false);
+  const informationButton = useRef<HTMLButtonElement>(null);
   // Preview readiness changes without changing coordinates on pointer-up.
   // Refresh registry availability after the waveform updates its live handle.
   const [, setCommandReady] = useState(true);
@@ -324,7 +327,7 @@ export default function App() {
       canRedo: history.history?.canRedo ?? false,
       playing,
       silenceFrames: parseSelectionTime(silenceValue, 1, "samples"),
-      modalOpen: Boolean(pastePlan || processing.view),
+      modalOpen: Boolean(pastePlan || processing.view || informationOpen),
     }),
     paletteOpen,
     onError: (_id, error) => reportError("Command failed")(error),
@@ -383,9 +386,7 @@ export default function App() {
         const range = waveformView.current ? waveformView.current.selectionState() : selection;
         if (range) processing.open(range, "normalize-peak");
       },
-      "help.about": () => {
-        toast("algo-audio-editor", { description: about });
-      },
+      "help.about": () => setInformationOpen(true),
     },
   });
 
@@ -414,18 +415,31 @@ export default function App() {
     };
   }, [engine, playing]);
 
-  const about =
-    kernel.status === "ready"
-      ? `Kernel ${kernel.hello.kernelVersion}, ABI v${kernel.hello.protocolVersion}, ${kernel.hello.goVersion}`
-      : `Kernel ${kernel.status}`;
-
   return (
     <TooltipProvider>
-      <div className="flex h-dvh flex-col bg-background text-foreground">
+      <div
+        className="flex h-dvh flex-col bg-background text-foreground"
+        data-kernel-state={kernel.status}
+      >
         <header className="flex h-9 items-center gap-3 border-b px-2">
           <span className="px-1 text-sm font-semibold tracking-tight">algo-audio-editor</span>
           <AppMenubar commands={commands} onExecute={execute} />
         </header>
+        {kernel.status === "error" && (
+          <p
+            role="alert"
+            className="border-b border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
+          >
+            Audio kernel unavailable: {kernel.error}. Reload the editor to restart it; unsaved
+            changes may be lost.
+          </p>
+        )}
+        {kernel.status !== "error" && globalThis.crossOriginIsolated === false && (
+          <p role="alert" className="border-b px-3 py-2 text-sm">
+            Audio playback requires cross-origin isolation. Open this editor from a supported server
+            or the desktop app.
+          </p>
+        )}
         <TransportBar
           ref={transportBar}
           ready={engine !== undefined && !busy && Boolean(doc.info?.frames)}
@@ -516,13 +530,25 @@ export default function App() {
           )}
         </main>
         <StatusBar
-          kernel={kernel}
-          sampleRate={doc.info?.sampleRate ?? engine?.sampleRate}
-          stats={stats}
-          memory={memory}
+          info={doc.info}
+          dirty={history.history?.dirty}
+          onInformation={() => execute("help.about")}
+          informationDisabled={
+            paletteOpen || !commands.find((command) => command.id === "help.about")?.enabled
+          }
+          informationRef={informationButton}
         />
       </div>
       <Toaster theme="dark" />
+      <AboutStatusDialog
+        open={informationOpen}
+        onClose={() => setInformationOpen(false)}
+        kernel={kernel}
+        sampleRate={engine?.sampleRate}
+        stats={stats}
+        memory={memory}
+        fallbackFocusRef={informationButton}
+      />
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}

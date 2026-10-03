@@ -1,8 +1,10 @@
 /// <reference lib="dom" />
+
 import type { HistoryListResult, TimelineResult } from "@aae/protocol";
 import { type Download, expect, type Page, test } from "@playwright/test";
 import { info, LEFT, load, RIGHT, samples, select } from "./edit-fixture.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
+import { revealControl } from "./ui-disclosures.ts";
 
 async function timeline(page: Page) {
   const document = await info(page);
@@ -31,8 +33,8 @@ async function downloadBytes(download: Download) {
 }
 
 async function add(page: Page, kind: "marker" | "region", name: string, color: string) {
-  await page.getByLabel("Marker or region name").fill(name);
-  await page.getByLabel("Marker or region color").fill(color);
+  await (await revealControl(page.getByLabel("Marker or region name"))).fill(name);
+  await (await revealControl(page.getByLabel("Marker or region color"))).fill(color);
   await page.getByRole("button", { name: `Add ${kind}`, exact: true }).click();
   await expect
     .poll(async () =>
@@ -47,7 +49,7 @@ test.beforeEach(async ({ page }) => {
   await captureKernelWorker(page);
   await page.addInitScript(() => Object.assign(window, { showSaveFilePicker: undefined }));
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
 });
 
 test("timeline management, sidecars and saved WAV preserve names, colors and IDs", async ({
@@ -136,7 +138,9 @@ test("metadata mutation keeps real playback, document identity, peaks and zoom",
   await page.getByRole("button", { name: "Zoom to selection", exact: true }).click();
   await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-start-frame", "4000");
   await page.getByLabel("Loop", { exact: true }).check();
-  await page.getByLabel("Follow playback", { exact: true }).selectOption("off");
+  await (await revealControl(page.getByLabel("Follow playback", { exact: true }))).selectOption(
+    "off",
+  );
   await page.getByTestId("play").click();
   await expect
     .poll(async () => Number(await page.getByTestId("frames-played").textContent()))

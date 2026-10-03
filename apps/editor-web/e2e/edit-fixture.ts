@@ -1,4 +1,5 @@
 /// <reference lib="dom" />
+
 import type {
   ClipboardInfo,
   DocumentInfoResult,
@@ -6,6 +7,7 @@ import type {
   SelectionResult,
 } from "@aae/protocol";
 import { expect, type Page } from "@playwright/test";
+import { revealControl } from "./ui-disclosures.ts";
 
 export const LEFT = [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1];
 export const RIGHT = [-1, -0.875, -0.75, -0.625, -0.5, -0.375, -0.25, -0.125];
@@ -54,7 +56,9 @@ export async function load(page: Page, channels = [LEFT, RIGHT], rate = 48_000) 
     `${rate} Hz · ${channels.length} channel${channels.length === 1 ? "" : "s"} · ${channels[0].length} frames`,
   );
   await expect(page.getByLabel("Selection end", { exact: true })).toBeEnabled();
-  await page.getByLabel("Time format", { exact: true }).selectOption("samples");
+  await (await revealControl(page.getByLabel("Time format", { exact: true }))).selectOption(
+    "samples",
+  );
 }
 
 export async function info(page: Page) {
@@ -119,7 +123,7 @@ export async function samples(page: Page) {
 
 export async function edit(page: Page, name: string, frames: number) {
   const previous = (await info(page)).documentId;
-  await page.getByRole("button", { name, exact: true }).click();
+  await (await revealControl(page.getByRole("button", { name, exact: true }))).click();
   await expect.poll(async () => (await info(page)).documentId).not.toBe(previous);
   await expect(page.getByTestId("document-details")).toContainText(`· ${frames} frames`);
   await expect(page.getByLabel("Selection start", { exact: true })).toBeEnabled();

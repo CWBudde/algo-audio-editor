@@ -1,70 +1,62 @@
-import type { DocumentMemoryResult, HelloResult } from "@aae/protocol";
-import type { RingBufferStats } from "@/audio/ring-buffer";
-import { Badge } from "@/components/ui/badge";
-import type { KernelState } from "@/hooks/use-kernel";
-import { formatBytes } from "@/lib/format-bytes";
-import { desktopBridge } from "@/platform";
+import type { DocumentInfoResult } from "@aae/protocol";
+import { Info } from "lucide-react";
+import type { Ref } from "react";
+import { Button } from "@/components/ui/button";
 
 interface StatusBarProps {
-  kernel: KernelState;
-  sampleRate?: number;
-  stats?: RingBufferStats;
-  memory?: DocumentMemoryResult;
+  info?: DocumentInfoResult;
+  dirty?: boolean;
+  onInformation(): void;
+  informationDisabled?: boolean;
+  informationRef?: Ref<HTMLButtonElement>;
 }
-
-function Item({ label, value, testId }: { label: string; value: string; testId?: string }) {
+export function StatusBar({
+  info,
+  dirty,
+  onInformation,
+  informationDisabled,
+  informationRef,
+}: StatusBarProps) {
   return (
-    <span className="flex items-center gap-1">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="tabular-nums" data-testid={testId}>
-        {value}
-      </span>
-    </span>
-  );
-}
-
-function kernelLabel(state: KernelState): string {
-  return state.status === "error" ? `error: ${state.error}` : state.status;
-}
-
-function versionOf(hello: HelloResult | undefined): string {
-  return hello ? `${hello.kernelVersion} (${hello.goVersion})` : "–";
-}
-
-export function StatusBar({ kernel, sampleRate, stats, memory }: StatusBarProps) {
-  const hello = kernel.status === "ready" ? kernel.hello : undefined;
-  const desktop = desktopBridge();
-
-  return (
-    <footer className="flex h-7 items-center gap-4 border-t px-3 text-xs">
-      <Badge
-        variant={kernel.status === "error" ? "destructive" : "secondary"}
-        data-testid="kernel-status"
-        title={kernelLabel(kernel)}
+    <footer
+      className="flex min-h-9 shrink-0 items-center gap-3 border-t px-3 py-1 text-xs"
+      data-testid="document-info"
+      data-document-id={info?.documentId}
+    >
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+        {info ? (
+          <>
+            <span
+              className="max-w-full truncate font-medium"
+              data-testid="document-name"
+              title={info.name}
+            >
+              {info.name}
+            </span>
+            <span className="text-muted-foreground" data-testid="document-save-status">
+              {dirty === undefined ? "Save status pending" : dirty ? "Unsaved changes" : "Saved"}
+            </span>
+            <span className="text-muted-foreground tabular-nums" data-testid="document-details">
+              {info.sampleRate} Hz · {info.channels} {info.channels === 1 ? "channel" : "channels"}{" "}
+              · {info.frames} frames · {(info.frames / info.sampleRate).toFixed(3)} s ·{" "}
+              {info.bitDepth}-bit {info.float ? "float" : "PCM"}
+            </span>
+          </>
+        ) : (
+          <span className="text-muted-foreground">No document open</span>
+        )}
+      </div>
+      <Button
+        ref={informationRef}
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Information"
+        title="About / Status"
+        disabled={informationDisabled}
+        onClick={onInformation}
       >
-        kernel {kernel.status}
-      </Badge>
-      <Item label="Kernel" value={versionOf(hello)} testId="kernel-version" />
-      <Item label="Rate" value={`${sampleRate ?? hello?.sampleRate ?? "–"} Hz`} />
-      <Item
-        label="Memory"
-        value={memory ? formatBytes(memory.sampleBytes + memory.peakBytes) : "–"}
-        testId="document-memory"
-      />
-      <Item
-        label="Isolated"
-        value={globalThis.crossOriginIsolated ? "yes" : "no"}
-        testId="cross-origin-isolated"
-      />
-      <span className="flex-1" />
-      <Item label="Played" value={String(stats?.consumedFrames ?? 0)} testId="frames-played" />
-      <Item label="Buffered" value={String(stats?.bufferedFrames ?? 0)} />
-      <Item label="Underruns" value={String(stats?.underrunFrames ?? 0)} testId="underruns" />
-      <Item
-        label="Platform"
-        value={desktop ? `Electron ${desktop.versions.electron}` : "Browser"}
-        testId="platform"
-      />
+        <Info aria-hidden="true" />
+      </Button>
     </footer>
   );
 }

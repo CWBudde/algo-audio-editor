@@ -1,10 +1,12 @@
 /// <reference lib="dom" />
+
 import type { HistoryListResult, SelectionResult } from "@aae/protocol";
 import { expect, type Page, test } from "@playwright/test";
 import { info, LEFT, load, RIGHT, samples, select } from "./edit-fixture.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
 import { playbackWAV } from "./playback-fixture.ts";
 import { capturePlayback } from "./playback-probe.ts";
+import { revealControl } from "./ui-disclosures.ts";
 
 async function history(page: Page) {
   const document = await info(page);
@@ -25,7 +27,7 @@ async function amplify(page: Page, gainDb: string) {
 test.beforeEach(async ({ page }) => {
   await captureKernelWorker(page);
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
 });
 
 test("gain processing changes only selected frames/channels and is one exact undoable edit", async ({
@@ -33,7 +35,7 @@ test("gain processing changes only selected frames/channels and is one exact und
 }) => {
   await load(page);
   await select(page, 2, 6);
-  await page.getByRole("button", { name: "Right", exact: true }).click();
+  await (await revealControl(page.getByRole("button", { name: "Right", exact: true }))).click();
   const before = await info(page);
   const saved = await history(page);
   const dialog = await amplify(page, "-6.020599913279624");
@@ -59,7 +61,7 @@ test("preview uses the real worklet, keeps the saved document untouched, and Can
 }) => {
   await capturePlayback(page);
   await page.reload();
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
   await page
     .getByTestId("audio-file-input")
     .setInputFiles({ name: "preview.wav", mimeType: "audio/wav", buffer: playbackWAV(144000) });

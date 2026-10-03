@@ -22,14 +22,18 @@ test("boots the kernel in a cross-origin isolated page", async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto("/");
 
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
+  await expect(page.getByTestId("kernel-status")).not.toBeVisible();
+  await page.getByRole("menuitem", { name: "Help", exact: true }).click();
+  await page.getByRole("menuitem", { name: "About", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByTestId("kernel-version")).toContainText("go1.");
   await expect(page.getByTestId("document-memory")).toHaveText("0 B");
   await expect(page.getByTestId("cross-origin-isolated")).toHaveText("yes");
   await expect(page.getByTestId("platform")).toHaveText("Browser");
-  await page.getByRole("menuitem", { name: "Help", exact: true }).click();
-  await page.getByRole("menuitem", { name: "About", exact: true }).click();
   await expect(page.getByText(`ABI v${PROTOCOL_VERSION}`, { exact: false })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).not.toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -47,7 +51,7 @@ test("routes peak requests to the actual WASM kernel", async ({ page }) => {
     };
   });
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
 
   const reply = await page.evaluate(async () => {
     const workers = (window as Window & { __aaeTestWorkers?: Worker[] }).__aaeTestWorkers;
@@ -87,7 +91,7 @@ test("routes peak requests to the actual WASM kernel", async ({ page }) => {
 test("plays the loaded document through the worklet and stops cleanly", async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
 
   await expect(page.getByTestId("play")).toBeDisabled();
   await page.getByTestId("audio-file-input").setInputFiles({

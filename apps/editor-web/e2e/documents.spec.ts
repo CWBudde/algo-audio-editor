@@ -67,7 +67,7 @@ for (const format of [
       Object.assign(window, { showOpenFilePicker: undefined, showSaveFilePicker: undefined });
     });
     await page.goto("/");
-    await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+    await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
     if (format.bitDepth === 16) {
       await page.getByTestId("audio-file-input").setInputFiles({
         name: "previous-playback.wav",
@@ -156,7 +156,7 @@ for (const format of [
 
 test("imports a dropped WAV and preserves it when a later open fails", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
   await page.evaluate(
     (bytes) => {
       const transfer = new DataTransfer();
@@ -178,7 +178,7 @@ test("imports a dropped WAV and preserves it when a later open fails", async ({ 
 test("treats a zero-frame WAV as an open document that can be saved", async ({ page }) => {
   await page.addInitScript(() => Object.assign(window, { showSaveFilePicker: undefined }));
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
   const source = wavFixture(16).subarray(0, 44);
   source.writeUInt32LE(36, 4);
   source.writeUInt32LE(0, 40);

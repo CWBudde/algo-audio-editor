@@ -8,6 +8,7 @@ import App from "./App";
 const fake = vi.hoisted(() => ({
   position: 0,
   playing: false,
+  kernelStatus: "ready" as "ready" | "loading" | "error",
   play: vi.fn(),
   stop: vi.fn(),
   seek: vi.fn(),
@@ -50,7 +51,14 @@ vi.mock("@/hooks/use-kernel", () => {
     client: {},
     hello: { kernelVersion: "test", protocolVersion: PROTOCOL_VERSION, goVersion: "go1.test" },
   };
-  return { useKernel: () => kernel };
+  return {
+    useKernel: () =>
+      fake.kernelStatus === "ready"
+        ? kernel
+        : fake.kernelStatus === "error"
+          ? { status: "error", error: "Handshake failed" }
+          : { status: "loading" },
+  };
 });
 vi.mock("@/hooks/use-document", () => {
   const doc = {
@@ -124,7 +132,12 @@ vi.mock("@/components/app-menubar", () => ({
   }) => (
     <>
       {commands
-        .filter((command) => command.id === "process.amplify" || command.id === "process.normalize")
+        .filter(
+          (command) =>
+            command.id === "process.amplify" ||
+            command.id === "process.normalize" ||
+            command.id === "help.about",
+        )
         .map((command) => (
           <button
             key={command.id}
@@ -138,7 +151,6 @@ vi.mock("@/components/app-menubar", () => ({
     </>
   ),
 }));
-vi.mock("@/components/status-bar", () => ({ StatusBar: () => null }));
 vi.mock("@/components/ui/sonner", () => ({ Toaster: () => null }));
 vi.mock("@/components/ui/tooltip", () => ({
   TooltipProvider: ({ children }: { children: ReactNode }) => children,
@@ -149,6 +161,19 @@ beforeEach(() => {
   vi.clearAllMocks();
   fake.position = 0;
   fake.playing = false;
+  fake.kernelStatus = "ready";
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+    configurable: true,
+    value: vi.fn(function (this: HTMLDialogElement) {
+      this.open = true;
+    }),
+  });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", {
+    configurable: true,
+    value: vi.fn(function (this: HTMLDialogElement) {
+      this.open = false;
+    }),
+  });
   fake.play.mockImplementation(async () => {
     fake.playing = true;
   });
@@ -161,6 +186,52 @@ beforeEach(() => {
   fake.dispose.mockResolvedValue(undefined);
 });
 afterEach(cleanup);
+
+it("shares Information and Help About without stopping playback or exposing routine status", async () => {
+  const ui = render(<App />);
+  expect(ui.container.querySelector("[data-kernel-state='ready']")).not.toBeNull();
+  expect(ui.queryByRole("dialog")).toBeNull();
+  expect(ui.getByTestId("kernel-status").closest("dialog")?.open).toBe(false);
+  expect(ui.getByTestId("document-name").textContent).toBe("play.wav");
+  expect(ui.getByTestId("document-save-status").textContent).toBe("Saved");
+  await act(async () => {
+    fireEvent.keyDown(document.body, { code: "Space", key: " " });
+  });
+  fake.stop.mockClear();
+  const information = ui.getByRole("button", { name: "Information" });
+  information.focus();
+  fireEvent.click(information);
+  expect(ui.getByRole("dialog", { name: "About / Status" })).toBeDefined();
+  expect(fake.stop).not.toHaveBeenCalled();
+  expect(fake.dispose).not.toHaveBeenCalled();
+  fireEvent.keyDown(document.body, { code: "Space", key: " " });
+  fireEvent.keyDown(document.body, { key: "s", ctrlKey: true });
+  fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+  fireEvent.keyDown(document.body, { key: "End" });
+  expect(fake.stop).not.toHaveBeenCalled();
+  expect(fake.save).not.toHaveBeenCalled();
+  expect(fake.undo).not.toHaveBeenCalled();
+  expect(fake.seek).not.toHaveBeenCalled();
+  fireEvent(ui.getByRole("dialog"), new Event("cancel", { cancelable: true }));
+  expect(ui.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(information);
+  fireEvent.click(ui.getByRole("button", { name: "About" }));
+  expect(ui.getAllByRole("dialog", { name: "About / Status" })).toHaveLength(1);
+  fireEvent.click(ui.getByRole("button", { name: "Close information" }));
+  expect(ui.queryByRole("dialog")).toBeNull();
+});
+
+it("keeps actionable startup failures visible outside the information dialog", () => {
+  fake.kernelStatus = "error";
+  const ui = render(<App />);
+  expect(ui.container.querySelector("[data-kernel-state='error']")).not.toBeNull();
+  expect(ui.getByRole("alert").textContent).toContain("Handshake failed");
+  expect(ui.getByRole("alert").textContent).toContain("Reload the editor");
+  expect(ui.queryByRole("dialog")).toBeNull();
+  fireEvent.click(ui.getByRole("button", { name: "Information" }));
+  expect(ui.getByRole("dialog", { name: "About / Status" })).toBeDefined();
+  expect(ui.getByTestId("kernel-status").textContent).toBe("kernel error");
+});
 
 it("routes Amplify and Normalize commands into the shared processing dialog", () => {
   const ui = render(<App />);

@@ -651,20 +651,6 @@ export function WaveformView({
       data-selection-end={selection.end}
       data-channel-mask={selection.channelMask}
     >
-      <header className="border-b px-3 py-2" data-testid="document-info">
-        <h1
-          className="truncate text-sm font-semibold"
-          data-testid="document-name"
-          title={info.name}
-        >
-          {info.name}
-        </h1>
-        <p className="text-xs tabular-nums" data-testid="document-details">
-          {info.sampleRate} Hz · {info.channels} {info.channels === 1 ? "channel" : "channels"} ·{" "}
-          {info.frames} frames · {(info.frames / info.sampleRate).toFixed(3)} s · {info.bitDepth}
-          -bit {info.float ? "float" : "PCM"}
-        </p>
-      </header>
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1.5">
         <Button
           size="xs"

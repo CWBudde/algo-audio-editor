@@ -1,6 +1,7 @@
 import path from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { playbackWAV } from "../../editor-web/e2e/playback-fixture.js";
+import { revealControl } from "../../editor-web/e2e/ui-disclosures.js";
 
 /** Independent EBU3341 stereo 1 kHz calibration fixture, not frontend DSP. */
 function loudnessWAV(): Buffer {
@@ -44,9 +45,14 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     });
 
     expect(page.url()).toBe("app://editor/index.html");
-    await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+    await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
+    await page.getByRole("menuitem", { name: "Help", exact: true }).click();
+    await page.getByRole("menuitem", { name: "About", exact: true }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
     await expect(page.getByTestId("cross-origin-isolated")).toHaveText("yes");
     await expect(page.getByTestId("platform")).toContainText("Electron");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).not.toBeVisible();
 
     await expect(page.getByTestId("play")).toBeDisabled();
     await page.getByTestId("audio-file-input").setInputFiles({
@@ -92,16 +98,18 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await page.getByRole("button", { name: "Zoom in", exact: true }).click();
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-start-frame", "4");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-end-frame", "12");
-    await page.getByLabel("Time format", { exact: true }).selectOption("samples");
+    await (await revealControl(page.getByLabel("Time format", { exact: true }))).selectOption(
+      "samples",
+    );
     await page.getByLabel("Selection end", { exact: true }).fill("8");
     await page.getByLabel("Selection end", { exact: true }).press("Enter");
     await page.getByLabel("Selection start", { exact: true }).fill("4");
     await page.getByLabel("Selection start", { exact: true }).press("Enter");
-    await page.getByRole("button", { name: "Right", exact: true }).click();
+    await (await revealControl(page.getByRole("button", { name: "Right", exact: true }))).click();
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-channel-mask", "2");
     await expect(page.getByTestId("waveform-selection")).toHaveCount(0);
-    await page.getByLabel("Marker or region name").fill("Desktop region");
-    await page.getByLabel("Marker or region color").fill("#123456");
+    await (await revealControl(page.getByLabel("Marker or region name"))).fill("Desktop region");
+    await (await revealControl(page.getByLabel("Marker or region color"))).fill("#123456");
     await page.getByRole("button", { name: "Add region", exact: true }).click();
     await expect(page.getByTestId("timeline-region-1")).toBeVisible();
     await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
@@ -119,7 +127,7 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await expect(page.getByTestId("region-row-1")).toContainText("Desktop region edited");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
-    await page.getByRole("button", { name: "All", exact: true }).click();
+    await (await revealControl(page.getByRole("button", { name: "All", exact: true }))).click();
     await page.getByRole("button", { name: "Cut", exact: true }).click();
     await expect(page.getByTestId("document-details")).toContainText("· 12 frames");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");

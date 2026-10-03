@@ -1,10 +1,12 @@
 /// <reference lib="dom" />
+
 import type { HistoryListResult } from "@aae/protocol";
 import { expect, type Page, test } from "@playwright/test";
 import { info, LEFT, load, RIGHT, samples, select } from "./edit-fixture.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
 import { playbackWAV } from "./playback-fixture.ts";
 import { capturePlayback } from "./playback-probe.ts";
+import { revealControl } from "./ui-disclosures.ts";
 
 async function history(page: Page) {
   const document = await info(page);
@@ -45,7 +47,7 @@ function tone(frames = 48000, db = -33) {
 test.beforeEach(async ({ page }) => {
   await captureKernelWorker(page);
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
 });
 
 test("peak normalization has independent subset output goldens and exact undo/redo", async ({
@@ -53,7 +55,7 @@ test("peak normalization has independent subset output goldens and exact undo/re
 }) => {
   await load(page);
   await select(page, 2, 6);
-  await page.getByRole("button", { name: "Right", exact: true }).click();
+  await (await revealControl(page.getByRole("button", { name: "Right", exact: true }))).click();
   const before = await info(page),
     saved = await history(page);
   const dialog = await normalize(page, "normalize-peak", "-6.020599913279624");
@@ -144,7 +146,7 @@ test("normalization preview uses real worklet samples and Cancel preserves the s
 }) => {
   await capturePlayback(page);
   await page.reload();
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
   await page
     .getByTestId("audio-file-input")
     .setInputFiles({ name: "normalize-preview.wav", mimeType: "audio/wav", buffer: playbackWAV() });

@@ -28,10 +28,10 @@
 
 **Goal:** Reduce persistent chrome, give the waveform more space, and show actual signed sample dots above one CSS pixel per sample. Deliver each subphase with tests and its own main-branch commit; delegate shell and waveform work separately.
 
-### Phase U.1: File footer and on-demand diagnostics
+### Phase U.1: File footer and on-demand diagnostics — ✅ DONE (2026-10-03)
 
-- [ ] Move filename, saved/unsaved state, sample rate, channels, frame count, duration and encoding from the waveform header into a responsive footer.
-- [ ] Replace persistent kernel/version/memory/isolation/platform/playback-statistics text with an information icon and shared Help → About / Status dialog. Diagnostics remain live; errors remain actionable outside it. Preserve playback, modal shortcut fencing, Escape and focus restoration.
+- [x] `StatusBar` now owns filename, saved/unsaved state, sample rate, channels, frame count, duration and encoding in a responsive footer; the duplicate `WaveformView` header is removed. Footer tests cover no document, empty mono, long Unicode names, large eight-channel files and updated save/document identities.
+- [x] `AboutStatusDialog` replaces persistent kernel/version/memory/isolation/platform/playback-statistics text, opened by the footer Information icon and the shared Help → About command. Its hidden mounted instrumentation retains live statistics; actionable failures remain visible in `App`. Modal shortcut fencing, native cancel/close, StrictMode cleanup, live updates without focus movement and focus restoration have 19 passing focused App/footer/dialog tests. Browser readiness uses nonvisual shell state; full browser/Electron validation follows in U.6.
 
 ### Phase U.2: Compact icon bands
 

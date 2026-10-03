@@ -933,9 +933,6 @@ describe("WaveformView", () => {
     const { getByTestId, worker } = mounted();
     await painted(getByTestId, 1);
     await waitFor(() => expect(getByTestId("waveform-overview").dataset.rendered).toBe("true"));
-    expect(getByTestId("document-details").textContent).toBe(
-      "48000 Hz · 2 channels · 48000 frames · 1.000 s · 16-bit PCM",
-    );
     const requests = worker.peaks
       .filter((request) => request.op === "call")
       .map((request) => (request.params as PeaksGetParams).channel);
@@ -1231,6 +1228,5 @@ describe("WaveformView", () => {
     expect((getByRole("button", { name: "Zoom in" }) as HTMLButtonElement).disabled).toBe(true);
     expect(getByText("No audio frames in this document.")).toBeTruthy();
     expect(worker.peaks).toHaveLength(0);
-    expect(getByTestId("document-name").textContent).toBe("stereo.wav");
   });
 });

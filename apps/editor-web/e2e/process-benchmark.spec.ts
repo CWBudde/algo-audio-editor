@@ -30,7 +30,10 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
       test.setTimeout(120_000);
       await captureKernelWorker(page);
       await page.goto("/");
-      await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+      await expect(page.locator("[data-kernel-state]")).toHaveAttribute(
+        "data-kernel-state",
+        "ready",
+      );
 
       // Construct and import the same varied encoded PCM16 workload as the import
       // benchmark before starting the processing clock. No samples are processed

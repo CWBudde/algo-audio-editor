@@ -1,11 +1,11 @@
 import { expect, type Page, test } from "@playwright/test";
 import { playbackWAV } from "./playback-fixture.js";
-
 import { capturePlayback } from "./playback-probe.ts";
+import { revealControl } from "./ui-disclosures.ts";
 
 async function open(page: Page, frames: number, sampleRate = 48000, channels = 2) {
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
   await page.getByTestId("audio-file-input").setInputFiles({
     name: "transport.wav",
     mimeType: "audio/wav",
@@ -144,7 +144,7 @@ test("space toggles document playback and Home/End seek without stealing input k
   await page.keyboard.press("Space");
   await expect(page.getByTestId("play")).toBeEnabled();
   await expect(page.getByTestId("frames-played")).toHaveText("0");
-  await page.getByLabel("Follow playback").focus();
+  await (await revealControl(page.getByLabel("Follow playback"))).focus();
   await page.keyboard.press("Home");
   await expect(page.getByTestId("play")).toBeEnabled();
 });

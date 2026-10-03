@@ -1,12 +1,14 @@
 /// <reference lib="dom" />
+
 import { expect, test } from "@playwright/test";
 import { clipboard, edit, info, LEFT, load, RIGHT, samples, select } from "./edit-fixture.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
+import { revealControl } from "./ui-disclosures.ts";
 
 test.beforeEach(async ({ page }) => {
   await captureKernelWorker(page);
   await page.goto("/");
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
 });
 
 test("cut and paste restore exact samples, copy preserves identity, and replace/mix are unclamped", async ({
@@ -45,7 +47,7 @@ test("channel-only edits keep other channel positions and pad only at EOF; crop 
 }) => {
   await load(page);
   await select(page, 1, 3);
-  await page.getByRole("button", { name: "Left", exact: true }).click();
+  await (await revealControl(page.getByRole("button", { name: "Left", exact: true }))).click();
   await edit(page, "Mute", 8);
   expect(await samples(page)).toEqual([[0.125, 0, 0, ...LEFT.slice(3)], RIGHT]);
   await select(page, 3, 5);
@@ -53,7 +55,7 @@ test("channel-only edits keep other channel positions and pad only at EOF; crop 
   const duplicated = [0.125, 0, 0, 0.5, 0.625, 0.5, 0.625, 0.75, 0.875, 1];
   expect(await samples(page)).toEqual([duplicated, [...RIGHT, 0, 0]]);
   await select(page, 1, 1);
-  await page.getByLabel("Silence frames", { exact: true }).fill("2");
+  await (await revealControl(page.getByLabel("Silence frames", { exact: true }))).fill("2");
   await edit(page, "Insert silence", 12);
   expect(await samples(page)).toEqual([
     [0.125, 0, 0, ...duplicated.slice(1)],
@@ -62,7 +64,7 @@ test("channel-only edits keep other channel positions and pad only at EOF; crop 
   await select(page, 3, 7);
   await edit(page, "Crop time (all channels)", 4);
   expect(await samples(page)).toEqual([[0, 0, 0.5, 0.625], RIGHT.slice(3, 7)]);
-  await page.getByRole("button", { name: "All", exact: true }).click();
+  await (await revealControl(page.getByRole("button", { name: "All", exact: true }))).click();
   await select(page, 1, 3);
   await edit(page, "Swap selected channels", 4);
   expect(await samples(page)).toEqual([
@@ -81,10 +83,10 @@ test("channel conversion requires confirmation and cancellation leaves document 
 }) => {
   await load(page);
   await select(page, 1, 3);
-  await page.getByRole("button", { name: "Left", exact: true }).click();
+  await (await revealControl(page.getByRole("button", { name: "Left", exact: true }))).click();
   await page.getByRole("button", { name: "Copy", exact: true }).click();
   await expect.poll(async () => (await clipboard(page)).channels).toBe(1);
-  await page.getByRole("button", { name: "All", exact: true }).click();
+  await (await revealControl(page.getByRole("button", { name: "All", exact: true }))).click();
   await select(page, 0, 0);
   const before = await info(page);
   const copied = await clipboard(page);
@@ -128,7 +130,7 @@ test("clipboard survives open, rate conversion is explicit, and an empty documen
   await load(page, [[]]);
   await edit(page, "Paste", 48_000);
   expect((await samples(page))[0]).toEqual(Array(48_000).fill(0.125));
-  await page.getByLabel("Silence frames", { exact: true }).fill("1.5");
+  await (await revealControl(page.getByLabel("Silence frames", { exact: true }))).fill("1.5");
   await expect(page.getByRole("button", { name: "Insert silence", exact: true })).toBeDisabled();
 });
 
@@ -181,7 +183,7 @@ test("oversized mix rejects safely without changing the document or clipboard", 
   await load(page);
   // Shared silence represents this duration cheaply; mixing would newly
   // materialize more than 512 MiB of stereo samples without the kernel guard.
-  await page.getByLabel("Silence frames", { exact: true }).fill("67108865");
+  await (await revealControl(page.getByLabel("Silence frames", { exact: true }))).fill("67108865");
   await edit(page, "Insert silence", 67_108_873);
   await select(page, 0, 67_108_873);
   await page.getByRole("button", { name: "Copy", exact: true }).click();
@@ -189,11 +191,13 @@ test("oversized mix rejects safely without changing the document or clipboard", 
   await select(page, 0, 0);
   const before = await info(page);
   const copied = await clipboard(page);
-  await page.getByRole("button", { name: "Mix clipboard", exact: true }).click();
+  await (
+    await revealControl(page.getByRole("button", { name: "Mix clipboard", exact: true }))
+  ).click();
   await expect(page.getByText("Could not paste-mix", { exact: true })).toBeVisible();
   await expect(page.getByText(/materialized.*budget|budget.*materialized/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Paste", exact: true })).toBeEnabled();
   expect(await info(page)).toEqual(before);
   expect(await clipboard(page)).toEqual(copied);
-  await expect(page.getByTestId("kernel-status")).toHaveText("kernel ready");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
 });
