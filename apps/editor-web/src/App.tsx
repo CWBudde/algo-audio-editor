@@ -546,6 +546,8 @@ export default function App() {
           )}
           {doc.info && client ? (
             <WaveformView
+              commands={commands}
+              onExecute={execute}
               ref={waveformView}
               client={client}
               info={doc.info}

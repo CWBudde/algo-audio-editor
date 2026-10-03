@@ -35,20 +35,26 @@ export function ControlDisclosure(props: ComponentProps<"details">) {
         node.open = false;
     };
     const dismissEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !node.open || !node.contains(owner.activeElement)) return;
+      if (
+        event.key !== "Escape" ||
+        event.defaultPrevented ||
+        !node.open ||
+        !node.contains(owner.activeElement)
+      )
+        return;
       event.preventDefault();
       event.stopPropagation();
       node.open = false;
       node.querySelector("summary")?.focus();
     };
     owner.addEventListener("pointerdown", dismissOutside);
-    owner.addEventListener("keydown", dismissEscape, true);
+    owner.addEventListener("keydown", dismissEscape);
     owner.addEventListener("scroll", align, true);
     view?.addEventListener("resize", align);
     node.addEventListener("toggle", align);
     return () => {
       owner.removeEventListener("pointerdown", dismissOutside);
-      owner.removeEventListener("keydown", dismissEscape, true);
+      owner.removeEventListener("keydown", dismissEscape);
       owner.removeEventListener("scroll", align, true);
       view?.removeEventListener("resize", align);
       node.removeEventListener("toggle", align);

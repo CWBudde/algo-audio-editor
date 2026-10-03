@@ -31,19 +31,19 @@
 ### Phase U.1: File footer and on-demand diagnostics — ✅ DONE (2026-10-03)
 
 - [x] `StatusBar` now owns filename, saved/unsaved state, sample rate, channels, frame count, duration and encoding in a responsive footer; the duplicate `WaveformView` header is removed. Footer tests cover no document, empty mono, long Unicode names, large eight-channel files and updated save/document identities.
-- [x] `AboutStatusDialog` replaces persistent kernel/version/memory/isolation/platform/playback-statistics text, opened by the footer Information icon and the shared Help → About command. Its hidden mounted instrumentation retains live statistics; actionable failures remain visible in `App`. Modal shortcut fencing, native cancel/close, StrictMode cleanup, live updates without focus movement and focus restoration have 19 passing focused App/footer/dialog tests. Browser readiness uses nonvisual shell state; full browser/Electron validation follows in U.6.
+- [x] `AboutStatusDialog` replaces persistent kernel/version/memory/isolation/platform/playback-statistics text, opened by the footer Information icon and the shared Help → About command. Its hidden mounted instrumentation retains live statistics; actionable failures remain visible in `App`. Modal shortcut fencing, native cancel/close, StrictMode cleanup, live updates without focus movement and focus restoration have 21 passing focused App/footer/dialog tests. Browser readiness uses nonvisual shell state; full browser/Electron validation follows in U.6.
 
-### Phase U.2: Compact icon bands
+### Phase U.2: Compact icon bands — ✅ DONE (2026-10-03)
 
 - [x] `App`, `TransportBar`, `EditToolbar` and `HistoryPanel` now share one compact grouped primary band. `IconAction` preserves accessible names and registry shortcut tooltips; App routes edit/transport/history actions through fresh command execution. The responsive menubar retains every command. Seventy-two focused component tests and TypeScript pass.
-- [ ] Convert the zoom/view band to icons alongside the U.3 settings disclosures.
+- [x] `WaveformView` now groups zoom icons, display/snapping disclosures and quick annotation icons in a compact view band. Zoom and annotation actions use the shared command registry, retaining enabled state, accessible names and shortcut tooltips; component regressions exercise registry execution and blocked commands. The native Loop checkbox has a full-icon hit target without SVG interception, with focus/checked/disabled coverage.
 - [x] Secondary edits, silence length, playback-follow settings and history now use `ControlDisclosure`, with native activation, outside/Escape dismissal, focus restoration and viewport-clamped popovers. Secondary commands remain available in menus and the palette; the shared disclosure has three focused regressions.
 
-### Phase U.3: Secondary controls on demand
+### Phase U.3: Secondary controls on demand — ✅ DONE (2026-10-03)
 
 - [x] `SelectionBar` retains compact, labeled editable start/end/length fields and discloses channel choices with an All/Left/Right/subset indicator. `TimelinePanel` now has an icon-triggered, viewport-clamped management popover. Forty-three focused selection/timeline tests pass, including numeric draft/validation and metadata editing regressions.
-- [ ] Disclose snapping, display settings and marker/region naming/color controls; retain active-state indicators and quick annotation icons, and place marker management in the view band.
-- [ ] Verify default controls above the ruler occupy at most 160 CSS pixels at 1920-pixel desktop width, with narrow layouts that do not overlap or lose actions. History is already optional through U.2.
+- [x] `WaveformView` discloses time/amplitude/sample display, snapping and annotation naming/color options; active snapping retains a yellow icon and count. Marker management joins the view band. `ControlDisclosure` respects handled Escape events so timeline drafts cancel before their popover closes; a regression verifies cancellation, subsequent dismissal and focus restoration.
+- [x] `ui-clarity.spec.ts` verifies the default ruler begins within 160 CSS pixels at 1920-pixel desktop width, icon-only actions remain named, secondary controls are hidden and a 640-pixel layout has no horizontal overflow. Desktop/narrow screenshots and live-status modal playback/shortcut checks pass; history remains optional through U.2.
 
 ### Phase U.4: Purple and warm-color theme — ✅ DONE (2026-10-03)
 

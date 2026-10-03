@@ -77,17 +77,17 @@ export function TransportBar(props: TransportBarProps) {
         testId="stop"
       />
       <label
-        className="flex size-7 cursor-pointer items-center justify-center rounded-md has-[:focus-visible]:ring-2 has-[:disabled]:cursor-default has-[:disabled]:opacity-50 has-[:checked]:bg-primary/15"
+        className="relative flex size-7 cursor-pointer items-center justify-center rounded-md has-[:focus-visible]:ring-2 has-[:disabled]:cursor-default has-[:disabled]:opacity-50 has-[:checked]:bg-primary/15"
         title="Loop"
       >
         <input
           type="checkbox"
-          className="sr-only"
+          className="absolute inset-0 z-10 m-0 size-full cursor-pointer opacity-0 disabled:cursor-default"
           checked={props.loop}
           disabled={!ready || playing}
           onChange={(event) => props.onLoopChange(event.target.checked)}
         />
-        <Repeat2 className="size-4" aria-hidden="true" />
+        <Repeat2 className="pointer-events-none size-4" aria-hidden="true" />
         <span className="sr-only">Loop</span>
       </label>
       <ControlDisclosure className="relative">

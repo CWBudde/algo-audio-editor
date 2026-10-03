@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SelectionOptions } from "@/hooks/use-selection";
 import { KernelClient, type WorkerLike } from "@/kernel/client";
 import type { WorkerReply, WorkerRequest } from "@/kernel/messages";
+import type { CommandId, ResolvedCommand } from "@/lib/commands";
 import { EDITOR_THEME_PROPERTIES } from "@/lib/editor-theme";
 import { WaveformView, type WaveformViewHandle } from "./waveform-view";
 
@@ -359,6 +360,8 @@ function mounted(
     onExportTimeline?: (format: "csv" | "labels") => void;
     playing?: boolean;
     onCommandStateChange?: (ready: boolean) => void;
+    commands?: readonly ResolvedCommand[];
+    onExecute?: (id: CommandId) => void;
   } = {},
 ) {
   const worker = new PeakWorker(documentInfo);
@@ -377,6 +380,8 @@ function mounted(
         onExportTimeline={options.onExportTimeline}
         playing={options.playing}
         onCommandStateChange={options.onCommandStateChange}
+        commands={options.commands}
+        onExecute={options.onExecute}
       />,
     ),
     worker,
@@ -434,6 +439,57 @@ async function painted(getByTestId: (id: string) => HTMLElement, channel = 0) {
 }
 
 describe("WaveformView", () => {
+  it("keeps view, snapping and annotation options disclosed behind accessible icon bands", () => {
+    const { getByTestId, getByRole, getByLabelText } = mounted();
+    for (const id of ["view-settings", "snap-settings", "annotation-settings", "timeline-panel"])
+      expect((getByTestId(id) as HTMLDetailsElement).open).toBe(false);
+    for (const name of [
+      "Zoom in",
+      "Zoom out",
+      "Zoom to fit",
+      "Zoom to selection",
+      "Add marker",
+      "Add region",
+    ])
+      expect(getByRole("button", { name }).querySelector("svg")).not.toBeNull();
+    const snapping = getByTestId("snap-settings");
+    fireEvent.click(snapping.querySelector("summary") as HTMLElement);
+    fireEvent.click(getByLabelText("Zero crossings"));
+    expect(snapping.getAttribute("data-active")).toBe("true");
+    expect(snapping.querySelector("summary")?.textContent).toContain("active");
+  });
+
+  it("routes zoom icons through the shared command registry with shortcut tooltips", () => {
+    const execute = vi.fn();
+    const command: ResolvedCommand = {
+      id: "view.zoom-in",
+      label: "Zoom In",
+      menu: "View",
+      enabled: true,
+      shortcutLabel: "Ctrl++",
+      ariaShortcut: "Control+=",
+    };
+    const { getByRole, getByTestId, rerender, client } = mounted(info, {
+      commands: [command],
+      onExecute: execute,
+    });
+    const zoom = getByRole("button", { name: "Zoom in" });
+    expect(zoom.title).toBe("Zoom in (Ctrl++)");
+    expect(zoom.getAttribute("aria-keyshortcuts")).toBe("Control+=");
+    fireEvent.click(zoom);
+    expect(execute).toHaveBeenCalledExactlyOnceWith("view.zoom-in");
+    expect(range(getByTestId("waveform-view"))).toEqual([0, info.frames]);
+    rerender(
+      <WaveformView
+        client={client}
+        info={info}
+        commands={[{ ...command, enabled: false }]}
+        onExecute={execute}
+      />,
+    );
+    fireEvent.click(zoom);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
   it("draws exact samples with CSS palette roles and changes geometry without another RPC", async () => {
     const smallInfo = { ...info, frames: 4 };
     const { getByTestId, getByLabelText, worker } = mounted(smallInfo);

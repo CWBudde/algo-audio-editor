@@ -5,6 +5,43 @@ import { TransportBar, type TransportBarHandle } from "./transport-bar";
 
 afterEach(cleanup);
 
+it("keeps Loop as a full-size native checkbox hit target above a non-interactive icon", () => {
+  const onLoopChange = vi.fn();
+  const props = {
+    ready: true,
+    playing: false,
+    loop: false,
+    follow: "page" as const,
+    position: 0,
+    sampleRate: 48000,
+    onPlay: vi.fn(),
+    onStop: vi.fn(),
+    onLoopChange,
+    onFollowChange: vi.fn(),
+  };
+  const ui = render(<TransportBar {...props} />);
+  const loop = ui.getByRole("checkbox", { name: "Loop" }) as HTMLInputElement;
+  expect(ui.getByLabelText("Loop")).toBe(loop);
+  expect(loop.classList.contains("sr-only")).toBe(false);
+  for (const geometry of ["absolute", "inset-0", "size-full", "opacity-0", "z-10"])
+    expect(loop.classList.contains(geometry)).toBe(true);
+  expect(loop.closest("label")?.classList.contains("relative")).toBe(true);
+  expect(
+    loop.closest("label")?.querySelector("svg")?.classList.contains("pointer-events-none"),
+  ).toBe(true);
+  loop.focus();
+  expect(document.activeElement).toBe(loop);
+  fireEvent.click(loop);
+  expect(onLoopChange).toHaveBeenCalledExactlyOnceWith(true);
+  ui.rerender(<TransportBar {...props} loop />);
+  expect(loop.checked).toBe(true);
+  fireEvent.click(loop);
+  expect(onLoopChange).toHaveBeenLastCalledWith(false);
+  ui.rerender(<TransportBar {...props} loop playing />);
+  expect(loop.checked).toBe(true);
+  expect(loop.disabled).toBe(true);
+});
+
 it("exposes document controls and a sample-rate-aware position without test tone controls", () => {
   const onPlay = vi.fn();
   const onStop = vi.fn();

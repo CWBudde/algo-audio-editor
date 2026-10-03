@@ -44,6 +44,27 @@ function mounted(options: { busy?: boolean; timeFormat?: "samples" | "seconds" |
 afterEach(cleanup);
 
 describe("TimelinePanel", () => {
+  it("lets Escape cancel an inner draft before dismissing its disclosure", () => {
+    const { getByRole, getByLabelText, queryByRole, container } = mounted();
+    const details = container.querySelector("details") as HTMLDetailsElement;
+    fireEvent.click(getByRole("button", { name: "Edit marker Cue" }));
+    const input = getByLabelText("Timeline name");
+    input.focus();
+    fireEvent.change(input, { target: { value: "Abandoned" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(queryByRole("form")).toBeNull();
+    expect(details.open).toBe(true);
+    const summary = details.querySelector("summary") as HTMLElement;
+    summary.focus();
+    fireEvent.keyDown(summary, { key: "Escape" });
+    expect(details.open).toBe(false);
+    expect(document.activeElement).toBe(summary);
+    fireEvent.click(summary);
+    fireEvent(details, new Event("toggle"));
+    expect(queryByRole("form")).toBeNull();
+    fireEvent.click(getByRole("button", { name: "Edit marker Cue" }));
+    expect((getByLabelText("Timeline name") as HTMLInputElement).value).toBe("Cue");
+  });
   it("is collapsed until requested, then exposes named colored entries and delegated exports", () => {
     const callback = vi.fn();
     const { container, queryByRole, getByRole, getByLabelText } = render(

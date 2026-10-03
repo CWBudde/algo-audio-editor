@@ -1,5 +1,17 @@
 import type { DocumentInfoResult, EditResult, SelectionRange } from "@aae/protocol";
 import {
+  Flag,
+  type LucideIcon,
+  Magnet,
+  Maximize2,
+  ScanSearch,
+  Settings2,
+  SlidersHorizontal,
+  SquareDashed,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
+import {
   type MouseEvent,
   type PointerEvent,
   type Ref,
@@ -13,14 +25,16 @@ import {
   useRef,
   useState,
 } from "react";
+import { ControlDisclosure } from "@/components/control-disclosure";
+import { IconAction } from "@/components/icon-action";
 import { SelectionBar } from "@/components/selection-bar";
 import { TimelinePanel } from "@/components/timeline-panel";
 import type { PlaybackFollow } from "@/components/transport-bar";
-import { Button } from "@/components/ui/button";
 import { type PeaksState, usePeaks, useWaveformPeaks } from "@/hooks/use-peaks";
 import { type SelectionOptions, useSelection } from "@/hooks/use-selection";
 import type { KernelClient } from "@/kernel/client";
 import type { PeakViews } from "@/kernel/peak-data";
+import type { CommandId, ResolvedCommand } from "@/lib/commands";
 import { resolveEditorPalette } from "@/lib/editor-theme";
 import { snapSelectionFrame } from "@/lib/selection";
 import { drawSampleWaveform, drawWaveform, resizeCanvas } from "@/lib/waveform-drawing";
@@ -72,6 +86,8 @@ interface WaveformViewProps {
   initialEdit?: Pick<EditResult, "selection" | "timeline">;
   timelineOptions?: SelectionOptions;
   onExportTimeline?(format: "csv" | "labels"): void;
+  commands?: readonly ResolvedCommand[];
+  onExecute?(id: CommandId): void;
 }
 
 interface ViewState {
@@ -251,6 +267,8 @@ export function WaveformView({
   initialEdit,
   timelineOptions,
   onExportTimeline,
+  commands,
+  onExecute,
 }: WaveformViewProps) {
   const fullRange = useMemo(() => ({ start: 0, end: info.frames }), [info]);
   const [state, setState] = useState<ViewState>({
@@ -671,6 +689,26 @@ export function WaveformView({
     () => Array.from({ length: info.channels }, (_, channel) => channel),
     [info.channels],
   );
+  const action = (
+    id: CommandId,
+    icon: LucideIcon,
+    label: string,
+    fallback: () => void,
+    blocked: boolean,
+  ) => {
+    const command = commands?.find((item) => item.id === id);
+    return (
+      <IconAction
+        icon={icon}
+        label={label}
+        disabled={blocked || (commands !== undefined && !command?.enabled)}
+        shortcutLabel={command?.shortcutLabel}
+        ariaShortcut={command?.ariaShortcut}
+        onClick={() => (onExecute ? onExecute(id) : fallback())}
+      />
+    );
+  };
+  const snapCount = Number(snapZero) + Number(snapMarkers) + Number(snapTicks);
 
   return (
     <section
@@ -684,68 +722,214 @@ export function WaveformView({
       data-selection-end={selection.end}
       data-channel-mask={selection.channelMask}
     >
-      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1.5">
-        <Button
-          size="xs"
-          variant="outline"
-          onClick={zoomIn}
-          disabled={info.frames === 0 || span <= 1}
+      <div
+        className="flex min-h-9 flex-wrap items-center gap-2 border-b px-3 py-1"
+        data-testid="view-controls"
+      >
+        <fieldset aria-label="Zoom" className="flex items-center gap-1">
+          {action("view.zoom-in", ZoomIn, "Zoom in", zoomIn, info.frames === 0 || span <= 1)}
+          {action("view.zoom-out", ZoomOut, "Zoom out", zoomOut, span >= info.frames)}
+          {action("view.zoom-fit", Maximize2, "Zoom to fit", zoomFit, info.frames === 0)}
+          {action(
+            "view.zoom-selection",
+            ScanSearch,
+            "Zoom to selection",
+            zoomSelection,
+            !selectedRange,
+          )}
+        </fieldset>
+        <fieldset
+          aria-label="Display and snapping"
+          className="flex items-center gap-1 border-l pl-2"
         >
-          Zoom in
-        </Button>
-        <Button size="xs" variant="outline" onClick={zoomOut} disabled={span >= info.frames}>
-          Zoom out
-        </Button>
-        <Button size="xs" variant="outline" onClick={zoomFit} disabled={info.frames === 0}>
-          Zoom to fit
-        </Button>
-        <Button
-          size="xs"
-          variant="outline"
-          onClick={zoomSelection}
-          disabled={!selection || selection.end <= selection.start}
-        >
-          Zoom to selection
-        </Button>
-        <label className="flex items-center gap-1 text-xs">
-          Time format
-          <select
-            aria-label="Time format"
-            className="rounded border bg-background p-1"
-            value={timeFormat}
-            onChange={(event) => setTimeFormat(event.target.value as TimeFormat)}
+          <ControlDisclosure className="relative" data-testid="view-settings">
+            <summary
+              className="flex size-7 cursor-pointer list-none items-center justify-center rounded hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+              title="View settings"
+            >
+              <SlidersHorizontal className="size-4" aria-hidden="true" />
+              <span className="sr-only">View settings</span>
+            </summary>
+            <div
+              data-disclosure-panel
+              className="absolute left-0 top-full z-40 grid w-72 gap-3 rounded border bg-popover p-3 text-xs shadow-lg"
+            >
+              <label className="flex items-center gap-1 text-xs">
+                Time format
+                <select
+                  aria-label="Time format"
+                  className="rounded border bg-background p-1"
+                  value={timeFormat}
+                  onChange={(event) => setTimeFormat(event.target.value as TimeFormat)}
+                >
+                  <option value="samples">Samples</option>
+                  <option value="seconds">Seconds</option>
+                  <option value="hms">Hours:minutes:seconds</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-1 text-xs">
+                Amplitude scale
+                <select
+                  aria-label="Amplitude scale"
+                  className="rounded border bg-background p-1"
+                  value={amplitudeScale}
+                  onChange={(event) => setAmplitudeScale(event.target.value as AmplitudeScale)}
+                >
+                  <option value="linear">Linear</option>
+                  <option value="db">dB</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-1 text-xs">
+                Sample display
+                <select
+                  aria-label="Sample display"
+                  data-testid="waveform-display-mode"
+                  className="rounded border bg-background p-1"
+                  value={sampleMode}
+                  onChange={(event) => setSampleMode(event.target.value as SampleDisplayMode)}
+                >
+                  <option value="linear">Linear</option>
+                  <option value="steps">Steps</option>
+                </select>
+              </label>
+
+              <p className="text-muted-foreground">
+                Peak / RMS at overview zoom; sample dots and connections above one pixel per sample.
+              </p>
+            </div>
+          </ControlDisclosure>
+          <ControlDisclosure
+            className="relative"
+            data-testid="snap-settings"
+            data-active={snapCount > 0}
           >
-            <option value="samples">Samples</option>
-            <option value="seconds">Seconds</option>
-            <option value="hms">Hours:minutes:seconds</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-1 text-xs">
-          Amplitude scale
-          <select
-            aria-label="Amplitude scale"
-            className="rounded border bg-background p-1"
-            value={amplitudeScale}
-            onChange={(event) => setAmplitudeScale(event.target.value as AmplitudeScale)}
-          >
-            <option value="linear">Linear</option>
-            <option value="db">dB</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-1 text-xs">
-          Sample display
-          <select
-            aria-label="Sample display"
-            data-testid="waveform-display-mode"
-            className="rounded border bg-background p-1"
-            value={sampleMode}
-            onChange={(event) => setSampleMode(event.target.value as SampleDisplayMode)}
-          >
-            <option value="linear">Linear</option>
-            <option value="steps">Steps</option>
-          </select>
-        </label>
-        <span className="ml-auto text-xs text-muted-foreground">Peak / RMS</span>
+            <summary
+              className="flex h-7 cursor-pointer list-none items-center justify-center gap-1 rounded px-1 hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+              title={snapCount > 0 ? `Snap settings — ${snapCount} active` : "Snap settings"}
+            >
+              <Magnet
+                className={`size-4 ${snapCount > 0 ? "text-warning" : ""}`}
+                aria-hidden="true"
+              />
+              <span className="sr-only">Snap settings{snapCount > 0 ? " — active" : ""}</span>
+              {snapCount > 0 && (
+                <span className="text-[10px] tabular-nums" aria-hidden="true">
+                  {snapCount}
+                </span>
+              )}
+            </summary>
+            <div
+              data-disclosure-panel
+              className="absolute left-0 top-full z-40 grid w-56 gap-3 rounded border bg-popover p-3 text-xs shadow-lg"
+            >
+              <label>
+                <input
+                  type="checkbox"
+                  checked={snapZero}
+                  onChange={(event) => {
+                    setSnapZero(event.target.checked);
+                  }}
+                />{" "}
+                Zero crossings
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={snapMarkers}
+                  onChange={(event) => {
+                    setSnapMarkers(event.target.checked);
+                  }}
+                />{" "}
+                Markers / regions
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={snapTicks}
+                  onChange={(event) => {
+                    setSnapTicks(event.target.checked);
+                  }}
+                />{" "}
+                Ruler ticks
+              </label>
+            </div>
+          </ControlDisclosure>
+        </fieldset>
+        <fieldset aria-label="Annotations" className="flex items-center gap-1 border-l pl-2">
+          {action("timeline.add-marker", Flag, "Add marker", addMarker, commandsBlocked)}
+          {action(
+            "timeline.add-region",
+            SquareDashed,
+            "Add region",
+            addRegion,
+            commandsBlocked || !selectedRange,
+          )}
+          <ControlDisclosure className="relative" data-testid="annotation-settings">
+            <summary
+              className="flex size-7 cursor-pointer list-none items-center justify-center rounded hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+              title="Annotation options"
+            >
+              <Settings2 className="size-4" aria-hidden="true" />
+              <span className="sr-only">Annotation options</span>
+            </summary>
+            <div
+              data-disclosure-panel
+              className="absolute left-0 top-full z-40 grid w-64 gap-3 rounded border bg-popover p-3 text-xs shadow-lg"
+            >
+              <label className="grid gap-1">
+                Name
+                <input
+                  aria-label="Marker or region name"
+                  className="rounded border bg-background px-1 py-0.5"
+                  value={anchorName}
+                  maxLength={256}
+                  disabled={disabled || editor.adding}
+                  onChange={(event) => setAnchorName(event.target.value)}
+                  placeholder="Optional name"
+                />
+              </label>
+              <label className="flex items-center gap-2">
+                Color
+                <input
+                  type="color"
+                  aria-label="Marker or region color"
+                  value={anchorColor}
+                  disabled={disabled || editor.adding}
+                  onChange={(event) => setAnchorColor(event.target.value)}
+                />
+              </label>
+            </div>
+          </ControlDisclosure>
+          <TimelinePanel
+            sessionKey={client ?? info}
+            info={info}
+            timeline={timeline}
+            selection={selection}
+            timeFormat={timeFormat}
+            busy={disabled || !client || editor.adding || editor.previewing}
+            onUpdateMarker={(changes) => {
+              if (!selectionDrag.current) void editor.updateMarker(changes);
+            }}
+            onUpdateRegion={(changes) => {
+              if (!selectionDrag.current) void editor.updateRegion(changes);
+            }}
+            onRemoveMarker={(id) => {
+              if (!selectionDrag.current) void editor.removeMarker(id);
+            }}
+            onRemoveRegion={(id) => {
+              if (!selectionDrag.current) void editor.removeRegion(id);
+            }}
+            onJump={(range) => {
+              if (!selectionDrag.current && !editor.previewing) setSelection(range);
+            }}
+            onExport={
+              onExportTimeline &&
+              ((format) => {
+                if (!selectionDrag.current && !editor.previewing) onExportTimeline(format);
+              })
+            }
+          />
+        </fieldset>
       </div>
       <SelectionBar
         key={info.documentId}
@@ -756,95 +940,6 @@ export function WaveformView({
         timeFormat={timeFormat}
         disabled={disabled}
         onChange={setSelection}
-      />
-      <div className="flex flex-wrap items-center gap-3 border-b px-3 py-1.5 text-xs">
-        <span>Snap:</span>
-        <label>
-          <input
-            type="checkbox"
-            checked={snapZero}
-            onChange={(event) => {
-              setSnapZero(event.target.checked);
-            }}
-          />{" "}
-          Zero crossings
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={snapMarkers}
-            onChange={(event) => {
-              setSnapMarkers(event.target.checked);
-            }}
-          />{" "}
-          Markers / regions
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={snapTicks}
-            onChange={(event) => {
-              setSnapTicks(event.target.checked);
-            }}
-          />{" "}
-          Ruler ticks
-        </label>
-        <input
-          aria-label="Marker or region name"
-          className="rounded border bg-background px-1 py-0.5"
-          value={anchorName}
-          maxLength={256}
-          disabled={disabled || editor.adding}
-          onChange={(event) => setAnchorName(event.target.value)}
-          placeholder="Optional name"
-        />
-        <Button size="xs" variant="outline" disabled={commandsBlocked} onClick={addMarker}>
-          Add marker
-        </Button>
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={commandsBlocked || !selectedRange}
-          onClick={addRegion}
-        >
-          Add region
-        </Button>
-        <input
-          type="color"
-          aria-label="Marker or region color"
-          value={anchorColor}
-          disabled={disabled || editor.adding}
-          onChange={(event) => setAnchorColor(event.target.value)}
-        />
-      </div>
-      <TimelinePanel
-        sessionKey={client ?? info}
-        info={info}
-        timeline={timeline}
-        selection={selection}
-        timeFormat={timeFormat}
-        busy={disabled || !client || editor.adding || editor.previewing}
-        onUpdateMarker={(changes) => {
-          if (!selectionDrag.current) void editor.updateMarker(changes);
-        }}
-        onUpdateRegion={(changes) => {
-          if (!selectionDrag.current) void editor.updateRegion(changes);
-        }}
-        onRemoveMarker={(id) => {
-          if (!selectionDrag.current) void editor.removeMarker(id);
-        }}
-        onRemoveRegion={(id) => {
-          if (!selectionDrag.current) void editor.removeRegion(id);
-        }}
-        onJump={(range) => {
-          if (!selectionDrag.current && !editor.previewing) setSelection(range);
-        }}
-        onExport={
-          onExportTimeline &&
-          ((format) => {
-            if (!selectionDrag.current && !editor.previewing) onExportTimeline(format);
-          })
-        }
       />
       {editor.error && (
         <p role="alert" className="px-3 text-xs text-destructive">
