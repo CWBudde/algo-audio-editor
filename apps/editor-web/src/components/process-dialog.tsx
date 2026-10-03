@@ -1,14 +1,23 @@
 import { useId, useLayoutEffect, useRef } from "react";
 import {
   matchesProcessSettings,
+  type ProcessOperation,
   type ProcessView,
   parseProcessParameter,
 } from "@/hooks/use-process";
+import {
+  defaultProcessSettings,
+  PROCESS_TITLES,
+  type ProcessSettings,
+  processParams,
+} from "@/lib/process-settings";
+import { ProcessControls } from "./process-controls";
 
 interface ProcessDialogProps {
   view?: ProcessView;
   onParameterTextChange(value: string): void;
-  onOperationChange(value: "normalize-peak" | "normalize-loudness"): void;
+  onOperationChange(value: ProcessOperation): void;
+  onSettingsChange?(value: Partial<ProcessSettings>): void;
   onPreview(): void;
   onStopPreview(): void;
   onApply(allowClipping: boolean): void;
@@ -19,6 +28,7 @@ export function ProcessDialog({
   view,
   onParameterTextChange,
   onOperationChange,
+  onSettingsChange,
   onPreview,
   onStopPreview,
   onApply,
@@ -42,7 +52,7 @@ export function ProcessDialog({
     opener.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     element.showModal();
-    gain.current?.focus();
+    (gain.current ?? element.querySelector<HTMLElement>("input, select, button"))?.focus();
     return () => {
       element.close();
       if (!latestOpen.current) return;
@@ -51,10 +61,24 @@ export function ProcessDialog({
     };
   }, [open]);
   const value = view ? parseProcessParameter(view.operation, view.parameterText) : undefined;
-  const normalize = Boolean(view && view.operation !== "gain");
+  const normalize =
+    view?.operation === "normalize-peak" || view?.operation === "normalize-loudness";
+  const numeric = view?.operation === "gain" || normalize;
+  const valid = Boolean(
+    view &&
+      processParams(
+        view.info,
+        view.selection,
+        view.operation,
+        view.parameterText,
+        view.settings ?? defaultProcessSettings(view.info),
+      ),
+  );
   const working =
     view?.phase === "processing" || view?.phase === "committing" || view?.phase === "cancelling";
-  const ready = view ? matchesProcessSettings(view.job, view.operation, value) : false;
+  const ready = view
+    ? (view.ready ?? matchesProcessSettings(view.job, view.operation, value))
+    : false;
   const warning = Boolean(ready && view?.job && (view.job.peak > 1 || view.job.nonFinite));
   const cancellable = view?.phase !== "committing" && view?.phase !== "cancelling";
   return (
@@ -70,10 +94,12 @@ export function ProcessDialog({
       }}
     >
       <h2 id={`${id}-title`} className="text-lg font-medium">
-        {normalize ? "Normalize" : "Amplify"}
+        {view ? PROCESS_TITLES[view.operation] : "Amplify"}
       </h2>
       <p id={`${id}-help`} className="mt-1 text-sm text-muted-foreground">
-        Preview a private processed copy. Apply creates one undoable edit; Cancel discards it.
+        {view?.operation === "extract-channel"
+          ? "Preview a private copy, then open it in a new editor window."
+          : "Preview a private processed copy. Apply creates one undoable edit; Cancel discards it."}
       </p>
       {view && (
         <>
@@ -107,32 +133,51 @@ export function ProcessDialog({
               </select>
             </>
           )}
-          <label className="mt-3 block text-sm" htmlFor={`${id}-gain`}>
-            {view.operation === "gain"
-              ? "Gain (dB)"
-              : view.operation === "normalize-peak"
-                ? "Target peak (dBFS)"
-                : "Target loudness (LUFS)"}
-          </label>
-          <input
-            ref={gain}
-            id={`${id}-gain`}
-            type="text"
-            inputMode="decimal"
-            value={view.parameterText}
-            disabled={working}
-            aria-invalid={value === undefined}
-            aria-describedby={value === undefined ? `${id}-error` : undefined}
-            className="mt-1 w-full rounded border bg-background px-3 py-2"
-            onChange={(event) => onParameterTextChange(event.target.value)}
-          />
-          {value === undefined && (
-            <p id={`${id}-error`} role="alert" className="mt-1 text-sm text-destructive">
-              {view.operation === "gain"
-                ? "Enter a finite gain between −120 and 60 dB."
-                : view.operation === "normalize-peak"
-                  ? "Enter a finite target between −120 and 0 dBFS."
-                  : "Enter a finite target between −69 and 0 LUFS."}
+          {numeric && (
+            <>
+              <label className="mt-3 block text-sm" htmlFor={`${id}-gain`}>
+                {view.operation === "gain"
+                  ? "Gain (dB)"
+                  : view.operation === "normalize-peak"
+                    ? "Target peak (dBFS)"
+                    : "Target loudness (LUFS)"}
+              </label>
+              <input
+                ref={gain}
+                id={`${id}-gain`}
+                type="text"
+                inputMode="decimal"
+                value={view.parameterText}
+                disabled={working}
+                aria-invalid={value === undefined}
+                aria-describedby={value === undefined ? `${id}-error` : undefined}
+                className="mt-1 w-full rounded border bg-background px-3 py-2"
+                onChange={(event) => onParameterTextChange(event.target.value)}
+              />
+              {value === undefined && (
+                <p id={`${id}-error`} role="alert" className="mt-1 text-sm text-destructive">
+                  {view.operation === "gain"
+                    ? "Enter a finite gain between −120 and 60 dB."
+                    : view.operation === "normalize-peak"
+                      ? "Enter a finite target between −120 and 0 dBFS."
+                      : "Enter a finite target between −69 and 0 LUFS."}
+                </p>
+              )}
+            </>
+          )}
+          {!numeric && (
+            <ProcessControls
+              view={view}
+              disabled={working}
+              onOperationChange={onOperationChange}
+              onSettingsChange={onSettingsChange ?? (() => {})}
+            />
+          )}
+          {!numeric && !valid && (
+            <p role="alert" className="mt-2 text-sm text-destructive">
+              {view.operation === "crossfade"
+                ? "Choose a cursor with enough audio on both sides and an overlap of at least two frames."
+                : "Enter valid settings. Frequencies must be positive and at most half the sample rate; sample rates must be whole hertz from 8000 to 384000."}
             </p>
           )}
           <div className="mt-4" aria-live="polite">
@@ -174,7 +219,7 @@ export function ProcessDialog({
                   Output sample peak: {view.job.peak.toFixed(6)}
                   {view.job.nonFinite ? " · nonfinite samples present" : ""}
                 </p>
-                {view.job.gainResolved && view.job.unchangedReason !== "silent" && (
+                {numeric && view.job.gainResolved && view.job.unchangedReason !== "silent" && (
                   <p>Resolved gain: {view.job.gainDb.toFixed(3)} dB</p>
                 )}
                 {normalize && <p>Input sample peak: {view.job.inputPeak.toFixed(6)}</p>}
@@ -213,7 +258,7 @@ export function ProcessDialog({
             <button
               type="button"
               className="rounded border px-3 py-2 text-sm disabled:opacity-50"
-              disabled={working || value === undefined}
+              disabled={working || !valid}
               onClick={onPreview}
             >
               Preview
@@ -237,10 +282,14 @@ export function ProcessDialog({
             <button
               type="button"
               className="rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
-              disabled={working || value === undefined}
+              disabled={working || !valid}
               onClick={() => onApply(warning)}
             >
-              {warning ? "Apply anyway" : "Apply"}
+              {warning
+                ? "Apply anyway"
+                : view.operation === "extract-channel"
+                  ? "Open extracted channel"
+                  : "Apply"}
             </button>
           </div>
         </>

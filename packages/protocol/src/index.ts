@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -221,12 +221,73 @@ export interface EditResult {
   history: HistoryListResult;
 }
 
-export type ProcessOperation = "gain" | "normalize-peak" | "normalize-loudness";
+export type FadeCurve = "linear" | "equal-power" | "logarithmic" | "s-curve";
+export type ResampleQuality = "fast" | "balanced" | "best";
+export type GeneratorKind =
+  | "silence"
+  | "sine"
+  | "white-noise"
+  | "pink-noise"
+  | "linear-sweep"
+  | "log-sweep";
+export type ProcessOperation =
+  | "gain"
+  | "normalize-peak"
+  | "normalize-loudness"
+  | "fade-in"
+  | "fade-out"
+  | "crossfade"
+  | "reverse"
+  | "invert"
+  | "remove-dc"
+  | "mono-to-stereo"
+  | "stereo-to-mono"
+  | "resample"
+  | "generate"
+  | "extract-channel";
 export type ProcessStartParams = SelectionResult &
   (
     | { operation: "gain"; gainDb: number }
     | { operation: "normalize-peak" | "normalize-loudness"; target: number }
+    | { operation: "fade-in" | "fade-out"; curve: FadeCurve }
+    | { operation: "crossfade"; curve: FadeCurve; durationFrames: number }
+    | { operation: "reverse" | "invert" | "remove-dc" | "mono-to-stereo" }
+    | { operation: "stereo-to-mono"; channelMode: "mix" | "left" | "right" }
+    | { operation: "extract-channel"; channel: number }
+    | { operation: "resample"; sampleRate: number; quality: ResampleQuality }
+    | {
+        operation: "generate";
+        generator: GeneratorKind;
+        durationFrames: number;
+        frequency: number;
+        endFrequency: number;
+        levelDb: number;
+        seed: number;
+      }
   );
+
+/** Private output geometry; source coordinates remain in the job envelope. */
+export interface ProcessCandidate extends SelectionRange {
+  sampleRate: number;
+  channels: number;
+  frames: number;
+}
+
+/** Metadata accompanying planar little-endian float32 window-handoff bytes. */
+export interface BinaryDocumentParams {
+  name: string;
+  tags: Record<string, string>;
+  sampleRate: number;
+  channels: number;
+  frames: number;
+  nextAnchorId: number;
+  markers: TimelineMarker[];
+  regions: TimelineRegion[];
+}
+export interface BinaryDocumentResult extends BinaryDocumentParams {
+  dataBytes: number;
+  data: ArrayBuffer;
+}
 
 export interface ProcessJobParams {
   documentId: string;
@@ -235,6 +296,7 @@ export interface ProcessJobParams {
 
 /** Private candidate progress; only process.commit changes the document. */
 export interface ProcessJobResult extends SelectionResult {
+  candidate: ProcessCandidate;
   jobId: string;
   state: "running" | "ready" | "cancelled";
   operation: ProcessOperation;
@@ -382,6 +444,8 @@ export interface KernelMethods {
   "process.stepBatch": { params: ProcessJobParams; result: ProcessJobResult };
   "process.cancel": { params: ProcessJobParams; result: ProcessJobResult };
   "process.commit": { params: ProcessJobParams; result: EditResult };
+  "process.exportCandidate": { params: ProcessJobParams; result: BinaryDocumentResult };
+  "doc.importBinary": { params: BinaryDocumentParams; result: DocumentInfoResult };
 }
 
 export type KernelMethod = keyof KernelMethods;

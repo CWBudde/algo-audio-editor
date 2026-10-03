@@ -5,6 +5,7 @@ import { runProcessJob, stepProcessBatch, validProcessProgress } from "./process
 
 const params = { documentId: "doc-1", jobId: "job-1" };
 const progress: ProcessJobResult = {
+  candidate: { sampleRate: 48000, channels: 3, frames: 100, start: 10, end: 30, channelMask: 5 },
   ...params,
   start: 10,
   end: 30,
@@ -27,6 +28,20 @@ const progress: ProcessJobResult = {
   nonFinite: false,
 };
 
+it.each(["gain", "normalize-peak", "normalize-loudness"] as const)(
+  "rejects omitted candidate geometry for ABI 11 %s jobs",
+  (operation) => {
+    const p =
+      operation === "gain"
+        ? progress
+        : operation === "normalize-peak"
+          ? peakAnalysis
+          : loudnessAnalysis;
+    expect(validProcessProgress({ ...p, candidate: undefined }, params)).toBe(false);
+    expect(validProcessProgress({ ...p, candidate: null }, params)).toBe(false);
+  },
+);
+
 const peakAnalysis: ProcessJobResult = {
   ...progress,
   operation: "normalize-peak",
@@ -47,6 +62,68 @@ const loudnessAnalysis: ProcessJobResult = {
   phaseCount: 3,
   processedFrames: 20,
 };
+
+it.each([
+  "fade-in",
+  "fade-out",
+  "crossfade",
+  "reverse",
+  "invert",
+  "mono-to-stereo",
+  "stereo-to-mono",
+  "resample",
+  "generate",
+  "extract-channel",
+] as const)("validates %s progress with independent source and output dimensions", (operation) => {
+  const p: ProcessJobResult = {
+    ...progress,
+    operation,
+    gainDb: 0,
+    start: 10,
+    end: 10,
+    totalFrames: 100,
+    candidate: { sampleRate: 44100, channels: 1, frames: 100, start: 0, end: 0, channelMask: 1 },
+  };
+  expect(validProcessProgress(p, params)).toBe(true);
+  expect(validProcessProgress({ ...p, candidate: undefined }, params)).toBe(false);
+  expect(validProcessProgress({ ...p, candidate: { ...p.candidate, channels: 0 } }, params)).toBe(
+    false,
+  );
+  expect(validProcessProgress({ ...p, candidate: { ...p.candidate, end: 101 } }, params)).toBe(
+    false,
+  );
+  expect(validProcessProgress({ ...p, target: -1 }, params)).toBe(false);
+  expect(validProcessProgress({ ...p, processedFrames: 101 }, params)).toBe(false);
+  const changed = { ...p, candidate: { ...p.candidate, sampleRate: 48000 } };
+  expect(validProcessProgress(changed, params, p)).toBe(false);
+});
+
+it("retains bounded analysis and processing phases for complete-range DC removal", () => {
+  const p: ProcessJobResult = {
+    ...progress,
+    operation: "remove-dc",
+    gainDb: 0,
+    phase: "analyzing",
+    phaseCount: 2,
+    candidate: { sampleRate: 48000, channels: 3, frames: 100, start: 10, end: 30, channelMask: 5 },
+  };
+  expect(validProcessProgress(p, params)).toBe(true);
+  const processing: ProcessJobResult = {
+    ...p,
+    phase: "processing",
+    phaseIndex: 1,
+    processedFrames: 0,
+  };
+  expect(validProcessProgress(processing, params, p)).toBe(true);
+  expect(
+    validProcessProgress(
+      { ...processing, state: "ready", processedFrames: 20 },
+      params,
+      processing,
+    ),
+  ).toBe(true);
+  expect(validProcessProgress({ ...p, phaseCount: 1 }, params)).toBe(false);
+});
 
 describe("processing runner", () => {
   it("uses the bounded Go batch bridge and yields between all visible phases", async () => {

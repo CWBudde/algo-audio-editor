@@ -36,25 +36,26 @@ type NormalizationStatus struct {
 // Selected channels are packed in ascending source order, all with unit loudness
 // weights: channel count does not imply a surround speaker layout.
 type Normalizer struct {
-	source       audiobuf.Document
-	selected     ops.Range
-	operation    string
-	target       float64
-	limits       Limits
-	channels     []audiobuf.Channel
-	storage      []float32
-	block        [][]float32
-	feed         audiobuf.TargetFeedBuffer
-	analyzer     *loudness.TargetAnalyzer
-	verification *loudness.TargetAnalyzer
-	builder      *Builder
-	result       audiobuf.Document
-	status       NormalizationStatus
-	progress     Progress
-	peak         float64
-	identity     bool
-	verifyInput  bool
-	failure      error
+	source         audiobuf.Document
+	selected       ops.Range
+	operation      string
+	target         float64
+	limits         Limits
+	channels       []audiobuf.Channel
+	storage        []float32
+	block          [][]float32
+	feed           audiobuf.TargetFeedBuffer
+	analyzer       *loudness.TargetAnalyzer
+	verification   *loudness.TargetAnalyzer
+	builder        *Builder
+	result         audiobuf.Document
+	status         NormalizationStatus
+	progress       Progress
+	peak           float64
+	identity       bool
+	verifyInput    bool
+	observedOutput bool
+	failure        error
 }
 
 // NewNormalizer prepares bounded analysis only. No new output sample blocks or
@@ -106,6 +107,9 @@ func NewNormalizer(document audiobuf.Document, selected ops.Range, operation str
 
 // Status returns phase-aware control metadata without exposing audio samples.
 func (n *Normalizer) Status() NormalizationStatus { return n.status }
+
+// Progress reports current phase work without advancing the candidate.
+func (n *Normalizer) Progress() Progress { return n.progress }
 
 // Identity distinguishes a resolved no-op from the initially unresolved 0 dB.
 func (n *Normalizer) Identity() bool { return n.identity }
@@ -248,7 +252,12 @@ func (n *Normalizer) analyze(ctx context.Context) (Progress, error) {
 	}
 	predicted := result.PredictedLUFS
 	n.status.PredictedLUFS = &predicted
-	n.verifyInput = result.NeedsFloat32Verification
+	// Every nonsilent LUFS candidate is independently measured after rounding.
+	// Reset preserves the bounded workspace but discards all input filter/gate
+	// state and the plan; telemetry above already owns its scalar values.
+	n.verifyInput = true
+	n.verification = n.analyzer
+	n.verification.Reset()
 	return n.startBuilder(result.Plan.GainDB, result.Plan.Gain)
 }
 
@@ -262,6 +271,12 @@ func (n *Normalizer) startBuilder(db, coefficient float64) (Progress, error) {
 	}
 	n.builder = builder
 	n.identity = builder.Identity()
+	if n.verification != nil && !n.identity {
+		if err := builder.ObserveLoudness(n.verification); err != nil {
+			return n.fail(fmt.Errorf("process.normalize: observe output: %w", err))
+		}
+		n.observedOutput = true
+	}
 	n.status.GainDB, n.status.GainResolved = db, true
 	n.status.Phase, n.status.PhaseIndex = "processing", 1
 	n.progress.FramesDone = 0
@@ -305,16 +320,18 @@ func (n *Normalizer) materialize(ctx context.Context) (Progress, error) {
 	}
 	n.status.Phase, n.status.PhaseIndex = "verifying", 2
 	n.progress.FramesDone = 0
+	if n.observedOutput {
+		// The actual stored-output scan ran alongside materialization. The
+		// verifying phase performs only bounded measurement finalization.
+		n.progress.FramesDone = n.progress.FramesTotal
+		n.channels, n.storage, n.block = nil, nil, nil
+		return n.progress, nil
+	}
 	if !n.verifyInput {
 		return n.progress, nil
 	}
-	verification, err := loudness.NewTargetAnalyzer(loudness.IntegratedConfig{
-		SampleRate: float64(n.source.SampleRate()), Channels: len(n.channels), MaxFrames: n.progress.FramesTotal,
-	}, n.target)
-	if err != nil {
-		return n.fail(fmt.Errorf("process.normalize: prepare verification: %w", err))
-	}
-	n.verification = verification
+	// Identity candidates have no newly stored blocks. Scan the unchanged
+	// immutable candidate with the reset independent measurement state.
 	packed := 0
 	for channel := range result.Channels() {
 		if n.selected.ChannelMask&(1<<channel) == 0 {

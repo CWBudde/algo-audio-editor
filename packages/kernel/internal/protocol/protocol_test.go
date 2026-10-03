@@ -24,6 +24,10 @@ func TestProcessJobWireGolden(t *testing.T) {
 		JobID: "job-1", State: "running", Operation: "gain", GainDB: 6,
 		ProcessedFrames: 8, TotalFrames: 20, Peak: 0.5,
 		Phase: "processing", PhaseCount: 1, GainResolved: true,
+		Candidate: &protocol.ProcessCandidate{
+			SampleRate: 48000, Channels: 3, Frames: 100,
+			SelectionRange: protocol.SelectionRange{Start: 10, End: 30, ChannelMask: 5},
+		},
 	}
 	peak := base
 	peak.Operation, peak.GainDB, peak.Peak = "normalize-peak", 0, 0

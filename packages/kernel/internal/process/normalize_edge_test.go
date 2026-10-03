@@ -238,30 +238,24 @@ func TestNormalizerActualVerificationRejectsCorruptedCandidates(t *testing.T) {
 	for _, kind := range []string{"wrong materialized gain", "nonfinite candidate", "below gate candidate"} {
 		t.Run(kind, func(t *testing.T) {
 			normalizer := normalizerInPhase(t, document, "processing")
-			if kind == "wrong materialized gain" {
-				original := normalizer.builder.processors[0]
-				normalizer.builder.processors[0] = processorFunc(func(block []float64) error {
+			original := normalizer.builder.processors[0]
+			normalizer.builder.processors[0] = processorFunc(func(block []float64) error {
+				if kind == "wrong materialized gain" {
 					if err := original.ProcessBlock(block); err != nil {
 						return err
 					}
 					return (gainProcessor{linear: .5}).ProcessBlock(block)
-				})
-			}
-			if _, err := normalizer.Step(context.Background()); err != nil || normalizer.status.Phase != "verifying" {
-				t.Fatal("candidate did not enter actual verification", err)
-			}
-			if !normalizer.verifyInput || normalizer.verification == nil {
-				t.Fatal("float32 output verification was skipped")
-			}
+				}
+				if kind == "nonfinite candidate" {
+					block[51] = math.Inf(1)
+					return nil
+				}
+				return (gainProcessor{linear: 1e-9}).ProcessBlock(block)
+			})
+			// Corrupt the actual materialized representation before its immutable
+			// storage is metered. Storage cannot change after this boundary.
 			var terminal error
-			switch kind {
-			case "nonfinite candidate":
-				corrupted := append([]float32(nil), input...)
-				corrupted[51] = float32(math.Inf(1))
-				normalizer.channels[0] = audiobuf.NewChannel(corrupted)
-				terminal = loudness.ErrNonFinite
-			case "below gate candidate":
-				normalizer.channels[0] = audiobuf.NewChannel(normalizeTone(19200, 1e-9))
+			if kind == "below gate candidate" {
 				terminal = loudness.ErrBelowGate
 			}
 			failed := false
@@ -269,7 +263,7 @@ func TestNormalizerActualVerificationRejectsCorruptedCandidates(t *testing.T) {
 				progress, err := normalizer.Step(context.Background())
 				if err != nil {
 					failed = true
-					if terminal == nil && !strings.Contains(err.Error(), "deviates") {
+					if kind == "wrong materialized gain" && !strings.Contains(err.Error(), "deviates") {
 						t.Fatal("wrong-gain candidate failed for unexpected reason", err)
 					}
 					break

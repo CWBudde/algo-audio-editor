@@ -14,6 +14,32 @@ import (
 // Changes to that upstream ownership contract require reviewing this adapter.
 type TargetFeedBuffer struct{ views [8][]float32 }
 
+// FeedBlocks measures newly stored immutable output without exposing its views.
+// Every channel is staged before this call; the concrete analyzer cannot retain
+// or mutate samples. This measures rounded storage, never DSP scratch.
+func (b *TargetFeedBuffer) FeedBlocks(analyzer *loudness.TargetAnalyzer, blocks []*Block) error {
+	if b == nil {
+		return fmt.Errorf("audiobuf.feedLoudness: descriptor buffer is required")
+	}
+	clear(b.views[:])
+	defer func() { clear(b.views[:]) }()
+	if analyzer == nil || len(blocks) < 1 || len(blocks) > 8 {
+		return fmt.Errorf("audiobuf.feedLoudness: analyzer and 1-8 blocks required")
+	}
+	frames := 0
+	for index, block := range blocks {
+		if block == nil || (index > 0 && block.Frames() != frames) {
+			return fmt.Errorf("audiobuf.feedLoudness: equal nonempty blocks required")
+		}
+		frames = block.Frames()
+		b.views[index] = block.samples[:frames:frames]
+	}
+	if err := analyzer.ProcessPlanar32(b.views[:len(blocks)]); err != nil {
+		return fmt.Errorf("audiobuf.feedLoudness: measure stored blocks: %w", err)
+	}
+	return nil
+}
+
 // Feed feeds an exact packed-channel range directly from immutable
 // blocks only when every channel's range is contiguous inside one block. It
 // returns false, nil for a block-spanning range, without changing analyzer state.

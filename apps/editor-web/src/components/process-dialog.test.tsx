@@ -2,6 +2,7 @@ import type { ProcessJobResult } from "@aae/protocol";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ProcessView } from "@/hooks/use-process";
+import { defaultProcessSettings } from "@/lib/process-settings";
 import { ProcessDialog } from "./process-dialog";
 
 const view: ProcessView = {
@@ -47,6 +48,75 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("offers all fade curves and direction while retaining private preview actions", () => {
+  const actions = { ...callbacks(), onSettingsChange: vi.fn() };
+  const ui = render(
+    <ProcessDialog
+      view={{
+        ...view,
+        operation: "fade-in",
+        parameterText: "",
+        settings: defaultProcessSettings(view.info),
+      }}
+      {...actions}
+    />,
+  );
+  expect(ui.getByRole("dialog", { name: "Fade In / Out" })).toBeTruthy();
+  expect(document.activeElement).toBe(ui.getByLabelText("Direction"));
+  expect(ui.getByLabelText("Curve").querySelectorAll("option")).toHaveLength(4);
+  fireEvent.change(ui.getByLabelText("Direction"), { target: { value: "fade-out" } });
+  expect(actions.onOperationChange).toHaveBeenCalledWith("fade-out");
+  fireEvent.change(ui.getByLabelText("Curve"), { target: { value: "s-curve" } });
+  expect(actions.onSettingsChange).toHaveBeenCalledWith({ curve: "s-curve" });
+  expect((ui.getByRole("button", { name: "Apply" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it("shows generator controls for selection replacement and validates sweep frequency", () => {
+  const actions = { ...callbacks(), onSettingsChange: vi.fn() };
+  const settings = {
+    ...defaultProcessSettings(view.info),
+    generator: "log-sweep" as const,
+    endFrequencyText: "0",
+  };
+  const ui = render(
+    <ProcessDialog
+      view={{ ...view, operation: "generate", settings, parameterText: "" }}
+      {...actions}
+    />,
+  );
+  expect(ui.getByText(/Replace the selected/)).toBeTruthy();
+  expect(ui.queryByLabelText("Duration (seconds)")).toBeNull();
+  expect(ui.getByLabelText("Start frequency (Hz)")).toBeTruthy();
+  expect(ui.getByLabelText("End frequency (Hz)")).toBeTruthy();
+  expect((ui.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(ui.getByRole("alert")).toBeTruthy();
+  fireEvent.change(ui.getByLabelText("Generator"), { target: { value: "white-noise" } });
+  expect(actions.onSettingsChange).toHaveBeenCalledWith({ generator: "white-noise" });
+});
+
+it("exposes full-document resampling quality and extraction channel choices", () => {
+  const actions = { ...callbacks(), onSettingsChange: vi.fn() };
+  const settings = defaultProcessSettings(view.info);
+  const ui = render(
+    <ProcessDialog
+      view={{ ...view, operation: "resample", settings, parameterText: "" }}
+      {...actions}
+    />,
+  );
+  expect(ui.getByText("Processes the whole document.")).toBeTruthy();
+  expect((ui.getByLabelText("Quality") as HTMLSelectElement).value).toBe("balanced");
+  fireEvent.change(ui.getByLabelText("Sample rate (Hz)"), { target: { value: "44100" } });
+  expect(actions.onSettingsChange).toHaveBeenCalledWith({ sampleRateText: "44100" });
+  ui.rerender(
+    <ProcessDialog
+      view={{ ...view, operation: "extract-channel", settings, parameterText: "" }}
+      {...actions}
+    />,
+  );
+  expect(ui.getByLabelText("Channel").querySelectorAll("option")).toHaveLength(2);
+  expect(ui.getByRole("button", { name: "Open extracted channel" })).toBeTruthy();
+});
+
 it("opens an accessible modal and gives the gain field initial focus", () => {
   const actions = callbacks();
   const ui = render(<ProcessDialog view={view} {...actions} />);
@@ -64,6 +134,7 @@ it("opens an accessible modal and gives the gain field initial focus", () => {
 it("keeps Cancel available while processing and displays native progress", () => {
   const actions = callbacks();
   const job = {
+    candidate: { sampleRate: 48000, channels: 2, frames: 100, ...view.selection },
     ...view.selection,
     documentId: "doc-1",
     jobId: "process-1",
@@ -98,6 +169,7 @@ it("keeps Cancel available while processing and displays native progress", () =>
 it("warns only for the prepared settings and requires explicit Apply anyway", () => {
   const actions = callbacks();
   const job = {
+    candidate: { sampleRate: 48000, channels: 2, frames: 100, ...view.selection },
     ...view.selection,
     documentId: "doc-1",
     jobId: "process-1",
@@ -165,6 +237,7 @@ it("controlled close restores the opener after React's focus commit", () => {
 });
 
 const normalizedJob = (change: Partial<ProcessJobResult> = {}): ProcessJobResult => ({
+  candidate: { sampleRate: 48000, channels: 2, frames: 100, ...view.selection },
   ...view.selection,
   documentId: "doc-1",
   jobId: "process-1",

@@ -37,6 +37,15 @@ export type CommandId =
   | "process.amplify"
   | "process.normalize"
   | "process.fade"
+  | "process.crossfade"
+  | "process.reverse"
+  | "process.invert"
+  | "process.remove-dc"
+  | "process.mono-to-stereo"
+  | "process.stereo-to-mono"
+  | "process.extract-channel"
+  | "process.resample"
+  | "process.generate"
   | "effects.equalizer"
   | "effects.dynamics"
   | "effects.reverb";
@@ -110,7 +119,26 @@ export const COMMAND_MENUS: readonly { label: string; items: readonly (CommandId
       "edit.select-all",
     ],
   },
-  { label: "Process", items: ["process.amplify", "process.normalize", "process.fade"] },
+  {
+    label: "Process",
+    items: [
+      "process.amplify",
+      "process.normalize",
+      "process.fade",
+      "process.crossfade",
+      "-",
+      "process.reverse",
+      "process.invert",
+      "process.remove-dc",
+      "-",
+      "process.mono-to-stereo",
+      "process.stereo-to-mono",
+      "process.extract-channel",
+      "process.resample",
+      "-",
+      "process.generate",
+    ],
+  },
   { label: "Effects", items: ["effects.equalizer", "effects.dynamics", "effects.reverb"] },
   {
     label: "View",
@@ -175,6 +203,7 @@ function validSelection(c: CommandContext): boolean {
 
 const rangeAvailable = (c: CommandContext) =>
   validSelection(c) && Boolean(c.selection && c.selection.end > c.selection.start);
+const processAvailable = (c: CommandContext) => validSelection(c) && Boolean(c.info?.frames);
 function twoChannels(c: CommandContext): boolean {
   if (!validSelection(c) || !c.selection) return false;
   const remaining = c.selection.channelMask & (c.selection.channelMask - 1);
@@ -325,7 +354,53 @@ const definitions: readonly Definition[] = [
     menu: "Process",
     enabled: (c) => validSelection(c) && Boolean(c.info?.frames),
   },
-  { id: "process.fade", label: "Fade In / Out", menu: "Process", enabled: () => false },
+  { id: "process.fade", label: "Fade In / Out…", menu: "Process", enabled: processAvailable },
+  {
+    id: "process.crossfade",
+    label: "Crossfade at cursor…",
+    menu: "Process",
+    enabled: (c) =>
+      processAvailable(c) &&
+      Boolean(
+        c.selection &&
+          c.selection.start === c.selection.end &&
+          c.selection.start > 0 &&
+          c.selection.end < (c.info?.frames ?? 0),
+      ),
+  },
+  { id: "process.reverse", label: "Reverse…", menu: "Process", enabled: processAvailable },
+  { id: "process.invert", label: "Invert polarity…", menu: "Process", enabled: processAvailable },
+  {
+    id: "process.remove-dc",
+    label: "Remove DC offset…",
+    menu: "Process",
+    enabled: processAvailable,
+  },
+  {
+    id: "process.mono-to-stereo",
+    label: "Mono to stereo…",
+    menu: "Process",
+    enabled: (c) => processAvailable(c) && c.info?.channels === 1,
+  },
+  {
+    id: "process.stereo-to-mono",
+    label: "Stereo to mono…",
+    menu: "Process",
+    enabled: (c) => processAvailable(c) && c.info?.channels === 2,
+  },
+  {
+    id: "process.extract-channel",
+    label: "Extract channel…",
+    menu: "Process",
+    enabled: processAvailable,
+  },
+  {
+    id: "process.resample",
+    label: "Change sample rate…",
+    menu: "Process",
+    enabled: processAvailable,
+  },
+  { id: "process.generate", label: "Generate audio…", menu: "Process", enabled: validSelection },
   { id: "effects.equalizer", label: "Equalizer…", menu: "Effects", enabled: () => false },
   { id: "effects.dynamics", label: "Dynamics…", menu: "Effects", enabled: () => false },
   { id: "effects.reverb", label: "Reverb…", menu: "Effects", enabled: () => false },

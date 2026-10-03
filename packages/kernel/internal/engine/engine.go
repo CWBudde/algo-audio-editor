@@ -122,6 +122,18 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 	}
 
 	switch method {
+	case protocol.MethodDocumentImportBinary:
+		var p protocol.BinaryDocumentParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.importBinaryDocument(p, input)
+	case protocol.MethodProcessExportCandidate:
+		var p protocol.ProcessJobParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.exportCandidate(p)
 	case protocol.MethodProcessStart:
 		var p protocol.ProcessStartParams
 		if err := decode(method, payload, &p); err != nil {

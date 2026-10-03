@@ -41,6 +41,8 @@ func (e *Engine) guardProcessing(method string) error {
 		protocol.MethodProcessStart, protocol.MethodProcessStep, protocol.MethodProcessStepBatch, protocol.MethodProcessCancel,
 		protocol.MethodProcessCommit:
 		return nil
+	case protocol.MethodProcessExportCandidate:
+		return nil
 	default:
 		return fmt.Errorf("%s: processing job is active", method)
 	}
@@ -63,7 +65,7 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams) (protocol.ProcessJo
 	if err := validateProcessParameters(p); err != nil {
 		return protocol.ProcessJobResult{}, err
 	}
-	if e.document.Frames() == 0 {
+	if e.document.Frames() == 0 && p.Operation != "generate" {
 		return protocol.ProcessJobResult{}, fmt.Errorf("%s: document is empty", method)
 	}
 	if e.processSequence == math.MaxUint64 {
@@ -73,7 +75,9 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams) (protocol.ProcessJo
 		return protocol.ProcessJobResult{}, fmt.Errorf("%s: history is not initialized", method)
 	}
 	selection := p.SelectionRange
-	if selection.Start == selection.End {
+	if p.Operation == "mono-to-stereo" || p.Operation == "stereo-to-mono" || p.Operation == "resample" {
+		selection = protocol.SelectionRange{Start: 0, End: e.document.Frames(), ChannelMask: (1 << e.document.Channels()) - 1}
+	} else if selection.Start == selection.End && p.Operation != "crossfade" && p.Operation != "generate" {
 		selection.Start, selection.End = 0, e.document.Frames()
 	}
 	builder, err := e.prepareProcess(p, selection)
@@ -84,7 +88,7 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams) (protocol.ProcessJo
 	before.selection = p.SelectionRange
 	phase, phaseCount, gainResolved, gainDB := "processing", 1, true, p.GainDB
 	var target *float64
-	if p.Operation != "gain" {
+	if p.Operation == "normalize-peak" || p.Operation == "normalize-loudness" {
 		phase, phaseCount, gainResolved, gainDB = "analyzing", 2, false, 0
 		if p.Operation == "normalize-loudness" {
 			phaseCount = 3
@@ -103,6 +107,11 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams) (protocol.ProcessJo
 		builder: builder, before: historySnapshot{document: e.document, editor: before},
 		historyState: e.history.CurrentID(),
 	}
+	e.refreshProcessStatus(e.processJob)
+	if provider, ok := builder.(interface{ Progress() processing.Progress }); ok {
+		progress := provider.Progress()
+		e.processJob.result.ProcessedFrames, e.processJob.result.TotalFrames = progress.FramesDone, progress.FramesTotal
+	}
 	return e.processJob.result, nil
 }
 
@@ -119,6 +128,11 @@ func validateProcessParameters(p protocol.ProcessStartParams) error {
 	case "normalize-peak":
 	case "normalize-loudness":
 		minimum = -69
+	case "fade-in", "fade-out", "crossfade", "reverse", "invert", "remove-dc", "mono-to-stereo", "stereo-to-mono", "extract-channel", "resample", "generate":
+		if p.Target != nil || p.GainDB != 0 {
+			return fmt.Errorf("%s: operation does not accept gain or normalization target", method)
+		}
+		return nil // Operation-specific validation occurs before allocation in its factory.
 	default:
 		return fmt.Errorf("%s: unsupported operation %q", method, p.Operation)
 	}
@@ -134,7 +148,45 @@ func (e *Engine) prepareProcess(p protocol.ProcessStartParams, selection protoco
 	if p.Operation == "gain" {
 		return processing.NewBuilder(e.document, selected, processing.Gain{DB: p.GainDB}, limits)
 	}
-	return processing.NewNormalizer(e.document, selected, p.Operation, *p.Target, limits)
+	if p.Operation == "normalize-peak" || p.Operation == "normalize-loudness" {
+		return processing.NewNormalizer(e.document, selected, p.Operation, *p.Target, limits)
+	}
+	if p.Seed > math.MaxUint32 {
+		return nil, fmt.Errorf("noise seed must be uint32")
+	}
+	if p.Operation == "resample" && (p.SampleRate < MinSampleRate || p.SampleRate > MaxSampleRate) {
+		return nil, fmt.Errorf("sample rate must be in [%d, %d]", MinSampleRate, MaxSampleRate)
+	}
+	if p.Operation == "mono-to-stereo" || p.Operation == "stereo-to-mono" || p.Operation == "resample" {
+		selected = ops.Range{Start: p.Start, End: p.End, ChannelMask: p.ChannelMask}
+	}
+	return processing.NewOperation(e.document, selected, processing.Settings{
+		Operation: p.Operation, Curve: p.Curve, DurationFrames: p.DurationFrames,
+		ChannelMode: p.ChannelMode, Channel: p.Channel, SampleRate: p.SampleRate, Quality: p.Quality,
+		Generator: p.Generator, Frequency: p.Frequency, EndFrequency: p.EndFrequency, LevelDB: p.LevelDB, Seed: p.Seed,
+	}, limits)
+}
+
+func (e *Engine) refreshProcessStatus(job *processingJob) {
+	if provider, ok := job.builder.(interface {
+		Status() processing.NormalizationStatus
+	}); ok {
+		status := provider.Status()
+		job.result.Phase, job.result.PhaseIndex, job.result.PhaseCount = status.Phase, status.PhaseIndex, status.PhaseCount
+		job.result.GainDB, job.result.GainResolved, job.result.InputPeak = status.GainDB, status.GainResolved, status.InputPeak
+		job.result.PlanningSteps = status.PlanningSteps
+		job.result.InputLUFS, job.result.PredictedLUFS, job.result.OutputLUFS = status.InputLUFS, status.PredictedLUFS, status.OutputLUFS
+		job.result.UnchangedReason = status.UnchangedReason
+	}
+	format := protocol.ProcessCandidate{SampleRate: e.document.SampleRate(), Channels: e.document.Channels(), Frames: e.document.Frames(), SelectionRange: job.result.SelectionRange}
+	if provider, ok := job.builder.(interface{ OutputFormat() (int, int, int64) }); ok {
+		format.SampleRate, format.Channels, format.Frames = provider.OutputFormat()
+	}
+	if provider, ok := job.builder.(interface{ OutputSelection() ops.Range }); ok {
+		selection := provider.OutputSelection()
+		format.SelectionRange = protocol.SelectionRange{Start: selection.Start, End: selection.End, ChannelMask: selection.ChannelMask}
+	}
+	job.result.Candidate = &format
 }
 
 func (e *Engine) validateProcessSource(method string, job *processingJob) error {
@@ -188,14 +240,7 @@ func (e *Engine) stepProcess(p protocol.ProcessJobParams) (protocol.ProcessJobRe
 		return protocol.ProcessJobResult{}, fmt.Errorf("process.step: process block: %w", err)
 	}
 	job.result.ProcessedFrames, job.result.TotalFrames = progress.FramesDone, progress.FramesTotal
-	if normalizer, ok := job.builder.(*processing.Normalizer); ok {
-		status := normalizer.Status()
-		job.result.Phase, job.result.PhaseIndex, job.result.PhaseCount = status.Phase, status.PhaseIndex, status.PhaseCount
-		job.result.GainDB, job.result.GainResolved, job.result.InputPeak = status.GainDB, status.GainResolved, status.InputPeak
-		job.result.PlanningSteps = status.PlanningSteps
-		job.result.InputLUFS, job.result.PredictedLUFS, job.result.OutputLUFS = status.InputLUFS, status.PredictedLUFS, status.OutputLUFS
-		job.result.UnchangedReason = status.UnchangedReason
-	}
+	e.refreshProcessStatus(job)
 	job.result.Peak, job.result.NonFinite = job.builder.Peak()
 	if math.IsNaN(job.result.Peak) || math.IsInf(job.result.Peak, 0) {
 		job.result.Peak, job.result.NonFinite = 0, true
@@ -272,6 +317,9 @@ func (e *Engine) commitProcess(p protocol.ProcessJobParams) (protocol.EditResult
 	if job.result.State != "ready" {
 		return protocol.EditResult{}, fmt.Errorf("%s: processing job is not ready", method)
 	}
+	if job.result.Operation == "extract-channel" {
+		return protocol.EditResult{}, fmt.Errorf("%s: extraction must be opened in another window", method)
+	}
 	if job.identity {
 		e.discardProcess(job)
 		return e.editResult(false), nil
@@ -281,12 +329,19 @@ func (e *Engine) commitProcess(p protocol.ProcessJobParams) (protocol.EditResult
 	}
 	editor := cloneEditor(e.editor)
 	editor.selection = job.result.SelectionRange
+	if job.result.Candidate != nil && job.result.Operation != "gain" && job.result.Operation != "normalize-peak" && job.result.Operation != "normalize-loudness" {
+		editor.selection = job.result.Candidate.SelectionRange
+	}
 	label := "Gain"
 	switch job.result.Operation {
 	case "normalize-peak":
 		label = "Normalize peak"
 	case "normalize-loudness":
 		label = "Normalize loudness"
+	default:
+		if job.result.Operation != "gain" {
+			label = editHistoryLabel(job.result.Operation)
+		}
 	}
 	staged, err := e.history.StagePush(label, job.before, historySnapshot{document: job.candidate, editor: editor})
 	if err != nil {

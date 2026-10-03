@@ -28,6 +28,12 @@ const info: DocumentInfoResult = {
 const range = { start: 2, end: 8, channelMask: 2 };
 const result = { document: { ...info, documentId: "doc-2" }, changed: true } as EditResult;
 const initialJob: ProcessJobResult = {
+  candidate: {
+    sampleRate: info.sampleRate,
+    channels: info.channels,
+    frames: info.frames,
+    ...range,
+  },
   documentId: info.documentId,
   ...range,
   jobId: "process-1",
@@ -57,7 +63,7 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
-function setup(operation: ProcessOperation = "gain") {
+function setup(operation: ProcessOperation = "gain", overrides: Partial<ProcessOptions> = {}) {
   let held = false;
   let job = initialJob;
   const call = vi.fn(async (method: string, params?: unknown): Promise<unknown> => {
@@ -116,6 +122,7 @@ function setup(operation: ProcessOperation = "gain") {
     stopPreview: vi.fn().mockResolvedValue(undefined),
     onEdited: vi.fn(),
     onError: vi.fn(),
+    ...overrides,
   };
   const view = renderHook((props: ProcessOptions) => useProcess(props), { initialProps: options });
   act(() => {
@@ -125,6 +132,89 @@ function setup(operation: ProcessOperation = "gain") {
   return { ...view, options, call, runProcess, held: () => held };
 }
 afterEach(cleanup);
+
+it("rebuilds a candidate when any fade setting changes and reuses the exact prepared settings", async () => {
+  const s = setup("fade-in");
+  await act(async () => s.result.current.preview());
+  expect(s.result.current.view?.ready).toBe(true);
+  act(() => s.result.current.setSettings({ curve: "equal-power" }));
+  expect(s.result.current.view?.ready).toBe(false);
+  await act(async () => s.result.current.preview());
+  expect(s.call.mock.calls.filter(([method]) => method === "process.start")).toHaveLength(2);
+  expect(s.call.mock.calls.filter(([method]) => method === "process.start")[1]?.[1]).toMatchObject({
+    operation: "fade-in",
+    curve: "equal-power",
+  });
+  await act(async () => s.result.current.apply());
+  expect(s.call.mock.calls.filter(([method]) => method === "process.start")).toHaveLength(2);
+  expect(s.options.onEdited).toHaveBeenCalledOnce();
+});
+
+it("preserves a resolved noise seed between Preview and Apply", async () => {
+  const s = setup("generate");
+  act(() => s.result.current.setSettings({ generator: "white-noise" }));
+  const seed = s.result.current.view?.settings?.seed;
+  expect(Number.isInteger(seed)).toBe(true);
+  await act(async () => s.result.current.preview());
+  await act(async () => s.result.current.apply());
+  const starts = s.call.mock.calls.filter(([method]) => method === "process.start");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.[1]).toMatchObject({
+    operation: "generate",
+    generator: "white-noise",
+    seed,
+    durationFrames: 6,
+  });
+});
+
+it("reserves the extracted window under the Apply gesture and leaves source history untouched", async () => {
+  const prepareExtract = vi.fn();
+  const onExtract = vi.fn().mockResolvedValue(undefined);
+  const s = setup("extract-channel", { prepareExtract, onExtract });
+  let pending: Promise<void> | undefined;
+  act(() => {
+    pending = s.result.current.apply();
+  });
+  expect(prepareExtract).toHaveBeenCalledOnce();
+  expect(onExtract).not.toHaveBeenCalled();
+  await act(async () => pending);
+  expect(onExtract).toHaveBeenCalledWith(
+    info,
+    expect.objectContaining({ state: "ready", operation: "extract-channel" }),
+  );
+  expect(s.call.mock.calls.map(([method]) => method)).toEqual(["process.start", "process.cancel"]);
+  expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.result.current.view).toBeUndefined();
+  expect(s.held()).toBe(false);
+});
+
+it("closes a reserved extraction window on failure and releases it on Cancel", async () => {
+  const cancelExtract = vi.fn();
+  const onExtract = vi.fn().mockRejectedValue(new Error("Destination closed"));
+  const s = setup("extract-channel", { prepareExtract: vi.fn(), cancelExtract, onExtract });
+  await act(async () => s.result.current.apply());
+  expect(cancelExtract).toHaveBeenCalledOnce();
+  expect(s.options.onError).toHaveBeenCalledWith("Could not process audio", expect.any(Error));
+  expect(s.options.onEdited).not.toHaveBeenCalled();
+  await act(async () => s.result.current.cancel());
+  expect(cancelExtract).toHaveBeenCalledTimes(2);
+  expect(s.held()).toBe(false);
+});
+
+it("opens generation for an empty document and sends insertion duration", async () => {
+  const s = setup();
+  await act(async () => s.result.current.cancel());
+  s.rerender({ ...s.options, info: { ...info, frames: 0 } });
+  act(() => s.result.current.open({ start: 0, end: 0, channelMask: 2 }, "generate"));
+  expect(s.result.current.view?.selection).toEqual({ start: 0, end: 0, channelMask: 2 });
+  await act(async () => s.result.current.apply());
+  expect(s.call.mock.calls.find(([method]) => method === "process.start")?.[1]).toMatchObject({
+    operation: "generate",
+    start: 0,
+    end: 0,
+    durationFrames: 48000,
+  });
+});
 
 it.each(["", "NaN", "Infinity", "-121", "61"])("rejects invalid gain %s", (value) =>
   expect(parseGain(value)).toBeUndefined(),
@@ -177,6 +267,58 @@ it("requires a separate clipping acknowledgement and reuses the prepared candida
   expect(s.runProcess).toHaveBeenCalledOnce();
   expect(s.options.onEdited).toHaveBeenCalledOnce();
 });
+
+it.each([
+  { peak: 2, nonFinite: false },
+  { peak: 0, nonFinite: true },
+])(
+  "closes an unsafe extraction reservation while awaiting acknowledgement and reserves a fresh window on retry (%o)",
+  async (warning) => {
+    let reservation: number | undefined;
+    let nextReservation = 0;
+    const prepareExtract = vi.fn(() => {
+      reservation = ++nextReservation;
+    });
+    const cancelExtract = vi.fn(() => {
+      reservation = undefined;
+    });
+    const onExtract = vi.fn(async () => {
+      expect(reservation).toBe(2);
+    });
+    const s = setup("extract-channel", { prepareExtract, cancelExtract, onExtract });
+    s.runProcess.mockResolvedValue({
+      ...initialJob,
+      operation: "extract-channel",
+      state: "ready",
+      processedFrames: 6,
+      ...warning,
+    });
+    await act(async () => s.result.current.apply());
+    expect(prepareExtract).toHaveBeenCalledOnce();
+    expect(cancelExtract).toHaveBeenCalledOnce();
+    expect(reservation).toBeUndefined();
+    expect(s.result.current.view?.phase).toBe("ready");
+    expect(s.held()).toBe(true);
+    expect(s.call.mock.calls.map(([method]) => method)).toEqual(["process.start"]);
+    expect(s.options.onEdited).not.toHaveBeenCalled();
+    expect(onExtract).not.toHaveBeenCalled();
+    let pending: Promise<void> | undefined;
+    act(() => {
+      pending = s.result.current.apply(true);
+    });
+    expect(prepareExtract).toHaveBeenCalledTimes(2);
+    expect(reservation).toBe(2);
+    await act(async () => pending);
+    expect(s.runProcess).toHaveBeenCalledOnce();
+    expect(onExtract).toHaveBeenCalledOnce();
+    expect(s.call.mock.calls.map(([method]) => method)).toEqual([
+      "process.start",
+      "process.cancel",
+    ]);
+    expect(s.options.onEdited).not.toHaveBeenCalled();
+    expect(s.held()).toBe(false);
+  },
+);
 
 it("changed parameters discard the old preview before building another candidate", async () => {
   const s = setup();

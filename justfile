@@ -117,7 +117,7 @@ bench-process-wasm:
 bench-import-browser: build
     AAE_IMPORT_BENCHMARK=1 bun run --cwd {{web}} e2e e2e/import-benchmark.spec.ts --workers=1
 
-# Opt-in hardware gate: ten-minute gain/peak/LUFS, commit and painted waveforms.
+# Opt-in hardware gate: ten-minute 32-case Phase 3.2 matrix, commit/handoff and painted waveforms.
 # Run serially on the target laptop; this is not part of shared-runner CI.
 bench-process-browser: build
     AAE_PROCESS_BENCHMARK=1 bun run --cwd {{web}} e2e e2e/process-benchmark.spec.ts --workers=1

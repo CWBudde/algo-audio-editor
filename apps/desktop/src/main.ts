@@ -112,16 +112,45 @@ function createWindow() {
 
   // The editor is a single page: keep navigation inside the app and send any
   // external link to the system browser.
-  const appOrigin = new URL(DEV_URL ?? APP_URL).origin;
+  secureWindow(win);
+  void win.loadURL(DEV_URL ?? APP_URL);
+}
+
+function secureWindow(win: BrowserWindow) {
+  const application = new URL(DEV_URL ?? APP_URL);
+  const sameApplication = (url: URL) =>
+    url.protocol === application.protocol && url.host === application.host;
   win.webContents.on("will-navigate", (event, target) => {
-    if (new URL(target).origin !== appOrigin) event.preventDefault();
+    if (!sameApplication(new URL(target))) event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
+    const target = new URL(url);
+    if (
+      sameApplication(target) &&
+      target.pathname === application.pathname &&
+      /^[0-9a-f-]{36}$/i.test(target.searchParams.get("extract") ?? "")
+    ) {
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          width: 1280,
+          height: 800,
+          minWidth: 800,
+          minHeight: 500,
+          backgroundColor: "#0a0a0a",
+          webPreferences: {
+            preload: PRELOAD,
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+          },
+        },
+      };
+    }
     if (url.startsWith("https:")) void shell.openExternal(url);
     return { action: "deny" };
   });
-
-  void win.loadURL(DEV_URL ?? APP_URL);
+  win.webContents.on("did-create-window", (child) => secureWindow(child));
 }
 
 app.whenReady().then(() => {

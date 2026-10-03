@@ -20,7 +20,15 @@
     "inputPeak": 0,
     "inputLufs": null,
     "predictedLufs": null,
-    "outputLufs": null
+    "outputLufs": null,
+    "candidate": {
+      "sampleRate": 48000,
+      "channels": 3,
+      "frames": 100,
+      "start": 10,
+      "end": 30,
+      "channelMask": 5
+    }
   },
   {
     "documentId": "doc-1",
@@ -44,7 +52,15 @@
     "inputLufs": null,
     "predictedLufs": null,
     "outputLufs": null,
-    "target": -1
+    "target": -1,
+    "candidate": {
+      "sampleRate": 48000,
+      "channels": 3,
+      "frames": 100,
+      "start": 10,
+      "end": 30,
+      "channelMask": 5
+    }
   },
   {
     "documentId": "doc-1",
@@ -68,6 +84,14 @@
     "inputLufs": -18,
     "predictedLufs": -23,
     "outputLufs": -23.0000001,
-    "target": -23
+    "target": -23,
+    "candidate": {
+      "sampleRate": 48000,
+      "channels": 3,
+      "frames": 100,
+      "start": 10,
+      "end": 30,
+      "channelMask": 5
+    }
   }
 ]

@@ -1,7 +1,8 @@
-import { PROTOCOL_VERSION } from "@aae/protocol";
+import { PROTOCOL_VERSION, type ProcessJobResult } from "@aae/protocol";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { ProcessOptions } from "@/hooks/use-process";
 import type { CommandId, ResolvedCommand } from "@/lib/commands";
 import App from "./App";
 
@@ -23,10 +24,13 @@ const fake = vi.hoisted(() => ({
   redo: vi.fn(),
   jump: vi.fn(),
   processOpen: vi.fn(),
+  processOptions: undefined as ProcessOptions | undefined,
+  prepare: vi.fn(),
 }));
 
 vi.mock("@/audio/audio-engine", () => ({
   AudioEngine: class {
+    prepare = fake.prepare;
     play = fake.play;
     stop = fake.stop;
     seek = fake.seek;
@@ -109,16 +113,20 @@ vi.mock("@/hooks/use-process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/hooks/use-process")>();
   return {
     ...actual,
-    useProcess: () => ({
-      view: undefined,
-      open: fake.processOpen,
-      setParameterText: vi.fn(),
-      setOperation: vi.fn(),
-      preview: vi.fn(),
-      apply: vi.fn(),
-      stopPreview: vi.fn(),
-      cancel: vi.fn(),
-    }),
+    useProcess: (options: ProcessOptions) => {
+      fake.processOptions = options;
+      return {
+        view: undefined,
+        open: fake.processOpen,
+        setParameterText: vi.fn(),
+        setOperation: vi.fn(),
+        setSettings: vi.fn(),
+        preview: vi.fn(),
+        apply: vi.fn(),
+        stopPreview: vi.fn(),
+        cancel: vi.fn(),
+      };
+    },
   };
 });
 vi.mock("@/components/waveform-view", () => ({ WaveformView: () => null }));
@@ -132,12 +140,7 @@ vi.mock("@/components/app-menubar", () => ({
   }) => (
     <>
       {commands
-        .filter(
-          (command) =>
-            command.id === "process.amplify" ||
-            command.id === "process.normalize" ||
-            command.id === "help.about",
-        )
+        .filter((command) => command.id.startsWith("process.") || command.id === "help.about")
         .map((command) => (
           <button
             key={command.id}
@@ -242,6 +245,53 @@ it("routes Amplify and Normalize commands into the shared processing dialog", ()
     { start: 0, end: 0, channelMask: 3 },
     "normalize-peak",
   );
+});
+
+it("routes Phase 3.2 commands through the common process lifecycle", () => {
+  const ui = render(<App />);
+  for (const [label, operation] of [
+    ["Fade In / Out…", "fade-in"],
+    ["Reverse…", "reverse"],
+    ["Invert polarity…", "invert"],
+    ["Remove DC offset…", "remove-dc"],
+    ["Stereo to mono…", "stereo-to-mono"],
+    ["Extract channel…", "extract-channel"],
+    ["Change sample rate…", "resample"],
+    ["Generate audio…", "generate"],
+  ]) {
+    fireEvent.click(ui.getByRole("button", { name: label }));
+    expect(fake.processOpen).toHaveBeenLastCalledWith(
+      { start: 0, end: 0, channelMask: 3 },
+      operation,
+    );
+  }
+});
+
+it("previews structural cursor candidates at their output format and restores committed playback on Stop", async () => {
+  render(<App />);
+  const options = fake.processOptions;
+  const info = options?.info;
+  if (!options || !info) throw new Error("Process options missing");
+  const job = {
+    jobId: "preview",
+    start: 0,
+    end: 48000,
+    candidate: {
+      sampleRate: 24000,
+      channels: 1,
+      frames: 24000,
+      start: 120,
+      end: 120,
+      channelMask: 1,
+    },
+  } as ProcessJobResult;
+  await act(async () => options.playPreview(info, job));
+  expect(fake.play).toHaveBeenLastCalledWith(
+    { ...info, sampleRate: 24000, channels: 1, frames: 24000 },
+    { start: 0, end: 24000, loop: true, previewJobId: "preview" },
+  );
+  await act(async () => options.stopPreview());
+  expect(fake.prepare).toHaveBeenLastCalledWith(info);
 });
 
 it("groups primary icons in one band and sends undo/redo through the command registry", async () => {

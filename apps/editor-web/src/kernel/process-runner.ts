@@ -4,6 +4,22 @@ import { callKernel } from "./kernel-call";
 const gainPhases = ["processing"] as const;
 const peakPhases = ["analyzing", "processing"] as const;
 const loudnessPhases = ["analyzing", "processing", "verifying"] as const;
+const operations = [
+  "gain",
+  "normalize-peak",
+  "normalize-loudness",
+  "fade-in",
+  "fade-out",
+  "crossfade",
+  "reverse",
+  "invert",
+  "remove-dc",
+  "mono-to-stereo",
+  "stereo-to-mono",
+  "resample",
+  "generate",
+  "extract-channel",
+];
 
 function finiteNullable(value: unknown): value is number | null {
   return value === null || Number.isFinite(value);
@@ -28,10 +44,12 @@ export function validProcessProgress(
 ): value is ProcessJobResult {
   if (!params.documentId || !params.jobId || !value || typeof value !== "object") return false;
   const p = value as Partial<ProcessJobResult>;
+  const normalize = p.operation === "normalize-peak" || p.operation === "normalize-loudness";
+  const legacy = p.operation === "gain" || normalize;
   if (
     p.documentId !== params.documentId ||
     p.jobId !== params.jobId ||
-    !["gain", "normalize-peak", "normalize-loudness"].includes(p.operation ?? "") ||
+    !operations.includes(p.operation ?? "") ||
     !["running", "ready", "cancelled"].includes(p.state ?? "") ||
     !Number.isFinite(p.gainDb) ||
     !Number.isFinite(p.peak) ||
@@ -58,19 +76,20 @@ export function validProcessProgress(
     if (!Number.isSafeInteger(p[field]) || (p[field] ?? -1) < 0) return false;
   }
   if (
-    (p.end ?? 0) <= (p.start ?? 0) ||
+    (p.end ?? 0) < (p.start ?? 0) ||
+    (legacy && p.end === p.start) ||
     !p.channelMask ||
     p.channelMask > 255 ||
     (p.processedFrames ?? 0) > (p.totalFrames ?? 0) ||
-    p.totalFrames !== (p.end ?? 0) - (p.start ?? 0)
+    (legacy && p.totalFrames !== (p.end ?? 0) - (p.start ?? 0))
   )
     return false;
   const phases =
-    p.operation === "gain"
-      ? gainPhases
-      : p.operation === "normalize-peak"
+    p.operation === "normalize-loudness"
+      ? loudnessPhases
+      : p.operation === "normalize-peak" || p.operation === "remove-dc"
         ? peakPhases
-        : loudnessPhases;
+        : gainPhases;
   if (
     p.phaseCount !== phases.length ||
     (p.phaseIndex ?? -1) >= phases.length ||
@@ -84,11 +103,37 @@ export function validProcessProgress(
     if (p.target !== undefined || !p.gainResolved || (p.gainDb ?? 0) < -120 || (p.gainDb ?? 0) > 60)
       return false;
   } else if (
-    !Number.isFinite(p.target) ||
-    (p.target ?? 1) > 0 ||
-    (p.target ?? -121) < (p.operation === "normalize-peak" ? -120 : -69)
+    normalize &&
+    (!Number.isFinite(p.target) ||
+      (p.target ?? 1) > 0 ||
+      (p.target ?? -121) < (p.operation === "normalize-peak" ? -120 : -69))
   )
     return false;
+  if (!legacy && (p.target !== undefined || !p.gainResolved || p.gainDb !== 0)) return false;
+  const candidate = p.candidate;
+  if (!candidate) return false;
+  if (candidate) {
+    for (const field of [
+      "sampleRate",
+      "channels",
+      "frames",
+      "start",
+      "end",
+      "channelMask",
+    ] as const)
+      if (!Number.isSafeInteger(candidate[field]) || candidate[field] < 0) return false;
+    if (
+      candidate.sampleRate < 8000 ||
+      candidate.sampleRate > 384000 ||
+      candidate.channels < 1 ||
+      candidate.channels > 8 ||
+      candidate.end < candidate.start ||
+      candidate.end > candidate.frames ||
+      candidate.channelMask < 1 ||
+      (candidate.channelMask & (2 ** candidate.channels - 1)) !== candidate.channelMask
+    )
+      return false;
+  }
   if (!p.gainResolved && (p.phaseIndex !== 0 || p.gainDb !== 0 || p.peak !== 0)) return false;
   if (p.phaseIndex !== 0 && !p.gainResolved) return false;
   if (
@@ -102,7 +147,7 @@ export function validProcessProgress(
   if (p.unchangedReason !== undefined && !silent) return false;
   if (
     silent &&
-    (p.operation === "gain" ||
+    (!normalize ||
       p.state === "running" ||
       !p.gainResolved ||
       p.gainDb !== 0 ||
@@ -135,7 +180,9 @@ export function validProcessProgress(
       (p.inputPeak ?? 0) < previous.inputPeak ||
       (p.planningSteps ?? 0) < previous.planningSteps ||
       (previous.gainResolved &&
-        (!p.gainResolved || p.gainDb !== previous.gainDb || p.inputPeak !== previous.inputPeak)) ||
+        (!p.gainResolved ||
+          p.gainDb !== previous.gainDb ||
+          (legacy && p.inputPeak !== previous.inputPeak))) ||
       (previous.nonFinite && !p.nonFinite)
     )
       return false;
@@ -156,6 +203,7 @@ export function validProcessProgress(
       if (p[field] !== previous[field]) return false;
     for (const field of ["inputLufs", "predictedLufs", "outputLufs"] as const)
       if (previous[field] !== null && p[field] !== previous[field]) return false;
+    if (JSON.stringify(candidate) !== JSON.stringify(previous.candidate)) return false;
     if (previous.state !== "running" && p.state !== previous.state) return false;
   }
   return true;

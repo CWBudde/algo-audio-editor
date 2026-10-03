@@ -49,6 +49,7 @@ const hello = (protocolVersion = PROTOCOL_VERSION) => ({
 });
 const job = { documentId: "doc-1", jobId: "job-1" };
 const progress: ProcessJobResult = {
+  candidate: { sampleRate: 48000, channels: 2, frames: 100, start: 10, end: 30, channelMask: 3 },
   ...job,
   start: 10,
   end: 30,

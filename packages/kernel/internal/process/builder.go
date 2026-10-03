@@ -8,6 +8,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
+	"github.com/cwbudde/algo-dsp/measure/loudness"
 	timestats "github.com/cwbudde/algo-dsp/stats/time"
 )
 
@@ -40,20 +41,36 @@ type Stepper interface {
 // run concurrently; Step's context may be cancelled from another goroutine.
 // No result or partial blocks are ever published into the input document.
 type Builder struct {
-	document   audiobuf.Document
-	selected   ops.Range
-	channels   []audiobuf.Channel
-	indices    []int
-	processors []Processor
-	blocks     [][]*audiobuf.Block
-	mono       []float32
-	dsp        []float64
-	progress   Progress
-	result     audiobuf.Document
-	failure    error
-	peak       float64
-	nonfinite  bool
-	identity   bool
+	document     audiobuf.Document
+	selected     ops.Range
+	channels     []audiobuf.Channel
+	indices      []int
+	processors   []Processor
+	blocks       [][]*audiobuf.Block
+	mono         []float32
+	dsp          []float64
+	progress     Progress
+	result       audiobuf.Document
+	failure      error
+	peak         float64
+	nonfinite    bool
+	identity     bool
+	observer     *loudness.TargetAnalyzer
+	feed         audiobuf.TargetFeedBuffer
+	finiteLinear bool
+}
+
+// Progress reports current bounded work without advancing the candidate.
+func (b *Builder) Progress() Progress { return b.progress }
+
+// ObserveLoudness independently meters each rounded output chunk before it is
+// retained. It must be configured before stepping a nonidentity builder.
+func (b *Builder) ObserveLoudness(analyzer *loudness.TargetAnalyzer) error {
+	if analyzer == nil || b.identity || b.progress.FramesDone != 0 {
+		return fmt.Errorf("process.observe: fresh nonidentity builder and analyzer required")
+	}
+	b.observer = analyzer
+	return nil
 }
 
 func NewBuilder(document audiobuf.Document, selected ops.Range, process Process, limits Limits) (*Builder, error) {
@@ -62,6 +79,10 @@ func NewBuilder(document audiobuf.Document, selected ops.Range, process Process,
 	}
 	count := bits.OnesCount(uint(selected.ChannelMask))
 	builder := &Builder{document: document, selected: selected, progress: Progress{FramesTotal: selected.End - selected.Start}, identity: identityProcess(process), channels: make([]audiobuf.Channel, count), indices: make([]int, 0, count), processors: make([]Processor, 0, count), blocks: make([][]*audiobuf.Block, count)}
+	switch process.(type) {
+	case LinearGain, *LinearGain:
+		builder.finiteLinear = true
+	}
 	for channel := range document.Channels() {
 		if selected.ChannelMask&(1<<channel) == 0 {
 			continue
@@ -161,6 +182,34 @@ func (b *Builder) Step(ctx context.Context) (Progress, error) {
 		}
 		finite := 0
 		if !b.identity {
+			if gain, ok := b.processors[channel].(gainProcessor); ok && b.finiteLinear {
+				var err error
+				staged[channel], err = audiobuf.NewScaledBlock(b.channels[channel], b.selected.Start+b.progress.FramesDone, count, gain.linear)
+				if err != nil {
+					return b.fail(fmt.Errorf("process.step: channel %d scale/store: %w", b.indices[channel], err))
+				}
+				amplitude, err := staged[channel].FinitePeak(0, count)
+				if err == nil {
+					peak = math.Max(peak, amplitude)
+				} else {
+					// Preserve Builder's unsafe-output telemetry; Normalize rejects
+					// this candidate before publishing or measuring it.
+					if b.mono == nil {
+						b.mono = make([]float32, audiobuf.BlockFrames)
+					}
+					staged[channel].Read(b.mono[:count], 0)
+					for _, value := range b.mono[:count] {
+						if math.Float32bits(value)&0x7f800000 == 0x7f800000 {
+							nonfinite = true
+							continue
+						}
+						b.dsp[finite] = float64(value)
+						finite++
+					}
+					peak = math.Max(peak, timestats.Peak(b.dsp[:finite]))
+				}
+				continue
+			}
 			if n := b.channels[channel].ReadFloat64(b.dsp[:count], b.selected.Start+b.progress.FramesDone); n != count {
 				return b.fail(fmt.Errorf("process.step: channel %d read %d of %d frames", b.indices[channel], n, count))
 			}
@@ -215,6 +264,11 @@ func (b *Builder) Step(ctx context.Context) (Progress, error) {
 		return b.fail(fmt.Errorf("process.step: %w", err))
 	}
 	if !b.identity {
+		if b.observer != nil {
+			if err := b.feed.FeedBlocks(b.observer, staged[:len(b.channels)]); err != nil {
+				return b.fail(fmt.Errorf("process.step: measure stored output: %w", err))
+			}
+		}
 		for channel := range b.blocks {
 			b.blocks[channel] = append(b.blocks[channel], staged[channel])
 		}
@@ -272,6 +326,7 @@ func (b *Builder) buildResult() (audiobuf.Document, error) {
 
 func (b *Builder) release() {
 	b.channels, b.indices, b.processors, b.blocks, b.mono, b.dsp = nil, nil, nil, nil, nil, nil
+	b.observer = nil
 }
 
 func (b *Builder) fail(err error) (Progress, error) {

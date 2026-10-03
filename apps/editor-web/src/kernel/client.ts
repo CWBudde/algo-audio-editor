@@ -1,4 +1,5 @@
 import {
+  type BinaryDocumentParams,
   type DocumentInfoResult,
   type HelloResult,
   type KernelMethod,
@@ -92,6 +93,16 @@ export class KernelClient {
   /** Ownership of bytes moves to the worker; the caller's buffer is detached. */
   openDocument(name: string, bytes: ArrayBuffer): Promise<DocumentInfoResult> {
     return this.request({ op: "call", method: "doc.open", params: { name }, data: bytes }, 60_000, [
+      bytes,
+    ]) as Promise<DocumentInfoResult>;
+  }
+
+  /** Exact float32 samples move to this window's kernel without codec conversion. */
+  importBinaryDocument(
+    params: BinaryDocumentParams,
+    bytes: ArrayBuffer,
+  ): Promise<DocumentInfoResult> {
+    return this.request({ op: "call", method: "doc.importBinary", params, data: bytes }, 60_000, [
       bytes,
     ]) as Promise<DocumentInfoResult>;
   }

@@ -34,6 +34,11 @@ import { useEdit } from "@/hooks/use-edit";
 import { useHistory } from "@/hooks/use-history";
 import { useKernel } from "@/hooks/use-kernel";
 import { useProcess } from "@/hooks/use-process";
+import {
+  cancelExtractionWindow,
+  openExtractedChannel,
+  prepareExtractionWindow,
+} from "@/lib/extraction-window";
 import { parseSelectionTime } from "@/lib/selection";
 
 const STATS_INTERVAL_MS = 200;
@@ -191,18 +196,36 @@ export default function App() {
     busy,
     withOperation: doc.withOperation,
     beforeEdit,
+    prepareExtract: prepareExtractionWindow,
+    cancelExtract: cancelExtractionWindow,
+    onExtract: async (_info, job) => {
+      if (!client) throw new Error("Kernel unavailable");
+      await openExtractedChannel(client, job);
+    },
     preparePreview: (info) =>
       engine ? engine.prepare(info) : Promise.reject(new Error("Audio engine unavailable")),
     async playPreview(info, job) {
       if (!engine) throw new Error("Audio engine unavailable");
       const action = ++playbackAction.current;
       playbackPending.current = true;
-      setPosition(job.start);
+      const candidate = job.candidate;
+      const previewInfo = candidate
+        ? {
+            ...info,
+            sampleRate: candidate.sampleRate,
+            channels: candidate.channels,
+            frames: candidate.frames,
+          }
+        : info;
+      const cursor = candidate && candidate.start === candidate.end;
+      const start = cursor ? 0 : (candidate?.start ?? job.start);
+      const end = cursor ? candidate.frames : (candidate?.end ?? job.end);
+      setPosition(start);
       setPlaying(true);
       try {
-        await engine.play(info, {
-          start: job.start,
-          end: job.end,
+        await engine.play(previewInfo, {
+          start,
+          end,
           loop: true,
           previewJobId: job.jobId,
         });
@@ -213,6 +236,7 @@ export default function App() {
     async stopPreview() {
       if (currentEngine.current === engine) await beforeEdit();
       else await engine?.stop();
+      if (engine && doc.info && currentEngine.current === engine) await engine.prepare(doc.info);
     },
     onEdited,
     onError: (action, error) => reportError(action)(error),
@@ -388,6 +412,26 @@ export default function App() {
         const range = waveformView.current ? waveformView.current.selectionState() : selection;
         if (range) processing.open(range, "normalize-peak");
       },
+      ...Object.fromEntries(
+        [
+          ["process.fade", "fade-in"],
+          ["process.crossfade", "crossfade"],
+          ["process.reverse", "reverse"],
+          ["process.invert", "invert"],
+          ["process.remove-dc", "remove-dc"],
+          ["process.mono-to-stereo", "mono-to-stereo"],
+          ["process.stereo-to-mono", "stereo-to-mono"],
+          ["process.extract-channel", "extract-channel"],
+          ["process.resample", "resample"],
+          ["process.generate", "generate"],
+        ].map(([id, operation]) => [
+          id,
+          () => {
+            const range = waveformView.current ? waveformView.current.selectionState() : selection;
+            if (range) processing.open(range, operation as Parameters<typeof processing.open>[1]);
+          },
+        ]),
+      ),
       "help.about": () => setInformationOpen(true),
     },
   });
@@ -606,6 +650,7 @@ export default function App() {
         view={processing.view}
         onParameterTextChange={processing.setParameterText}
         onOperationChange={processing.setOperation}
+        onSettingsChange={processing.setSettings}
         onPreview={() => {
           void processing.preview();
         }}

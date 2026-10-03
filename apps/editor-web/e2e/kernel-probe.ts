@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import type { Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
 
 declare global {
   interface Window {
@@ -21,7 +21,7 @@ declare global {
 }
 
 /** Observe production workers without introducing any diagnostic application API. */
-export async function captureKernelWorker(page: Page) {
+export async function captureKernelWorker(page: Page | BrowserContext) {
   await page.addInitScript(() => {
     const NativeWorker = window.Worker;
     const workers: Worker[] = [];

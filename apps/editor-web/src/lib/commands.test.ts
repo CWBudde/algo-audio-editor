@@ -115,7 +115,6 @@ describe("central command registry", () => {
     expect(resolveCommands(context, "other", {}).every((command) => !command.enabled)).toBe(true);
     for (const id of [
       "file.new",
-      "process.fade",
       "effects.equalizer",
       "effects.dynamics",
       "effects.reverb",
@@ -127,6 +126,49 @@ describe("central command registry", () => {
       ).toBeUndefined();
     }
     expect(matchCommandShortcut(key("n", { ctrlKey: true }), "other")).toBeUndefined();
+  });
+
+  it("gates cursor crossfade and channel conversion while permitting generators in empty documents", () => {
+    expect(enabled("process.fade")).toBe(true);
+    expect(enabled("process.crossfade")).toBe(false);
+    expect(
+      enabled("process.crossfade", { selection: { start: 50, end: 50, channelMask: 2 } }),
+    ).toBe(true);
+    expect(enabled("process.crossfade", { selection: { start: 0, end: 0, channelMask: 3 } })).toBe(
+      false,
+    );
+    expect(enabled("process.mono-to-stereo")).toBe(false);
+    expect(
+      enabled("process.mono-to-stereo", {
+        info: { ...info, channels: 1 },
+        selection: { start: 0, end: 0, channelMask: 1 },
+      }),
+    ).toBe(true);
+    expect(enabled("process.stereo-to-mono")).toBe(true);
+    expect(enabled("process.stereo-to-mono", { info: { ...info, channels: 3 } })).toBe(false);
+    expect(
+      enabled("process.generate", {
+        info: { ...info, frames: 0 },
+        selection: { start: 0, end: 0, channelMask: 3 },
+      }),
+    ).toBe(true);
+    expect(enabled("process.generate", { info: undefined })).toBe(false);
+    for (const id of [
+      "process.reverse",
+      "process.invert",
+      "process.remove-dc",
+      "process.resample",
+      "process.extract-channel",
+    ] as const) {
+      expect(enabled(id)).toBe(true);
+      expect(enabled(id, { busy: true })).toBe(false);
+      expect(
+        enabled(id, {
+          info: { ...info, frames: 0 },
+          selection: { start: 0, end: 0, channelMask: 3 },
+        }),
+      ).toBe(false);
+    }
   });
 
   it("supports palette/about before boot and palette during busy while preserving edit gates", () => {

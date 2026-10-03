@@ -90,6 +90,9 @@ func (h *History[T]) CanRedo() bool { return h.cursor < len(h.labels) }
 
 func (h *History[T]) Dirty() bool { return h.CurrentID() != h.savedID }
 
+// MarkUnsaved initializes a newly created document without a saved file state.
+func (h *History[T]) MarkUnsaved() { h.savedID = "" }
+
 func (h *History[T]) States() []State[T] { return slices.Clone(h.states) }
 
 func (h *History[T]) Entries() []Entry[T] {

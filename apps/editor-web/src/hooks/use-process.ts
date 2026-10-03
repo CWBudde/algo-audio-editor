@@ -7,6 +7,12 @@ import type {
 } from "@aae/protocol";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { KernelClient } from "@/kernel/client";
+import {
+  defaultProcessSettings,
+  type ProcessSettings,
+  processParams,
+  processSettingsKey,
+} from "@/lib/process-settings";
 
 export interface ProcessOptions {
   client?: KernelClient;
@@ -18,6 +24,9 @@ export interface ProcessOptions {
   playPreview(info: DocumentInfoResult, job: ProcessJobResult): Promise<void>;
   stopPreview(): Promise<void>;
   onEdited(result: EditResult, sourceDocumentId: string): void;
+  onExtract?(info: DocumentInfoResult, job: ProcessJobResult): Promise<void>;
+  prepareExtract?(): void;
+  cancelExtract?(): void;
   onError(action: string, error: unknown): void;
 }
 
@@ -28,6 +37,8 @@ export interface ProcessView {
   selection: SelectionRange;
   operation: ProcessOperation;
   parameterText: string;
+  settings?: ProcessSettings;
+  ready?: boolean;
   phase: ProcessPhase;
   job?: ProcessJobResult;
   previewing: boolean;
@@ -47,6 +58,8 @@ interface Session {
   selection: SelectionRange;
   operation: ProcessOperation;
   parameterText: string;
+  settings: ProcessSettings;
+  preparedKey?: string;
   acquired: ReturnType<typeof deferred>;
   done: ReturnType<typeof deferred>;
   released: ReturnType<typeof deferred>;
@@ -58,6 +71,7 @@ interface Session {
   committed: boolean;
   previewing: boolean;
   stopPreview(): Promise<void>;
+  cancelExtract?(): void;
 }
 
 export function parseGain(text: string): number | undefined {
@@ -71,6 +85,7 @@ export function parseProcessParameter(
   text: string,
 ): number | undefined {
   if (operation === "gain") return parseGain(text);
+  if (operation !== "normalize-peak" && operation !== "normalize-loudness") return 0;
   if (!text.trim()) return;
   const value = Number(text);
   const minimum = operation === "normalize-peak" ? -120 : -69;
@@ -78,7 +93,13 @@ export function parseProcessParameter(
 }
 
 export function defaultProcessParameter(operation: ProcessOperation): string {
-  return operation === "gain" ? "0" : operation === "normalize-peak" ? "-1" : "-23";
+  return operation === "gain"
+    ? "0"
+    : operation === "normalize-peak"
+      ? "-1"
+      : operation === "normalize-loudness"
+        ? "-23"
+        : "";
 }
 
 export function matchesProcessSettings(
@@ -90,7 +111,11 @@ export function matchesProcessSettings(
     job?.state === "ready" &&
       value !== undefined &&
       job.operation === operation &&
-      (operation === "gain" ? job.gainDb === value : job.target === value),
+      (operation === "gain"
+        ? job.gainDb === value
+        : operation === "normalize-peak" || operation === "normalize-loudness"
+          ? job.target === value
+          : true),
   );
 }
 
@@ -160,6 +185,7 @@ export function useProcess(options: ProcessOptions) {
         report(s, error);
       }
       s.previewing = false;
+      s.cancelExtract?.();
       await finish(s);
     })();
     return s.cancellation;
@@ -181,18 +207,34 @@ export function useProcess(options: ProcessOptions) {
     (selection: SelectionRange, operation: ProcessOperation = "gain") => {
       const initial = latest.current;
       const { client, info } = initial;
-      if (!mounted.current || !client || !info || initial.busy || session.current || !info.frames)
+      if (
+        !mounted.current ||
+        !client ||
+        !info ||
+        initial.busy ||
+        session.current ||
+        (!info.frames && operation !== "generate")
+      )
         return;
-      const range =
-        selection.start === selection.end
+      const whole =
+        operation === "mono-to-stereo" ||
+        operation === "stereo-to-mono" ||
+        operation === "resample";
+      const range = whole
+        ? { start: 0, end: info.frames, channelMask: 2 ** info.channels - 1 }
+        : selection.start === selection.end && operation !== "crossfade" && operation !== "generate"
           ? { ...selection, start: 0, end: info.frames }
           : { ...selection };
+      const seed = crypto.getRandomValues(new Uint32Array(1))[0] ?? 1;
+      const settings = defaultProcessSettings(info, seed);
+      if (operation === "crossfade") settings.durationText = "0.01";
       const s: Session = {
         client,
         info,
         selection: { ...selection },
         operation,
         parameterText: defaultProcessParameter(operation),
+        settings,
         acquired: deferred(),
         done: deferred(),
         released: deferred(),
@@ -201,6 +243,7 @@ export function useProcess(options: ProcessOptions) {
         committed: false,
         previewing: false,
         stopPreview: initial.stopPreview,
+        cancelExtract: initial.cancelExtract,
       };
       session.current = s;
       setView({
@@ -208,6 +251,8 @@ export function useProcess(options: ProcessOptions) {
         selection: range,
         operation,
         parameterText: s.parameterText,
+        settings,
+        ready: false,
         phase: "idle",
         previewing: false,
       });
@@ -235,26 +280,46 @@ export function useProcess(options: ProcessOptions) {
       const s = session.current;
       if (!s || s.closing || s.pending || s.committing) return;
       s.parameterText = parameterText;
-      update(s, { parameterText });
+      const params = processParams(s.info, s.selection, s.operation, parameterText, s.settings);
+      update(s, {
+        parameterText,
+        ready:
+          s.job?.state === "ready" &&
+          Boolean(params && processSettingsKey(params) === s.preparedKey),
+      });
+    },
+    [update],
+  );
+
+  const setSettings = useCallback(
+    (change: Partial<ProcessSettings>) => {
+      const s = session.current;
+      if (!s || s.closing || s.pending || s.committing) return;
+      s.settings = { ...s.settings, ...change };
+      const params = processParams(s.info, s.selection, s.operation, s.parameterText, s.settings);
+      update(s, {
+        settings: s.settings,
+        ready:
+          s.job?.state === "ready" &&
+          Boolean(params && processSettingsKey(params) === s.preparedKey),
+      });
     },
     [update],
   );
 
   const setOperation = useCallback(
-    (operation: Exclude<ProcessOperation, "gain">) => {
+    (operation: ProcessOperation) => {
       const s = session.current;
-      if (
-        !s ||
-        s.operation === "gain" ||
-        s.closing ||
-        s.pending ||
-        s.committing ||
-        operation === s.operation
-      )
+      const sameFamily =
+        s &&
+        ((s.operation.startsWith("normalize-") && operation.startsWith("normalize-")) ||
+          ((s.operation === "fade-in" || s.operation === "fade-out") &&
+            (operation === "fade-in" || operation === "fade-out")));
+      if (!s || !sameFamily || s.closing || s.pending || s.committing || operation === s.operation)
         return;
       s.operation = operation;
       s.parameterText = defaultProcessParameter(operation);
-      update(s, { operation, parameterText: s.parameterText });
+      update(s, { operation, parameterText: s.parameterText, ready: false });
     },
     [update],
   );
@@ -263,17 +328,20 @@ export function useProcess(options: ProcessOptions) {
     (mode: "preview" | "apply", allowClipping = false) => {
       const s = session.current;
       if (!s || s.closing || s.pending || s.committing) return;
-      const value = parseProcessParameter(s.operation, s.parameterText);
-      if (value === undefined) return;
+      const params = processParams(s.info, s.selection, s.operation, s.parameterText, s.settings);
+      if (!params) return;
+      const key = processSettingsKey(params);
       const operation = s.operation;
       // Invoke before the first await: AudioContext activation belongs to this
       // button gesture, not to the eventual job-completion task.
       let preparation: Promise<void>;
       try {
+        if (mode === "apply" && operation === "extract-channel") latest.current.prepareExtract?.();
         preparation =
           mode === "preview" ? latest.current.preparePreview(s.info) : Promise.resolve();
       } catch (error) {
         report(s, error);
+        s.cancelExtract?.();
         return;
       }
       void preparation.catch(() => {});
@@ -287,16 +355,9 @@ export function useProcess(options: ProcessOptions) {
           if (s.closing || !owns(s)) return;
           s.previewing = false;
           update(s, { previewing: false });
-          if (!matchesProcessSettings(s.job, operation, value)) {
+          if (s.job?.state !== "ready" || s.preparedKey !== key) {
             await discard(s);
             if (s.closing || !owns(s)) return;
-            const params: ProcessStartParams = {
-              documentId: s.info.documentId,
-              ...s.selection,
-              ...(operation === "gain"
-                ? { operation, gainDb: value }
-                : { operation, target: value }),
-            };
             s.job = await s.client.call("process.start", params);
             if (s.closing || !owns(s)) {
               await discard(s);
@@ -310,23 +371,34 @@ export function useProcess(options: ProcessOptions) {
                 if (!s.closing) update(s, { job });
               },
             );
+            s.preparedKey = key;
           }
           if (s.closing || !owns(s)) return;
           if (s.job?.state !== "ready") {
             s.job = undefined;
-            update(s, { phase: "idle", job: undefined });
+            update(s, { phase: "idle", job: undefined, ready: false });
             return;
           }
-          update(s, { phase: "ready", job: s.job });
+          update(s, { phase: "ready", job: s.job, ready: true });
           if (mode === "preview") {
             s.previewing = true;
             await latest.current.playPreview(s.info, s.job);
             if (!s.closing) update(s, { previewing: true });
             return;
           }
-          if ((s.job.peak > 1 || s.job.nonFinite) && !allowClipping) return;
+          if ((s.job.peak > 1 || s.job.nonFinite) && !allowClipping) {
+            if (operation === "extract-channel") s.cancelExtract?.();
+            return;
+          }
           s.committing = true;
           update(s, { phase: "committing" });
+          if (operation === "extract-channel") {
+            if (!latest.current.onExtract) throw new Error("Channel extraction unavailable");
+            await latest.current.onExtract(s.info, s.job);
+            await discard(s);
+            await finish(s);
+            return;
+          }
           const result = await s.client.call("process.commit", {
             documentId: s.info.documentId,
             jobId: s.job.jobId,
@@ -337,6 +409,7 @@ export function useProcess(options: ProcessOptions) {
           await finish(s);
         } catch (error) {
           report(s, error);
+          s.cancelExtract?.();
           try {
             if (s.previewing) await s.stopPreview();
             await discard(s);
@@ -349,7 +422,8 @@ export function useProcess(options: ProcessOptions) {
           // after ownership changed, release the old session here instead of
           // leaving its modal/document fence held on the replacement client.
           if (s.committed || !owns(s)) await finish(s);
-          else if (!s.closing) update(s, { phase: "idle", job: undefined, previewing: false });
+          else if (!s.closing)
+            update(s, { phase: "idle", job: undefined, ready: false, previewing: false });
         } finally {
           s.committing = false;
           s.pending = undefined;
@@ -384,6 +458,7 @@ export function useProcess(options: ProcessOptions) {
     view,
     open,
     setParameterText,
+    setSettings,
     setOperation,
     preview: () => run("preview"),
     apply: (allowClipping = false) => run("apply", allowClipping),

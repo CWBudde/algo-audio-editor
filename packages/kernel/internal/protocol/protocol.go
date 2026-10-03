@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 10
+const Version = 11
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -35,31 +35,33 @@ const (
 	// MethodTransportStop preserves the cursor and stops rendering audio.
 	MethodTransportStop = "transport.stop"
 	// MethodTransportSeek changes the document playback cursor.
-	MethodTransportSeek    = "transport.seek"
-	MethodSelectionGet     = "selection.get"
-	MethodSelectionSet     = "selection.set"
-	MethodSelectionSnap    = "selection.snap"
-	MethodTimelineGet      = "timeline.get"
-	MethodMarkersAdd       = "markers.add"
-	MethodRegionsAdd       = "regions.add"
-	MethodMarkersUpdate    = "markers.update"
-	MethodMarkersRemove    = "markers.remove"
-	MethodRegionsUpdate    = "regions.update"
-	MethodRegionsRemove    = "regions.remove"
-	MethodTimelineExport   = "timeline.export"
-	MethodEditState        = "edit.state"
-	MethodEditApply        = "edit.apply"
-	MethodPreparePaste     = "edit.prepare-paste"
-	MethodHistoryList      = "history.list"
-	MethodHistoryJump      = "history.jump"
-	MethodEditUndo         = "edit.undo"
-	MethodEditRedo         = "edit.redo"
-	MethodMarkSaved        = "doc.mark-saved"
-	MethodProcessStart     = "process.start"
-	MethodProcessStep      = "process.step"
-	MethodProcessStepBatch = "process.stepBatch"
-	MethodProcessCancel    = "process.cancel"
-	MethodProcessCommit    = "process.commit"
+	MethodTransportSeek          = "transport.seek"
+	MethodSelectionGet           = "selection.get"
+	MethodSelectionSet           = "selection.set"
+	MethodSelectionSnap          = "selection.snap"
+	MethodTimelineGet            = "timeline.get"
+	MethodMarkersAdd             = "markers.add"
+	MethodRegionsAdd             = "regions.add"
+	MethodMarkersUpdate          = "markers.update"
+	MethodMarkersRemove          = "markers.remove"
+	MethodRegionsUpdate          = "regions.update"
+	MethodRegionsRemove          = "regions.remove"
+	MethodTimelineExport         = "timeline.export"
+	MethodEditState              = "edit.state"
+	MethodEditApply              = "edit.apply"
+	MethodPreparePaste           = "edit.prepare-paste"
+	MethodHistoryList            = "history.list"
+	MethodHistoryJump            = "history.jump"
+	MethodEditUndo               = "edit.undo"
+	MethodEditRedo               = "edit.redo"
+	MethodMarkSaved              = "doc.mark-saved"
+	MethodProcessStart           = "process.start"
+	MethodProcessStep            = "process.step"
+	MethodProcessStepBatch       = "process.stepBatch"
+	MethodProcessCancel          = "process.cancel"
+	MethodProcessCommit          = "process.commit"
+	MethodProcessExportCandidate = "process.exportCandidate"
+	MethodDocumentImportBinary   = "doc.importBinary"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -286,9 +288,46 @@ type EditResult struct {
 // publishes it; preview playback and cancellation leave the document unchanged.
 type ProcessStartParams struct {
 	SelectionResult
-	Operation string   `json:"operation"`
-	GainDB    float64  `json:"gainDb"`
-	Target    *float64 `json:"target,omitempty"`
+	Operation      string   `json:"operation"`
+	GainDB         float64  `json:"gainDb"`
+	Target         *float64 `json:"target,omitempty"`
+	Curve          string   `json:"curve,omitempty"`
+	DurationFrames int64    `json:"durationFrames,omitempty"`
+	ChannelMode    string   `json:"channelMode,omitempty"`
+	Channel        int      `json:"channel,omitempty"`
+	SampleRate     int      `json:"sampleRate,omitempty"`
+	Quality        string   `json:"quality,omitempty"`
+	Generator      string   `json:"generator,omitempty"`
+	Frequency      float64  `json:"frequency,omitempty"`
+	EndFrequency   float64  `json:"endFrequency,omitempty"`
+	LevelDB        float64  `json:"levelDb,omitempty"`
+	Seed           uint64   `json:"seed,omitempty"`
+}
+
+// ProcessCandidate describes output geometry independently of source coordinates.
+type ProcessCandidate struct {
+	SampleRate int   `json:"sampleRate"`
+	Channels   int   `json:"channels"`
+	Frames     int64 `json:"frames"`
+	SelectionRange
+}
+
+// BinaryDocumentParams accompanies planar little-endian float32 samples. It is
+// used only for exact editor-window handoffs; samples never enter JSON.
+type BinaryDocumentParams struct {
+	Name         string            `json:"name"`
+	Tags         map[string]string `json:"tags"`
+	SampleRate   int               `json:"sampleRate"`
+	Channels     int               `json:"channels"`
+	Frames       int64             `json:"frames"`
+	NextAnchorID int64             `json:"nextAnchorId"`
+	Markers      []TimelineMarker  `json:"markers"`
+	Regions      []TimelineRegion  `json:"regions"`
+}
+
+type BinaryDocumentInfo struct {
+	BinaryDocumentParams
+	DataBytes int `json:"dataBytes"`
 }
 
 type ProcessJobParams struct {
@@ -298,25 +337,26 @@ type ProcessJobParams struct {
 
 type ProcessJobResult struct {
 	SelectionResult
-	JobID           string   `json:"jobId"`
-	State           string   `json:"state"`
-	Operation       string   `json:"operation"`
-	GainDB          float64  `json:"gainDb"`
-	ProcessedFrames int64    `json:"processedFrames"`
-	TotalFrames     int64    `json:"totalFrames"`
-	Peak            float64  `json:"peak"`
-	NonFinite       bool     `json:"nonFinite"`
-	Phase           string   `json:"phase"`
-	PhaseIndex      int      `json:"phaseIndex"`
-	PhaseCount      int      `json:"phaseCount"`
-	GainResolved    bool     `json:"gainResolved"`
-	PlanningSteps   int64    `json:"planningSteps"`
-	InputPeak       float64  `json:"inputPeak"`
-	InputLUFS       *float64 `json:"inputLufs"`
-	PredictedLUFS   *float64 `json:"predictedLufs"`
-	OutputLUFS      *float64 `json:"outputLufs"`
-	Target          *float64 `json:"target,omitempty"`
-	UnchangedReason string   `json:"unchangedReason,omitempty"`
+	Candidate       *ProcessCandidate `json:"candidate"`
+	JobID           string            `json:"jobId"`
+	State           string            `json:"state"`
+	Operation       string            `json:"operation"`
+	GainDB          float64           `json:"gainDb"`
+	ProcessedFrames int64             `json:"processedFrames"`
+	TotalFrames     int64             `json:"totalFrames"`
+	Peak            float64           `json:"peak"`
+	NonFinite       bool              `json:"nonFinite"`
+	Phase           string            `json:"phase"`
+	PhaseIndex      int               `json:"phaseIndex"`
+	PhaseCount      int               `json:"phaseCount"`
+	GainResolved    bool              `json:"gainResolved"`
+	PlanningSteps   int64             `json:"planningSteps"`
+	InputPeak       float64           `json:"inputPeak"`
+	InputLUFS       *float64          `json:"inputLufs"`
+	PredictedLUFS   *float64          `json:"predictedLufs"`
+	OutputLUFS      *float64          `json:"outputLufs"`
+	Target          *float64          `json:"target,omitempty"`
+	UnchangedReason string            `json:"unchangedReason,omitempty"`
 }
 
 type HistoryListParams struct {

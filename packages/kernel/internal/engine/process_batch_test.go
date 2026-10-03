@@ -103,7 +103,7 @@ func TestProcessBatchStopsAtEveryNormalizationPhaseBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			if operation == "normalize-loudness" {
-				if result.Phase != "verifying" || result.PhaseIndex != 2 || result.ProcessedFrames != 0 || result.State != "running" || result.OutputLUFS != nil {
+				if result.Phase != "verifying" || result.PhaseIndex != 2 || result.ProcessedFrames != result.TotalFrames || result.State != "running" || result.OutputLUFS != nil {
 					t.Fatal("batch crossed processing boundary into verification", result)
 				}
 				result, err = e.stepProcessBatch(jobParams(result))
