@@ -249,7 +249,7 @@ describe("WaveformView", () => {
     const requests = worker.sent
       .filter((request) => request.op === "call")
       .map((request) => (request.params as PeaksGetParams).channel);
-    expect(requests.sort()).toEqual([0, 0, 1]);
+    expect(requests.sort()).toEqual([0, 1]);
     const canvas = getByTestId("waveform-channel-0") as HTMLCanvasElement;
     expect(canvas.width).toBe(744);
     expect(contexts.get(canvas)?.fillRect).toHaveBeenCalled();
@@ -280,6 +280,42 @@ describe("WaveformView", () => {
     unmount();
     expect(mediaListeners.size).toBe(0);
     expect(observers.every((observer) => observer.disconnected)).toBe(true);
+  });
+
+  it("reuses the overview peaks when zooming back to fit without a duplicate first-lane query", async () => {
+    const { getByTestId, worker, handle } = mounted();
+    await painted(getByTestId, 1);
+    await waitFor(() => expect(getByTestId("waveform-overview").dataset.rendered).toBe("true"));
+    expect(worker.sent).toHaveLength(2);
+    act(() => handle.current?.zoomIn());
+    await painted(getByTestId, 1);
+    expect(worker.sent).toHaveLength(4);
+    act(() => handle.current?.zoomFit());
+    await painted(getByTestId, 1);
+    // Channel 1 requests its fitted range; channel 0 shares the overview's
+    // existing zero-copy views instead of recomputing the full-file summary.
+    expect(worker.sent).toHaveLength(5);
+    const fullFirstLane = worker.sent.filter(
+      (request) =>
+        request.op === "call" &&
+        (request.params as PeaksGetParams).channel === 0 &&
+        (request.params as PeaksGetParams).startFrame === 0 &&
+        (request.params as PeaksGetParams).endFrame === info.frames,
+    );
+    expect(fullFirstLane).toHaveLength(1);
+  });
+
+  it("invalidates shared fitted and overview peaks when an identical document is reopened", async () => {
+    const { getByTestId, worker, client, handle, rerender } = mounted();
+    await painted(getByTestId, 1);
+    await waitFor(() => expect(getByTestId("waveform-overview").dataset.rendered).toBe("true"));
+    expect(worker.sent).toHaveLength(2);
+    rerender(<WaveformView client={client} info={{ ...info }} ref={handle} />);
+    expect(getByTestId("waveform-channel-0").dataset.rendered).toBe("false");
+    expect(getByTestId("waveform-overview").dataset.rendered).toBe("false");
+    await painted(getByTestId, 1);
+    await waitFor(() => expect(getByTestId("waveform-overview").dataset.rendered).toBe("true"));
+    expect(worker.sent).toHaveLength(4);
   });
 
   it("uses the actual eight-channel scroll area width for every canvas and ruler", async () => {

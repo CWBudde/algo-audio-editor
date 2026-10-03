@@ -44,6 +44,16 @@ if (process.env.AAE_IMPORT_BENCHMARK === "1") {
       transfer.items.add(new File([bytes], "ten-minute.wav", { type: "audio/wav" }));
       const started = performance.now();
       let documentReadyMs = 0;
+      let fileReadMs = 0;
+      const readFile = File.prototype.arrayBuffer;
+      File.prototype.arrayBuffer = async function () {
+        const readStarted = performance.now();
+        try {
+          return await readFile.call(this);
+        } finally {
+          fileReadMs = performance.now() - readStarted;
+        }
+      };
       await new Promise<void>((resolve, reject) => {
         const observer = new MutationObserver(() => {
           if (
@@ -78,6 +88,8 @@ if (process.env.AAE_IMPORT_BENCHMARK === "1") {
         document
           .querySelector('[data-testid="document-drop-zone"]')
           ?.dispatchEvent(new DragEvent("drop", { bubbles: true, dataTransfer: transfer }));
+      }).finally(() => {
+        File.prototype.arrayBuffer = readFile;
       });
       const elapsedMs = performance.now() - started;
       const rpc = window.__aaeTest?.openTimings[0];
@@ -87,7 +99,11 @@ if (process.env.AAE_IMPORT_BENCHMARK === "1") {
         frames,
         totalMs: elapsedMs,
         documentReadyMs,
+        fileReadMs,
+        timeToRpcMs: rpc.startedAt - started,
         rpcMs: rpc.rpcMs,
+        documentUiMs: started + documentReadyMs - rpc.endedAt,
+        waveformMs: elapsedMs - documentReadyMs,
         readAndUiMs: elapsedMs - rpc.rpcMs,
       };
     });
@@ -95,6 +111,10 @@ if (process.env.AAE_IMPORT_BENCHMARK === "1") {
       "48000 Hz · 2 channels · 28800000 frames · 600.000 s",
     );
     console.info(`WASM import benchmark: ${JSON.stringify(timing)}`);
+    await test.info().attach("full-import-timing", {
+      body: JSON.stringify(timing),
+      contentType: "application/json",
+    });
     expect(
       timing.totalMs,
       "ten-minute import including file read and painted waveforms",

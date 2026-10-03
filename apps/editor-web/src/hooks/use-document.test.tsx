@@ -59,12 +59,26 @@ class DocumentWorker implements WorkerLike {
   }
 }
 
-function file(name = info.name) {
+function file(name = info.name, read = () => Promise.resolve(new ArrayBuffer(4))) {
   const result = new File(["wave"], name);
   Object.defineProperty(result, "arrayBuffer", {
-    value: vi.fn().mockResolvedValue(new ArrayBuffer(4)),
+    value: vi.fn(read),
   });
   return result;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function opened(worker: DocumentWorker) {
+  return worker.sent.filter((request) => request.op === "call" && request.method === "doc.open");
 }
 
 function options() {
@@ -81,7 +95,7 @@ afterEach(() => {
 });
 
 describe("useDocument", () => {
-  it("stops the test tone before reading and opening a binary document", async () => {
+  it("starts playback shutdown before reading and opens the binary document after both", async () => {
     const worker = new DocumentWorker();
     const client = new KernelClient(worker);
     const callbacks = options();
@@ -97,6 +111,162 @@ describe("useDocument", () => {
     expect(
       worker.sent.find((request) => request.op === "call" && request.method === "doc.open"),
     ).toMatchObject({ data: expect.any(ArrayBuffer), params: { name: info.name } });
+  });
+
+  it("starts file reading while shutdown is pending and waits for both before opening", async () => {
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const callbacks = options();
+    const stopping = deferred<void>();
+    const reading = deferred<ArrayBuffer>();
+    callbacks.beforeOpen.mockReturnValue(stopping.promise);
+    const selected = file("overlap.wav", () => reading.promise);
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openFile(selected));
+    expect(selected.arrayBuffer).toHaveBeenCalledOnce();
+    expect(callbacks.beforeOpen).toHaveBeenCalledOnce();
+    expect(result.current.busy).toBe(true);
+    expect(opened(worker)).toHaveLength(0);
+    const bytes = new ArrayBuffer(8);
+    await act(async () => reading.resolve(bytes));
+    expect(opened(worker)).toHaveLength(0);
+    expect(result.current.busy).toBe(true);
+    await act(async () => stopping.resolve(undefined));
+    expect(opened(worker)).toHaveLength(1);
+    expect(opened(worker)[0]).toMatchObject({ data: bytes, params: { name: "overlap.wav" } });
+    expect(result.current.info?.name).toBe("overlap.wav");
+    expect(result.current.busy).toBe(false);
+  });
+
+  it("keeps imports serialized when shutdown finishes before file reading", async () => {
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const callbacks = options();
+    const reading = deferred<ArrayBuffer>();
+    const ignored = file("ignored.wav");
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openFile(file("reading.wav", () => reading.promise)));
+    expect(result.current.busy).toBe(true);
+    act(() => result.current.openFile(ignored));
+    expect(callbacks.beforeOpen).toHaveBeenCalledOnce();
+    expect(ignored.arrayBuffer).not.toHaveBeenCalled();
+    expect(opened(worker)).toHaveLength(0);
+    await act(async () => reading.resolve(new ArrayBuffer(4)));
+    expect(result.current.info?.name).toBe("reading.wav");
+    expect(result.current.busy).toBe(false);
+  });
+
+  it("handles an early read rejection and keeps the import lock until shutdown settles", async () => {
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const callbacks = options();
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openFile(file()));
+    const stopping = deferred<void>();
+    const reading = deferred<ArrayBuffer>();
+    callbacks.beforeOpen.mockReturnValue(stopping.promise);
+    await act(async () => result.current.openFile(file("unreadable.wav", () => reading.promise)));
+    const failure = new Error("file read failed");
+    await act(async () => reading.reject(failure));
+    expect(result.current.busy).toBe(true);
+    expect(callbacks.reportError).not.toHaveBeenCalled();
+    const ignored = file("ignored.wav");
+    act(() => result.current.openFile(ignored));
+    expect(ignored.arrayBuffer).not.toHaveBeenCalled();
+    await act(async () => stopping.resolve(undefined));
+    expect(opened(worker)).toHaveLength(1);
+    expect(result.current.info).toEqual(info);
+    expect(result.current.busy).toBe(false);
+    expect(callbacks.reportError).toHaveBeenCalledExactlyOnceWith("Could not open audio", failure);
+  });
+
+  it("handles shutdown failure without releasing the lock while reading is still pending", async () => {
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const callbacks = options();
+    const stopping = deferred<void>();
+    const reading = deferred<ArrayBuffer>();
+    callbacks.beforeOpen.mockReturnValue(stopping.promise);
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openFile(file("stopped.wav", () => reading.promise)));
+    const failure = new Error("shutdown failed");
+    await act(async () => stopping.reject(failure));
+    expect(result.current.busy).toBe(true);
+    expect(callbacks.reportError).not.toHaveBeenCalled();
+    await act(async () => reading.reject(new Error("read also failed")));
+    expect(opened(worker)).toHaveLength(0);
+    expect(result.current.busy).toBe(false);
+    expect(callbacks.reportError).toHaveBeenCalledExactlyOnceWith("Could not open audio", failure);
+  });
+
+  it("ignores overlapping results and read errors after unmount", async () => {
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const callbacks = options();
+    const stopping = deferred<void>();
+    const reading = deferred<ArrayBuffer>();
+    callbacks.beforeOpen.mockReturnValue(stopping.promise);
+    const selected = file("unmounted.wav", () => reading.promise);
+    const { result, unmount } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openFile(selected));
+    expect(selected.arrayBuffer).toHaveBeenCalledOnce();
+    unmount();
+    await act(async () => {
+      reading.reject(new Error("late read failed"));
+      stopping.resolve(undefined);
+    });
+    expect(opened(worker)).toHaveLength(0);
+    expect(callbacks.reportError).not.toHaveBeenCalled();
+  });
+
+  it("does not let an old client's overlapping import release a new client's active lock", async () => {
+    const oldWorker = new DocumentWorker();
+    const oldClient = new KernelClient(oldWorker);
+    const newWorker = new DocumentWorker();
+    const newClient = new KernelClient(newWorker);
+    const callbacks = options();
+    const stopping = deferred<void>();
+    const oldReading = deferred<ArrayBuffer>();
+    const newReading = deferred<ArrayBuffer>();
+    callbacks.beforeOpen.mockReturnValueOnce(stopping.promise);
+    const { result, rerender } = renderHook(({ client }) => useDocument(client, callbacks), {
+      initialProps: { client: oldClient },
+    });
+    await act(async () => result.current.openFile(file("old.wav", () => oldReading.promise)));
+    rerender({ client: newClient });
+    await act(async () => result.current.openFile(file("new.wav", () => newReading.promise)));
+    await act(async () => {
+      oldReading.reject(new Error("obsolete read failed"));
+      stopping.resolve(undefined);
+    });
+    expect(result.current.busy).toBe(true);
+    expect(result.current.info).toBeUndefined();
+    expect(opened(oldWorker)).toHaveLength(0);
+    expect(opened(newWorker)).toHaveLength(0);
+    expect(callbacks.reportError).not.toHaveBeenCalled();
+    const ignored = file("ignored.wav");
+    act(() => result.current.openFile(ignored));
+    expect(ignored.arrayBuffer).not.toHaveBeenCalled();
+    await act(async () => newReading.resolve(new ArrayBuffer(4)));
+    expect(result.current.info?.name).toBe("new.wav");
+    expect(result.current.busy).toBe(false);
+  });
+
+  it("treats shutdown cancellation as a cancelled import after the overlapping read settles", async () => {
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const callbacks = options();
+    const stopping = deferred<void>();
+    const reading = deferred<ArrayBuffer>();
+    callbacks.beforeOpen.mockReturnValue(stopping.promise);
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openFile(file("cancelled.wav", () => reading.promise)));
+    await act(async () => stopping.reject(new DOMException("Cancelled", "AbortError")));
+    expect(result.current.busy).toBe(true);
+    await act(async () => reading.resolve(new ArrayBuffer(4)));
+    expect(opened(worker)).toHaveLength(0);
+    expect(result.current.busy).toBe(false);
+    expect(callbacks.reportError).not.toHaveBeenCalled();
   });
 
   it("ignores repeated opens while an operation is busy", async () => {

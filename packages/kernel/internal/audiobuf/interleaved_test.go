@@ -1,6 +1,7 @@
 package audiobuf
 
 import (
+	"fmt"
 	"math"
 	"testing"
 )
@@ -57,6 +58,70 @@ func TestBlockFromInterleavedOwnershipAndBits(t *testing.T) {
 			if block.Read(got[:1], 0) != 1 || math.Float32bits(got[0]) != original {
 				t.Fatalf("channel %d read destination aliases block samples", channel)
 			}
+		}
+	}
+}
+
+// BenchmarkInterleavedCopy isolates sample movement from allocation and peaks.
+// The scalar reference is the original constructor's channel extraction loop.
+func BenchmarkInterleavedCopy(b *testing.B) {
+	for _, channels := range []int{1, 2, 6, 8} {
+		samples := make([]float32, BlockFrames*channels)
+		for i := range samples {
+			samples[i] = float32(i)
+		}
+		dst := make([]float32, BlockFrames)
+		copies := []struct {
+			name string
+			copy func([]float32, []float32, int, int)
+		}{
+			{"scalar", copyInterleavedScalar},
+			{"optimized", copyInterleavedChannel},
+		}
+		for _, candidate := range copies {
+			b.Run(fmt.Sprintf("channels%d/%s", channels, candidate.name), func(b *testing.B) {
+				b.SetBytes(int64(len(dst) * 4))
+				b.ReportAllocs()
+				for b.Loop() {
+					candidate.copy(dst, samples, channels-1, channels)
+				}
+			})
+		}
+	}
+}
+
+func copyInterleavedScalar(dst, samples []float32, channel, channels int) {
+	for i := range dst {
+		dst[i] = samples[i*channels+channel]
+	}
+}
+
+func TestBlockFromInterleavedCopyBoundaries(t *testing.T) {
+	bits := []uint32{0, 0x80000000, 1, 0x80000001, 0x3f800000, 0xbf800000, 0x7f800000, 0xff800000, 0x7fc01234, 0xffc05678, 0x7f801234}
+	for channels := 1; channels <= 8; channels++ {
+		for _, frames := range []int{1, 7, 8, 9, 15, 16, 17, 255, 256, 257, BlockFrames - 1, BlockFrames} {
+			t.Run(fmt.Sprintf("channels%d/frames%d", channels, frames), func(t *testing.T) {
+				samples := make([]float32, frames*channels)
+				for i := range samples {
+					samples[i] = math.Float32frombits(bits[(i+i/channels)%len(bits)])
+				}
+				for channel := range channels {
+					block, err := NewBlockFromInterleaved(samples, channel, channels)
+					if err != nil {
+						t.Fatal(err)
+					}
+					got, want := make([]float32, frames), make([]float32, frames)
+					copyInterleavedScalar(want, samples, channel, channels)
+					if n := block.Read(got, 0); n != frames {
+						t.Fatalf("channel %d read %d frames, want %d", channel, n, frames)
+					}
+					for i := range got {
+						if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+							t.Fatalf("channel %d frame %d: bits %08x, want %08x", channel, i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+						}
+					}
+				}
+			})
 		}
 	}
 }

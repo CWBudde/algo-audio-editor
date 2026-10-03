@@ -88,12 +88,18 @@ test.describe("high-DPI waveform rendering", () => {
       expect(paint.waveformPixels).toBeGreaterThan(100);
     }
     await expect(page.getByTestId("waveform-overview")).toBeVisible();
+    await expect(page.getByTestId("waveform-overview")).toHaveAttribute("data-rendered", "true");
     const rpc = await page.evaluate(() => ({
       calls: window.__aaeTest?.peakCalls,
       replies: window.__aaeTest?.peakReplies,
     }));
     expect(rpc.calls?.some((call) => call.channel === 0 && call.endFrame === FRAMES)).toBe(true);
     expect(rpc.calls?.some((call) => call.channel === 1 && call.endFrame === FRAMES)).toBe(true);
+    expect(
+      rpc.calls?.filter(
+        (call) => call.channel === 0 && call.startFrame === 0 && call.endFrame === FRAMES,
+      ),
+    ).toHaveLength(1);
     expect(rpc.replies?.length).toBeGreaterThanOrEqual(2);
     for (const result of rpc.replies ?? []) {
       expect(result.isBuffer).toBe(true);

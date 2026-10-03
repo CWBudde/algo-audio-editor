@@ -42,15 +42,34 @@ func NewBlockFromInterleaved(samples []float32, channel, channels int) (*Block, 
 		return nil, fmt.Errorf("block.newInterleaved: frames %d must be in [1, %d]", frames, BlockFrames)
 	}
 	b := &Block{samples: make([]float32, frames)}
-	if channels == 1 {
-		copy(b.samples, samples)
-	} else {
-		for i := range b.samples {
-			b.samples[i] = samples[i*channels+channel]
-		}
-	}
+	copyInterleavedChannel(b.samples, samples, channel, channels)
 	b.buildPeaks()
 	return b, nil
+}
+
+// copyInterleavedChannel only moves samples from a validated frame layout.
+func copyInterleavedChannel(dst, samples []float32, channel, channels int) {
+	switch channels {
+	case 1:
+		copy(dst, samples)
+	case 2:
+		// A bounded group removes the per-sample stride and bounds checks on
+		// the common stereo import path. The scalar tail handles short blocks.
+		i := 0
+		for ; i+8 <= len(dst); i += 8 {
+			in := samples[i*2+channel : i*2+channel+15]
+			out := dst[i : i+8]
+			out[0], out[1], out[2], out[3] = in[0], in[2], in[4], in[6]
+			out[4], out[5], out[6], out[7] = in[8], in[10], in[12], in[14]
+		}
+		for ; i < len(dst); i++ {
+			dst[i] = samples[i*2+channel]
+		}
+	default:
+		for i := range dst {
+			dst[i] = samples[i*channels+channel]
+		}
+	}
 }
 
 // newBlock copies valid samples and calculates their immutable peak pyramid.

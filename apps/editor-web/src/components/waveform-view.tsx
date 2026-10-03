@@ -14,7 +14,7 @@ import {
 } from "react";
 import type { PlaybackFollow } from "@/components/transport-bar";
 import { Button } from "@/components/ui/button";
-import { usePeaks } from "@/hooks/use-peaks";
+import { type PeaksState, usePeaks } from "@/hooks/use-peaks";
 import type { KernelClient } from "@/kernel/client";
 import type { PeakViews } from "@/kernel/peak-data";
 import { drawWaveform, resizeCanvas } from "@/lib/waveform-drawing";
@@ -103,6 +103,7 @@ interface PeakCanvasProps {
   height: number;
   dpr: number;
   overview?: boolean;
+  peaks?: PeaksState;
   onPointerDown?: (event: PointerEvent<HTMLCanvasElement>) => void;
   onPointerMove?: (event: PointerEvent<HTMLCanvasElement>) => void;
   onPointerUp?: (event: PointerEvent<HTMLCanvasElement>) => void;
@@ -119,13 +120,14 @@ function PeakCanvas({
   height,
   dpr,
   overview = false,
+  peaks,
   ...events
 }: PeakCanvasProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const { data, loading, error } = usePeaks(
+  const ownPeaks = usePeaks(
     client,
     info,
-    info.frames > 0
+    !peaks && info.frames > 0
       ? {
           channel,
           startFrame: viewport.start,
@@ -134,6 +136,7 @@ function PeakCanvas({
         }
       : undefined,
   );
+  const { data, loading, error } = peaks ?? ownPeaks;
   const [paint, setPaint] = useState<{
     data: PeakViews;
     start: number;
@@ -210,6 +213,20 @@ export function WaveformView({
   const overviewCursor = useRef<HTMLDivElement>(null);
   const lanesId = useId();
   const { host, width, dpr } = useViewSize(lanes);
+  // The overview and a fitted first lane draw the same kernel summaries.
+  // Keep one bounded full-range result; zoomed lanes retain their own requests.
+  const fullPeaks = usePeaks(
+    client,
+    info,
+    info.frames > 0
+      ? {
+          channel: 0,
+          startFrame: 0,
+          endFrame: info.frames,
+          buckets: Math.max(1, Math.min(8192, Math.ceil(width * dpr))),
+        }
+      : undefined,
+  );
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("seconds");
   const [amplitudeScale, setAmplitudeScale] = useState<AmplitudeScale>("linear");
   const scrollbar = useRef<HTMLDivElement>(null);
@@ -555,6 +572,11 @@ export function WaveformView({
                     width={width}
                     height={LANE_HEIGHT}
                     dpr={dpr}
+                    peaks={
+                      channel === 0 && viewport.start === 0 && viewport.end === info.frames
+                        ? fullPeaks
+                        : undefined
+                    }
                     onPointerDown={startSelection}
                     onPointerMove={moveSelection}
                     onPointerUp={endSelection}
@@ -658,6 +680,7 @@ export function WaveformView({
             height={OVERVIEW_HEIGHT}
             dpr={dpr}
             overview
+            peaks={fullPeaks}
           />
           <div
             data-testid="waveform-overview-viewport"

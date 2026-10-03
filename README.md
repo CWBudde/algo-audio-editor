@@ -40,6 +40,12 @@ Browser tests start their own production preview. If port 4173 is occupied,
 choose a separate port: `AAE_E2E_PORT=44873 just e2e` (also supported by
 `just bench-import-browser`).
 
+`just bench-import-browser` measures a full ten-minute WAV import through file
+reading, the kernel and drawn waveforms. Run it in isolation on the target
+laptop. For native CPU profiling, pass an existing absolute temporary-directory
+path to `just bench-import-profile`; it stores the test binary and CPU profile
+there and prints the import hotspots.
+
 ## Repository layout
 
 | Path                | Contents                                         |

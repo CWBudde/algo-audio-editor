@@ -62,11 +62,17 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
 
   const importFile = useCallback(
     async (target: KernelClient, active: () => boolean, file: File) => {
-      await latest.current.options.beforeOpen();
+      const stopping = latest.current.options.beforeOpen();
+      // Reading does not mutate the document and can overlap playback shutdown.
+      // Settle both before releasing the operation lock, even if either fails.
+      const [stopped, reading] = await Promise.allSettled([
+        stopping,
+        Promise.resolve().then(() => file.arrayBuffer()),
+      ]);
       if (!active()) return;
-      const bytes = await file.arrayBuffer();
-      if (!active()) return;
-      const info = await target.openDocument(file.name, bytes);
+      if (stopped.status === "rejected") throw stopped.reason;
+      if (reading.status === "rejected") throw reading.reason;
+      const info = await target.openDocument(file.name, reading.value);
       if (active()) setSnapshot({ client: target, info });
     },
     [],

@@ -105,6 +105,15 @@ bench-wasm:
 bench-import-browser: build
     AAE_IMPORT_BENCHMARK=1 bun run --cwd {{web}} e2e e2e/import-benchmark.spec.ts --workers=1
 
+# Profile the same full-size import natively; output_dir must be an existing absolute path.
+# Keep the test binary/profile outside the worktree, then print CPU hotspots.
+bench-import-profile output_dir:
+    [[ '{{output_dir}}' == /* && -d '{{output_dir}}' ]]
+    cd {{kernel}} && go test -run '^$' -bench '^BenchmarkWAVImportTenMinuteStereo$' \
+        -benchtime=3x -benchmem -o '{{output_dir}}/engine.test' \
+        -cpuprofile '{{output_dir}}/cpu.pprof' ./internal/engine
+    go tool pprof -top '{{output_dir}}/engine.test' '{{output_dir}}/cpu.pprof'
+
 # ── Lint & format ────────────────────────────────────────────────────────────
 
 lint: lint-go lint-web

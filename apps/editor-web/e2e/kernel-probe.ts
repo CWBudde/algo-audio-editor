@@ -6,7 +6,7 @@ declare global {
     __aaeTest?: {
       workers: Worker[];
       transfers: { before: number; after: number }[];
-      openTimings: { bytes: number; rpcMs: number }[];
+      openTimings: { bytes: number; startedAt: number; endedAt: number; rpcMs: number }[];
       peakCalls: {
         id: number;
         channel: number;
@@ -26,7 +26,7 @@ export async function captureKernelWorker(page: Page) {
     const NativeWorker = window.Worker;
     const workers: Worker[] = [];
     const transfers: { before: number; after: number }[] = [];
-    const openTimings: { bytes: number; rpcMs: number }[] = [];
+    const openTimings: { bytes: number; startedAt: number; endedAt: number; rpcMs: number }[] = [];
     const peakCalls: NonNullable<Window["__aaeTest"]>["peakCalls"] = [];
     const peakReplies: NonNullable<Window["__aaeTest"]>["peakReplies"] = [];
     let nextId = -100;
@@ -95,7 +95,13 @@ export async function captureKernelWorker(page: Page) {
           const onReply = (event: MessageEvent) => {
             if (event.data.kind !== "reply" || event.data.id !== request.id) return;
             this.removeEventListener("message", onReply);
-            openTimings.push({ bytes: before, rpcMs: performance.now() - started });
+            const endedAt = performance.now();
+            openTimings.push({
+              bytes: before,
+              startedAt: started,
+              endedAt,
+              rpcMs: endedAt - started,
+            });
           };
           this.addEventListener("message", onReply);
         }
