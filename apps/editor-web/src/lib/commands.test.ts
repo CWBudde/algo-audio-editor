@@ -113,12 +113,7 @@ describe("central command registry", () => {
 
   it("disables missing actions and planned commands without exposing fake shortcuts", () => {
     expect(resolveCommands(context, "other", {}).every((command) => !command.enabled)).toBe(true);
-    for (const id of [
-      "file.new",
-      "effects.equalizer",
-      "effects.dynamics",
-      "effects.reverb",
-    ] as const) {
+    for (const id of ["file.new"] as const) {
       expect(enabled(id)).toBe(false);
       expect(
         resolveCommands(context, "other", actions).find((command) => command.id === id)
@@ -396,4 +391,25 @@ describe("pure shortcut matching", () => {
     expect(matchCommandShortcut(key("Home", { ctrlKey: true }), "other")).toBeUndefined();
     expect(matchCommandShortcut(key("Delete"), "other")?.id).toBe("edit.delete");
   });
+});
+
+it("registers catalogue menu commands and fences stereo effects on incomplete selected pairs", () => {
+  const id: CommandId = "effects.spatial-pan";
+  const effects = [{ id: "spatial-pan", name: "Panner", channelMode: "stereo" as const }];
+  const dynamic = { ...actions, [id]: vi.fn() };
+  expect(
+    resolveCommands({ ...context, effects }, "other", dynamic).find((command) => command.id === id),
+  ).toMatchObject({ label: "Panner…", enabled: true, menu: "Effects" });
+  expect(
+    resolveCommands(
+      { ...context, effects, selection: { start: 0, end: 0, channelMask: 2 } },
+      "other",
+      dynamic,
+    ).find((command) => command.id === id)?.enabled,
+  ).toBe(false);
+  expect(
+    resolveCommands({ ...context, effects, modalOpen: true }, "other", dynamic).find(
+      (command) => command.id === id,
+    )?.enabled,
+  ).toBe(false);
 });

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/effects"
 	"github.com/cwbudde/algo-dsp/dsp/resample"
 )
 
@@ -78,6 +79,9 @@ func rateGCD(a, b int) int {
 
 func (r *documentResampler) prepareStage(t *documentTransport) bool {
 	count := transportBlockFrames
+	if t.effects != nil {
+		count = effects.Quantum
+	}
 	zeros := !t.loop && r.readFrame == t.end
 	if zeros {
 		if r.flushRemaining == 0 {
@@ -88,23 +92,47 @@ func (r *documentResampler) prepareStage(t *documentTransport) bool {
 	} else if !t.loop {
 		count = int(min(int64(count), t.end-r.readFrame))
 	}
-	for channel, samples := range t.channels {
-		input := r.input[channel][:count]
-		if zeros {
-			clear(input)
-			continue
-		}
+	if t.effects != nil && !zeros {
 		cursor, copied := r.readFrame, 0
 		for copied < count {
 			n := int(min(int64(count-copied), t.end-cursor))
-			samples.Read(t.mono[:n], cursor)
-			for frame := range n {
-				input[copied+frame] = float64(t.mono[frame])
+			for channel := range t.planar {
+				t.planar[channel] = t.planar[channel][:n]
+			}
+			if err := t.effects.Read(t.planar, cursor); err != nil {
+				return false
+			}
+			for channel := range r.input {
+				copy(r.input[channel][copied:copied+n], t.planar[channel])
 			}
 			copied += n
 			cursor += int64(n)
 			if cursor == t.end && t.loop {
 				cursor = t.start
+				if err := t.effects.Reset(cursor); err != nil {
+					return false
+				}
+			}
+		}
+	} else {
+		for channel, samples := range t.channels {
+			input := r.input[channel][:count]
+			if zeros {
+				clear(input)
+				continue
+			}
+			cursor, copied := r.readFrame, 0
+			for copied < count {
+				n := int(min(int64(count-copied), t.end-cursor))
+				samples.Read(t.mono[:n], cursor)
+				for frame := range n {
+					input[copied+frame] = float64(t.mono[frame])
+				}
+				copied += n
+				cursor += int64(n)
+				if cursor == t.end && t.loop {
+					cursor = t.start
+				}
 			}
 		}
 	}

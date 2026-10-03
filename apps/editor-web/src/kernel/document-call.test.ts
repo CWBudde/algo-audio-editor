@@ -83,3 +83,37 @@ describe("document binary bridge", () => {
     );
   });
 });
+
+it("takes the effect curve's binary slot before another RPC can overwrite it and transfers only the owned view", () => {
+  const allocation = new Uint8Array(48);
+  const view = allocation.subarray(8, 40);
+  new DataView(allocation.buffer).setFloat64(8, 1000, true);
+  let slot = view;
+  const bridge: KernelBridge = {
+    call: vi.fn((method) => {
+      if (method === "effects.response")
+        return JSON.stringify({ ok: true, result: { axis: "frequency", count: 2, dataBytes: 32 } });
+      slot = new Uint8Array(0);
+      return JSON.stringify({ ok: true, result: {} });
+    }),
+    takeData: vi.fn(() => slot),
+    render: vi.fn(),
+  };
+  const response = callKernel(bridge, "effects.response", { effectId: "eq-parametric" });
+  callKernel(bridge, "hello", undefined);
+  const result = response.result as { data: ArrayBuffer };
+  expect(result.data.byteLength).toBe(32);
+  expect(new DataView(result.data).getFloat64(0, true)).toBe(1000);
+  expect(response.transfer).toEqual([result.data]);
+  expect(allocation.byteLength).toBe(48);
+});
+it("rejects bad effect bulk lengths and never takes stale data from a rejected response", () => {
+  const takeData = vi.fn(() => new Uint8Array(16));
+  const call = vi.fn(() => JSON.stringify({ ok: true, result: { count: 2, dataBytes: 32 } }));
+  const bridge = { call, takeData, render: vi.fn() };
+  expect(() => callKernel(bridge, "effects.response", {})).toThrow("bulk data length");
+  takeData.mockClear();
+  call.mockReturnValue(JSON.stringify({ ok: false, error: "invalid effect" }));
+  expect(() => callKernel(bridge, "effects.response", {})).toThrow("invalid effect");
+  expect(takeData).not.toHaveBeenCalled();
+});

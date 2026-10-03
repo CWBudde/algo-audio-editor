@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -244,7 +244,8 @@ export type ProcessOperation =
   | "stereo-to-mono"
   | "resample"
   | "generate"
-  | "extract-channel";
+  | "extract-channel"
+  | "effects";
 export type ProcessStartParams = SelectionResult &
   (
     | { operation: "gain"; gainDb: number }
@@ -400,6 +401,7 @@ export interface TransportPlayParams {
   end?: number;
   loop: boolean;
   previewJobId?: string;
+  effectPreviewId?: string;
 }
 
 export interface TransportSeekParams {
@@ -415,8 +417,105 @@ export interface TransportResult {
   playing: boolean;
 }
 
+export interface EffectParameterDescriptor {
+  id: string;
+  label: string;
+  unit: string;
+  type: "number" | "enum" | "boolean";
+  min: number;
+  max: number;
+  default: number;
+  scale: "lin" | "log" | "dB";
+  step: number;
+  defaultString?: string;
+  options?: { value: string; label: string }[];
+}
+export interface EffectFactoryPreset {
+  id: string;
+  name: string;
+  num: Record<string, number>;
+  str: Record<string, string>;
+}
+export interface EffectDescriptor {
+  id: string;
+  name: string;
+  category: string;
+  channelMode: "mono" | "stereo";
+  view: "generic" | "eq" | "dynamics";
+  parameters: EffectParameterDescriptor[];
+  presets: EffectFactoryPreset[];
+}
+export interface EffectGraph {
+  nodes: {
+    id: string;
+    type: string;
+    bypassed?: boolean;
+    params: Record<string, number | string | boolean>;
+  }[];
+  connections: { from: string; to: string; fromPortIndex?: number; toPortIndex?: number }[];
+}
+export interface EffectPreviewParams extends SelectionResult {
+  graph: EffectGraph;
+  wet?: number;
+  bypass?: boolean;
+  previewId?: string;
+}
+export interface EffectPreviewResult extends SelectionResult {
+  previewId: string;
+  wet: number;
+  bypass: boolean;
+}
+export interface EffectSessionParams {
+  documentId: string;
+  previewId: string;
+}
+export interface EffectMetersResult extends EffectSessionParams {
+  frames: number;
+  inputPeak: number[];
+  inputRms: number[];
+  outputPeak: number[];
+  outputRms: number[];
+}
+export interface EffectIRResult {
+  irId: number;
+  name: string;
+  sampleRate: number;
+  channels: number;
+  frames: number;
+}
+export interface EffectResponseParams {
+  mode?: "frequency" | "transfer";
+  graph?: EffectGraph;
+  effectId?: string;
+  params?: Record<string, number | string | boolean>;
+  sampleRate?: number;
+  points?: number;
+}
+/** Little-endian float64 frequency Hz / magnitude dB pairs. */
+export interface EffectResponseResult {
+  axis: "frequency" | "level";
+  count: number;
+  dataBytes: number;
+  data: ArrayBuffer;
+}
+
 /** Every kernel method with its params and result types. */
 export interface KernelMethods {
+  "effects.list": {
+    params: { sampleRate?: number } | undefined;
+    result: { effects: EffectDescriptor[] };
+  };
+  "effects.response": { params: EffectResponseParams; result: EffectResponseResult };
+  "effects.preview.start": { params: EffectPreviewParams; result: EffectPreviewResult };
+  "effects.preview.update": { params: EffectPreviewParams; result: EffectPreviewResult };
+  "effects.preview.stop": { params: EffectSessionParams; result: { stopped: boolean } };
+  "effects.preview.meters": { params: EffectSessionParams; result: EffectMetersResult };
+  "effects.apply": { params: EffectPreviewParams; result: ProcessJobResult };
+  "effects.ir.load": { params: { documentId: string; name: string }; result: EffectIRResult };
+  "effects.ir.remove": {
+    params: { documentId: string; irId: number };
+    result: { removed: boolean };
+  };
   hello: { params: undefined; result: HelloResult };
   "engine.configure": { params: EngineConfigureParams; result: EngineConfigureResult };
   "tone.configure": { params: ToneConfigureParams; result: ToneConfigureResult };

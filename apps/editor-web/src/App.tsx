@@ -14,6 +14,7 @@ import { AboutStatusDialog } from "@/components/about-status-dialog";
 import { AppMenubar } from "@/components/app-menubar";
 import { CommandPalette } from "@/components/command-palette";
 import { EditToolbar, PasteConversionDialog } from "@/components/edit-toolbar";
+import { EffectsDialog } from "@/components/effects-dialog";
 import { ExportDialog } from "@/components/export-dialog";
 import { HistoryPanel } from "@/components/history-panel";
 import { IconAction } from "@/components/icon-action";
@@ -32,6 +33,7 @@ import { useCommands } from "@/hooks/use-commands";
 import { useDocument } from "@/hooks/use-document";
 import { useDocumentMemory } from "@/hooks/use-document-memory";
 import { useEdit } from "@/hooks/use-edit";
+import { useEffects } from "@/hooks/use-effects";
 import { useExport } from "@/hooks/use-export";
 import { useHistory } from "@/hooks/use-history";
 import { useKernel } from "@/hooks/use-kernel";
@@ -199,6 +201,39 @@ export default function App() {
     withOperation: doc.withOperation,
     onError: (action, error) => reportError(action)(error),
   });
+  const effects = useEffects({
+    client,
+    info: doc.info,
+    busy,
+    withOperation: doc.withOperation,
+    beforeEdit,
+    preparePreview: (info) =>
+      engine ? engine.prepare(info) : Promise.reject(new Error("Audio engine unavailable")),
+    async playPreview(info, preview) {
+      if (!engine) throw new Error("Audio engine unavailable");
+      const action = ++playbackAction.current;
+      playbackPending.current = true;
+      setPosition(preview.start);
+      setPlaying(true);
+      try {
+        await engine.play(info, {
+          start: preview.start,
+          end: preview.end,
+          loop: true,
+          effectPreviewId: preview.previewId,
+        });
+      } finally {
+        if (action === playbackAction.current) playbackPending.current = false;
+      }
+    },
+    async stopPreview() {
+      if (currentEngine.current === engine) await beforeEdit();
+      else await engine?.stop();
+      if (engine && doc.info && currentEngine.current === engine) await engine.prepare(doc.info);
+    },
+    onEdited,
+    onError: (action, error) => reportError(action)(error),
+  });
   const processing = useProcess({
     client,
     info: doc.info,
@@ -362,11 +397,27 @@ export default function App() {
       canRedo: history.history?.canRedo ?? false,
       playing,
       silenceFrames: parseSelectionTime(silenceValue, 1, "samples"),
-      modalOpen: Boolean(pastePlan || processing.view || exporting.view || informationOpen),
+      effects: effects.descriptors,
+      modalOpen: Boolean(
+        pastePlan || processing.view || effects.view || exporting.view || informationOpen,
+      ),
     }),
     paletteOpen,
     onError: (_id, error) => reportError("Command failed")(error),
     actions: {
+      ...Object.fromEntries(
+        effects.descriptors.map((descriptor) => [
+          `effects.${descriptor.id}`,
+          () => {
+            const range = waveformView.current?.selectionState() ?? selection;
+            if (range) effects.open(range, descriptor.id);
+          },
+        ]),
+      ),
+      "effects.rack": () => {
+        const range = waveformView.current?.selectionState() ?? selection;
+        if (range) effects.open(range);
+      },
       "file.open": doc.open,
       "file.save": doc.save,
       "file.export": () => {
@@ -657,6 +708,22 @@ export default function App() {
         plan={pastePlan}
         onConfirm={() => finishConfirmation(true)}
         onCancel={() => finishConfirmation(false)}
+      />
+      <EffectsDialog
+        view={effects.view}
+        descriptors={effects.descriptors}
+        presets={effects.presets}
+        client={client}
+        catalogError={effects.catalogError}
+        onChange={effects.change}
+        onPreview={() => void effects.preview()}
+        onStopPreview={() => void effects.stopPreview()}
+        onApply={(allowClipping) => void effects.apply(allowClipping)}
+        onCancel={() => void effects.cancel()}
+        onLoadIR={(node, file) => void effects.loadIR(node, file)}
+        onSavePreset={(name) => void effects.savePreset(name)}
+        onDeletePreset={(id) => void effects.deletePreset(id)}
+        onLoadPreset={(id) => void effects.loadPreset(id)}
       />
       <ExportDialog
         view={exporting.view}

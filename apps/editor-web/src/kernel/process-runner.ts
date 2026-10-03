@@ -18,6 +18,7 @@ const operations = [
   "stereo-to-mono",
   "resample",
   "generate",
+  "effects",
   "extract-channel",
 ];
 

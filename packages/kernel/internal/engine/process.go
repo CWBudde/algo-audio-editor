@@ -43,6 +43,8 @@ func (e *Engine) guardProcessing(method string) error {
 		return nil
 	case protocol.MethodProcessExportCandidate:
 		return nil
+	case protocol.MethodEffectsList, protocol.MethodEffectsResponse, protocol.MethodEffectsPreviewMeters:
+		return nil
 	default:
 		return fmt.Errorf("%s: processing job is active", method)
 	}
@@ -338,6 +340,8 @@ func (e *Engine) commitProcess(p protocol.ProcessJobParams) (protocol.EditResult
 		label = "Normalize peak"
 	case "normalize-loudness":
 		label = "Normalize loudness"
+	case "effects":
+		label = "Effects"
 	default:
 		if job.result.Operation != "gain" {
 			label = editHistoryLabel(job.result.Operation)

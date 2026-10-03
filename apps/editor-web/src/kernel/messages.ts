@@ -11,8 +11,8 @@ export type WorkerOp =
   | { op: "call"; method: KernelMethod; params: unknown; data?: ArrayBuffer }
   | { op: "process.run"; documentId: string; jobId: string }
   | { op: "stream.attach"; ring: RingBufferInit }
-  /** Fills the ring completely, then replies and keeps it topped up. */
-  | { op: "stream.start" }
+  /** Fills the requested preview horizon, or the whole ring for normal playback. */
+  | { op: "stream.start"; maxBufferedFrames?: number }
   | { op: "stream.stop" };
 
 export type WorkerRequest = { id: number } & WorkerOp;

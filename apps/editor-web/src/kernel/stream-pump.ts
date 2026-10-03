@@ -2,6 +2,28 @@ import type { KernelBridge } from "@aae/protocol";
 import type { FrameRingBuffer } from "@/audio/ring-buffer";
 
 export const PUMP_BLOCK_FRAMES = 512;
+const DEFAULT_PUMP_INTERVAL_MS = 10;
+const PREVIEW_PUMP_INTERVAL_MS = 1;
+
+/** Keep live controls from postponing a scheduled refill. Transport lifecycle
+ * calls intentionally remain outside this path: they can change the stream. */
+export function withStreamRefill<T>(
+  method: string,
+  refill: (() => unknown) | undefined,
+  call: () => T,
+): T {
+  if (
+    !refill ||
+    !["effects.preview.update", "effects.preview.meters", "effects.response"].includes(method)
+  )
+    return call();
+  refill();
+  try {
+    return call();
+  } finally {
+    refill();
+  }
+}
 
 /** Worker-local reusable scratch. This class never runs on the audio thread. */
 export class StreamPump {
@@ -10,8 +32,20 @@ export class StreamPump {
   private readonly positionBytes: Uint8Array;
   private readonly positions: BigInt64Array;
   ended = false;
+  readonly intervalMs: number;
 
-  constructor(privateRing: FrameRingBuffer) {
+  constructor(privateRing: FrameRingBuffer, maxBufferedFrames = privateRing.capacityFrames - 1) {
+    if (
+      !Number.isSafeInteger(maxBufferedFrames) ||
+      maxBufferedFrames < 1 ||
+      maxBufferedFrames >= privateRing.capacityFrames
+    )
+      throw new Error("invalid stream buffer horizon");
+    this.maxBufferedFrames = maxBufferedFrames;
+    this.intervalMs =
+      maxBufferedFrames < privateRing.capacityFrames - 1
+        ? PREVIEW_PUMP_INTERVAL_MS
+        : DEFAULT_PUMP_INTERVAL_MS;
     this.ring = privateRing;
     this.bytes = new Uint8Array(PUMP_BLOCK_FRAMES * privateRing.channels * 4);
     this.samples = new Float32Array(this.bytes.buffer);
@@ -20,11 +54,16 @@ export class StreamPump {
   }
 
   private readonly ring: FrameRingBuffer;
+  private readonly maxBufferedFrames: number;
 
   fill(kernel: KernelBridge): void {
     if (this.ended) return;
-    while (this.ring.availableWrite() > 0) {
-      const requested = Math.min(PUMP_BLOCK_FRAMES, this.ring.availableWrite());
+    while (this.ring.availableRead() < this.maxBufferedFrames) {
+      const requested = Math.min(
+        PUMP_BLOCK_FRAMES,
+        this.ring.availableWrite(),
+        this.maxBufferedFrames - this.ring.availableRead(),
+      );
       const frames = kernel.render(this.bytes, requested, this.positionBytes);
       if (!Number.isInteger(frames) || frames < 0 || frames > requested) {
         throw new Error(`kernel render failed (${frames})`);

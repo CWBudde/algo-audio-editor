@@ -8,7 +8,7 @@ import { FrameRingBuffer } from "@/audio/ring-buffer";
 import { callKernel } from "./kernel-call";
 import type { WorkerReply, WorkerRequest, WorkerResult } from "./messages";
 import { runProcessJob, stepProcessBatch } from "./process-runner";
-import { StreamPump } from "./stream-pump";
+import { StreamPump, withStreamRefill } from "./stream-pump";
 import { createTaskYield } from "./task-yield";
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -24,9 +24,6 @@ declare global {
   var AAEKernel: KernelBridge | undefined;
   var __aaeKernelReady: (() => void) | undefined;
 }
-
-/** How often the ring is topped up. Must drain far less than the ring holds. */
-const PUMP_INTERVAL_MS = 10;
 
 let kernel: KernelBridge | undefined;
 let ring: FrameRingBuffer | undefined;
@@ -101,7 +98,9 @@ async function handle(req: WorkerRequest): Promise<WorkerResult> {
     case "init":
       return { result: await boot(req.wasmUrl, req.wasmExecUrl) };
     case "call":
-      return callKernel(requireKernel(), req.method, req.params, req.data);
+      return withStreamRefill(req.method, pumpTimer === undefined ? undefined : pump, () =>
+        callKernel(requireKernel(), req.method, req.params, req.data),
+      );
     case "process.run": {
       if (processRunning) throw new Error("another processing runner is active");
       const bridge = requireKernel();
@@ -133,8 +132,9 @@ async function handle(req: WorkerRequest): Promise<WorkerResult> {
       return { result: undefined };
     case "stream.start":
       if (!ring) throw new Error("stream.start before stream.attach");
-      streamPump = new StreamPump(ring);
-      if (pump()) pumpTimer ??= setInterval(pump, PUMP_INTERVAL_MS);
+      stopPump();
+      streamPump = new StreamPump(ring, req.maxBufferedFrames);
+      if (pump()) pumpTimer = setInterval(pump, streamPump.intervalMs);
       return { result: ring.stats() };
     case "stream.stop":
       stopPump();

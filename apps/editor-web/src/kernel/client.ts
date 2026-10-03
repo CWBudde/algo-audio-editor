@@ -107,6 +107,18 @@ export class KernelClient {
     ]) as Promise<DocumentInfoResult>;
   }
 
+  loadImpulseResponse(
+    documentId: string,
+    name: string,
+    data: ArrayBuffer,
+  ): Promise<import("@aae/protocol").EffectIRResult> {
+    return this.request(
+      { op: "call", method: "effects.ir.load", params: { documentId, name }, data },
+      60_000,
+      [data],
+    ) as Promise<import("@aae/protocol").EffectIRResult>;
+  }
+
   /** One final reply; matching progress extends the inactivity watchdog. */
   runProcess(
     params: ProcessJobParams,
@@ -123,8 +135,11 @@ export class KernelClient {
   }
 
   /** Resolves once the ring has been filled, so playback can start glitch-free. */
-  startStream(): Promise<RingBufferStats> {
-    return this.request({ op: "stream.start" }) as Promise<RingBufferStats>;
+  startStream(maxBufferedFrames?: number): Promise<RingBufferStats> {
+    return this.request({
+      op: "stream.start",
+      ...(maxBufferedFrames === undefined ? {} : { maxBufferedFrames }),
+    }) as Promise<RingBufferStats>;
   }
 
   stopStream(): Promise<void> {

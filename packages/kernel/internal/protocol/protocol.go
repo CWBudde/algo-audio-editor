@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 12
+const Version = 13
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -62,6 +62,15 @@ const (
 	MethodProcessCommit          = "process.commit"
 	MethodProcessExportCandidate = "process.exportCandidate"
 	MethodDocumentImportBinary   = "doc.importBinary"
+	MethodEffectsList            = "effects.list"
+	MethodEffectsResponse        = "effects.response"
+	MethodEffectsPreviewStart    = "effects.preview.start"
+	MethodEffectsPreviewUpdate   = "effects.preview.update"
+	MethodEffectsPreviewStop     = "effects.preview.stop"
+	MethodEffectsPreviewMeters   = "effects.preview.meters"
+	MethodEffectsApply           = "effects.apply"
+	MethodEffectsIRLoad          = "effects.ir.load"
+	MethodEffectsIRRemove        = "effects.ir.remove"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -435,10 +444,11 @@ type DocumentExportInfo struct {
 // TransportPlayParams selects a nonempty document range. A missing End uses
 // the document's final frame. Loop repeats this range continuously.
 type TransportPlayParams struct {
-	Start        int64  `json:"start"`
-	End          *int64 `json:"end,omitempty"`
-	Loop         bool   `json:"loop"`
-	PreviewJobID string `json:"previewJobId,omitempty"`
+	Start           int64  `json:"start"`
+	End             *int64 `json:"end,omitempty"`
+	Loop            bool   `json:"loop"`
+	PreviewJobID    string `json:"previewJobId,omitempty"`
+	EffectPreviewID string `json:"effectPreviewId,omitempty"`
 }
 
 // TransportSeekParams moves to a frame, including the document's final frame.

@@ -5,6 +5,11 @@ import workletUrl from "./playback-worklet.ts?worker&url";
 import { FrameRingBuffer, type RingBufferStats } from "./ring-buffer";
 
 const RING_CAPACITY_FRAMES = 8192;
+const OUTPUT_LATENCY_HINT_SECONDS = 0.001;
+// Device callbacks can drain several 128-frame quanta together. At 48 kHz this
+// rounded horizon holds 768 frames: a 512-frame burst and 256 frames of headroom.
+// Refills and control processing must finish before that headroom is consumed.
+const EFFECT_PREVIEW_BUFFER_SECONDS = 0.016;
 
 /** The worklet only copies; browser speaker routing handles document channels. */
 export class AudioEngine {
@@ -39,7 +44,7 @@ export class AudioEngine {
     const generation = ++this.generation;
     this.playing = false;
     try {
-      this.ctx ??= new AudioContext({ latencyHint: "interactive" });
+      this.ctx ??= new AudioContext({ latencyHint: OUTPUT_LATENCY_HINT_SECONDS });
       // Unlike a resume after processing, this call still has user activation.
       const unlock = this.ctx.resume();
       this.resume = unlock;
@@ -71,7 +76,7 @@ export class AudioEngine {
     this.transportStarted = false;
     // Must happen synchronously under the caller's browser user gesture.
     try {
-      this.ctx ??= new AudioContext({ latencyHint: "interactive" });
+      this.ctx ??= new AudioContext({ latencyHint: OUTPUT_LATENCY_HINT_SECONDS });
       await this.fence.catch(() => {});
       if (generation !== this.generation) return;
       await this.ensureSetup(info.channels, generation);
@@ -84,7 +89,14 @@ export class AudioEngine {
       await this.kernel.call("transport.play", params);
       if (generation !== this.generation) return;
       this.transportStarted = true;
-      await this.kernel.startStream();
+      await this.kernel.startStream(
+        this.params?.effectPreviewId && this.ctx
+          ? Math.min(
+              RING_CAPACITY_FRAMES - 1,
+              Math.ceil((this.ctx.sampleRate * EFFECT_PREVIEW_BUFFER_SECONDS) / 128) * 128,
+            )
+          : undefined,
+      );
       if (generation !== this.generation) return;
       this.resume = this.ctx.resume();
       await this.resume;
@@ -135,7 +147,14 @@ export class AudioEngine {
       this.ring?.reset(result.position);
       this.playing = wasPlaying && result.playing;
       if (!this.playing) return;
-      await this.kernel.startStream();
+      await this.kernel.startStream(
+        this.params?.effectPreviewId && this.ctx
+          ? Math.min(
+              RING_CAPACITY_FRAMES - 1,
+              Math.ceil((this.ctx.sampleRate * EFFECT_PREVIEW_BUFFER_SECONDS) / 128) * 128,
+            )
+          : undefined,
+      );
       if (generation !== this.generation) return;
       this.resume = this.ctx?.resume();
       await this.resume;

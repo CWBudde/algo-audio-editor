@@ -22,7 +22,12 @@ export function AppMenubar({ commands, onExecute }: AppMenubarProps) {
         <MenubarMenu key={menu.label}>
           <MenubarTrigger className="shrink-0">{menu.label}</MenubarTrigger>
           <MenubarContent>
-            {menu.items.map((item, i) => {
+            {(menu.label === "Effects"
+              ? commands
+                  .filter((command) => command.menu === "Effects")
+                  .map((command) => command.id)
+              : menu.items
+            ).map((item, i) => {
               if (item === "-")
                 return (
                   // biome-ignore lint/suspicious/noArrayIndexKey: static list, separators have no identity

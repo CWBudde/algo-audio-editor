@@ -50,6 +50,11 @@ type Engine struct {
 	processJob        *processingJob
 	processSequence   uint64
 	cancelledProcess  *protocol.ProcessJobResult
+	effectPreview     *effectPreviewSession
+	effectSequence    uint64
+	impulseResponses  map[int]impulseResponse
+	impulseSequence   int
+	impulseBytes      int64
 }
 
 // New returns an engine configured for 48 kHz stereo.
@@ -120,8 +125,15 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 	if err := e.guardProcessing(method); err != nil {
 		return nil, err
 	}
+	if err := e.guardEffects(method); err != nil {
+		return nil, err
+	}
 
 	switch method {
+	case protocol.MethodEffectsList, protocol.MethodEffectsResponse, protocol.MethodEffectsPreviewStart,
+		protocol.MethodEffectsPreviewUpdate, protocol.MethodEffectsPreviewStop, protocol.MethodEffectsPreviewMeters,
+		protocol.MethodEffectsApply, protocol.MethodEffectsIRLoad, protocol.MethodEffectsIRRemove:
+		return e.dispatchEffects(method, payload, input)
 	case protocol.MethodDocumentImportBinary:
 		var p protocol.BinaryDocumentParams
 		if err := decode(method, payload, &p); err != nil {

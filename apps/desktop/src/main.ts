@@ -11,6 +11,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, protocol, shell } from "electron";
 
+import { registerEffectPresets } from "./effect-presets";
+
 const SCHEME = "app";
 const HOST = "editor";
 const APP_URL = `${SCHEME}://${HOST}/index.html`;
@@ -155,6 +157,7 @@ function secureWindow(win: BrowserWindow) {
 
 app.whenReady().then(() => {
   registerAppProtocol();
+  registerEffectPresets(DEV_URL ?? APP_URL);
   createWindow();
 
   app.on("activate", () => {

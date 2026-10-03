@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/effects"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
 
@@ -24,6 +26,9 @@ type documentTransport struct {
 	mono                 []float32
 	resampled            *documentResampler
 	previewJobID         string
+	effectPreviewID      string
+	effects              *effects.Stream
+	planar               [][]float64
 }
 
 func (t *documentTransport) result() protocol.TransportResult {
@@ -31,6 +36,14 @@ func (t *documentTransport) result() protocol.TransportResult {
 }
 
 func (e *Engine) playDocument(p protocol.TransportPlayParams) (protocol.TransportResult, error) {
+	if p.PreviewJobID != "" && p.EffectPreviewID != "" {
+		return protocol.TransportResult{}, fmt.Errorf("transport.play: only one preview source is permitted")
+	}
+	if p.EffectPreviewID != "" {
+		if _, err := e.activeEffectSession("transport.play", protocol.EffectsSessionParams{DocumentID: e.editor.documentID, PreviewID: p.EffectPreviewID}); err != nil {
+			return protocol.TransportResult{}, err
+		}
+	}
 	document := e.document
 	if p.PreviewJobID != "" {
 		job := e.processJob
@@ -59,8 +72,45 @@ func (e *Engine) playDocument(p protocol.TransportPlayParams) (protocol.Transpor
 		return protocol.TransportResult{}, fmt.Errorf("transport.play: prepare playback: %w", err)
 	}
 	t.previewJobID = p.PreviewJobID
+	if p.EffectPreviewID != "" {
+		if err := e.attachEffectPreview(t, p.EffectPreviewID); err != nil {
+			return protocol.TransportResult{}, fmt.Errorf("transport.play: prepare effect preview: %w", err)
+		}
+	}
 	e.transport, e.source = t, sourceDocument
 	return t.result(), nil
+}
+
+func (e *Engine) attachEffectPreview(t *documentTransport, id string) error {
+	session := e.effectPreview
+	if session == nil || session.result.PreviewID != id {
+		return fmt.Errorf("stale effect preview")
+	}
+	stream := session.stream
+	if stream == nil {
+		return fmt.Errorf("effect preview has no prepared stream")
+	}
+	// A playing stream must remain untouched if private lookahead preparation
+	// fails. Initial Play and replay after Stop reuse the session's prepared DSP.
+	if e.source == sourceDocument && e.transport != nil && e.transport.playing && e.transport.effects == stream {
+		selection := session.result.SelectionRange
+		var err error
+		stream, err = effects.NewStream(e.document, ops.Range{Start: selection.Start, End: selection.End, ChannelMask: selection.ChannelMask}, session.config)
+		if err != nil {
+			return err
+		}
+	}
+	if err := stream.Prime(t.position); err != nil {
+		return fmt.Errorf("prepare effect lookahead: %w", err)
+	}
+	session.stream = stream
+	t.effects = stream
+	t.effectPreviewID = id
+	t.planar = make([][]float64, len(t.channels))
+	for channel := range t.planar {
+		t.planar[channel] = make([]float64, transportBlockFrames)
+	}
+	return nil
 }
 
 func (e *Engine) makeTransport(start, end, position int64, loop, playing bool) (*documentTransport, error) {
@@ -131,6 +181,11 @@ func (e *Engine) seekDocument(p protocol.TransportSeekParams) (protocol.Transpor
 		if err != nil {
 			return protocol.TransportResult{}, fmt.Errorf("transport.seek: prepare playback: %w", err)
 		}
+		if e.transport != nil && e.transport.effectPreviewID != "" {
+			if err := e.attachEffectPreview(t, e.transport.effectPreviewID); err != nil {
+				return protocol.TransportResult{}, fmt.Errorf("transport.seek: prepare effects: %w", err)
+			}
+		}
 	} else {
 		t = &documentTransport{start: start, end: end, position: p.Frame, loop: loop}
 	}
@@ -175,10 +230,35 @@ func (e *Engine) RenderWithPositions(dst []float32, positions []int64) int {
 	written := 0
 	for written < frames && t.playing {
 		count := int(min(int64(frames-written), int64(len(t.mono)), t.end-t.position))
-		for channel, data := range t.channels {
-			data.Read(t.mono[:count], t.position)
-			for frame := range count {
-				output[(written+frame)*e.channels+channel] = t.mono[frame]
+		if t.effects != nil {
+			for channel := range t.planar {
+				t.planar[channel] = t.planar[channel][:count]
+			}
+			if err := t.effects.Read(t.planar, t.position); err != nil {
+				t.playing = false
+				break
+			}
+			for channel := range t.planar {
+				selection := t.effects.Selection()
+				needRaw := selection.ChannelMask&(1<<channel) == 0 || t.position < selection.Start || t.position+int64(count) > selection.End
+				if needRaw {
+					t.channels[channel].Read(t.mono[:count], t.position)
+				}
+				for frame := range count {
+					value := float32(t.planar[channel][frame])
+					position := t.position + int64(frame)
+					if needRaw && (selection.ChannelMask&(1<<channel) == 0 || position < selection.Start || position >= selection.End) {
+						value = t.mono[frame]
+					}
+					output[(written+frame)*e.channels+channel] = value
+				}
+			}
+		} else {
+			for channel, data := range t.channels {
+				data.Read(t.mono[:count], t.position)
+				for frame := range count {
+					output[(written+frame)*e.channels+channel] = t.mono[frame]
+				}
 			}
 		}
 		for frame := range count {
@@ -186,6 +266,11 @@ func (e *Engine) RenderWithPositions(dst []float32, positions []int64) int {
 			if t.position == t.end {
 				if t.loop {
 					t.position = t.start
+					if t.effects != nil {
+						if err := t.effects.Reset(t.start); err != nil {
+							t.playing = false
+						}
+					}
 				} else {
 					t.playing = false
 				}

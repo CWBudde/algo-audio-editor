@@ -88,8 +88,8 @@ function context() {
   vi.stubGlobal(
     "AudioContext",
     class {
-      constructor() {
-        construct();
+      constructor(options?: AudioContextOptions) {
+        construct(options);
       }
       sampleRate = ctx.sampleRate;
       destination = ctx.destination;
@@ -141,6 +141,7 @@ describe("AudioEngine document playback", () => {
     worker.hold = "stream.start";
     const play = engine.play(info, params);
     expect(ctx.construct).toHaveBeenCalledTimes(1);
+    expect(ctx.construct).toHaveBeenCalledWith({ latencyHint: 0.001 });
     const prime = await waiting(worker, "stream.start");
     expect(ctx.resume).not.toHaveBeenCalled();
     expect(worker.latest("engine.configure")).toMatchObject({
@@ -153,6 +154,17 @@ describe("AudioEngine document playback", () => {
     expect(ctx.resume).toHaveBeenCalledTimes(1);
     expect(engine.position()).toBe(12);
     expect(engine.sampleRate).toBe(48000);
+  });
+
+  it("uses a short queue for live effects, retains it across seeks and restores full buffering for document playback", async () => {
+    const { worker, engine } = fixture();
+    await engine.prepare(info);
+    await engine.play(info, { ...params, effectPreviewId: "effects-1", loop: true });
+    expect(worker.latest("stream.start")).toMatchObject({ maxBufferedFrames: 768 });
+    await engine.seek(100);
+    expect(worker.latest("stream.start")).toMatchObject({ maxBufferedFrames: 768 });
+    await engine.play(info, params);
+    expect(worker.latest("stream.start")).not.toHaveProperty("maxBufferedFrames");
   });
 
   it("always stops kernel transport even when no context has been created", async () => {

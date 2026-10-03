@@ -5,6 +5,8 @@ import { defineConfig } from "@playwright/test";
 // builds both first.
 export default defineConfig({
   testDir: "e2e",
+  // Concurrent real app launches compete for WASM startup and audio processing.
+  workers: 1,
   reporter: process.env.CI ? [["github"]] : "list",
   use: { trace: "retain-on-failure" },
 });

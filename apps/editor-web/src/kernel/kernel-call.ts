@@ -27,7 +27,8 @@ export function callKernel(
     method !== "peaks.get" &&
     method !== "doc.export" &&
     method !== "timeline.export" &&
-    method !== "process.exportCandidate"
+    method !== "process.exportCandidate" &&
+    method !== "effects.response"
   )
     return { result: response.result };
 
@@ -44,6 +45,21 @@ export function callKernel(
     bytes.byteLength === bytes.buffer.byteLength
       ? bytes.buffer
       : bytes.slice().buffer;
+  if (method === "effects.response") {
+    const curve = info as unknown as { count: number; axis: string };
+    if (
+      !Number.isSafeInteger(curve.count) ||
+      curve.count < 2 ||
+      curve.count > 8192 ||
+      curve.count * 16 !== data.byteLength ||
+      !["frequency", "level"].includes(curve.axis)
+    )
+      throw new Error("effects.response: invalid curve metadata");
+    const values = new DataView(data);
+    for (let offset = 0; offset < data.byteLength; offset += 8)
+      if (!Number.isFinite(values.getFloat64(offset, true)))
+        throw new Error("effects.response: nonfinite curve value");
+  }
   const result = { ...info, data };
   if (method === "peaks.get") decodePeaks({ ...(info as PeaksGetInfo), data });
   return { result, transfer: [data] };

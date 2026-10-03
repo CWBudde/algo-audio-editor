@@ -1,4 +1,5 @@
 import type { ClipboardInfo, DocumentInfoResult, SelectionRange } from "@aae/protocol";
+import { stereoSelection } from "@/lib/effect-rack";
 import { desktopBridge } from "@/platform";
 
 export type CommandId =
@@ -46,9 +47,8 @@ export type CommandId =
   | "process.extract-channel"
   | "process.resample"
   | "process.generate"
-  | "effects.equalizer"
-  | "effects.dynamics"
-  | "effects.reverb";
+  | "effects.rack"
+  | `effects.${string}`;
 
 export type ShortcutPlatform = "mac" | "other";
 
@@ -64,6 +64,7 @@ export interface CommandContext {
   playing: boolean;
   silenceFrames?: number;
   modalOpen?: boolean;
+  effects?: readonly { id: string; name: string; channelMode?: "mono" | "stereo" }[];
 }
 
 export type CommandActions = Partial<Record<CommandId, () => void | Promise<void>>>;
@@ -139,7 +140,7 @@ export const COMMAND_MENUS: readonly { label: string; items: readonly (CommandId
       "process.generate",
     ],
   },
-  { label: "Effects", items: ["effects.equalizer", "effects.dynamics", "effects.reverb"] },
+  { label: "Effects", items: ["effects.rack"] },
   {
     label: "View",
     items: ["view.zoom-in", "view.zoom-out", "view.zoom-fit", "view.zoom-selection"],
@@ -401,9 +402,7 @@ const definitions: readonly Definition[] = [
     enabled: processAvailable,
   },
   { id: "process.generate", label: "Generate audio…", menu: "Process", enabled: validSelection },
-  { id: "effects.equalizer", label: "Equalizer…", menu: "Effects", enabled: () => false },
-  { id: "effects.dynamics", label: "Dynamics…", menu: "Effects", enabled: () => false },
-  { id: "effects.reverb", label: "Reverb…", menu: "Effects", enabled: () => false },
+  { id: "effects.rack", label: "Effect rack…", menu: "Effects", enabled: processAvailable },
   {
     id: "view.zoom-in",
     label: "Zoom In",
@@ -511,7 +510,15 @@ export function resolveCommands(
   platform: ShortcutPlatform,
   actions: CommandActions,
 ): ResolvedCommand[] {
-  return definitions.map((definition) => ({
+  const catalogue: Definition[] = (context.effects ?? []).map((effect) => ({
+    id: `effects.${effect.id}`,
+    label: `${effect.name}…`,
+    menu: "Effects",
+    enabled: (current) =>
+      processAvailable(current) &&
+      (effect.channelMode !== "stereo" || stereoSelection(current.selection?.channelMask ?? 0)),
+  }));
+  return [...definitions, ...catalogue].map((definition) => ({
     id: definition.id,
     label: definition.label,
     menu: definition.menu,

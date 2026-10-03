@@ -5,11 +5,12 @@ An audio editor that runs in the browser and as a desktop app. All audio work
 WebAssembly** on top of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp)
 family. The UI is **React + TypeScript + shadcn**.
 
-> **Status:** Phases 1–2 and processing infrastructure in [PLAN.md](PLAN.md): WAV import/export,
+> **Status:** WAV editing, processing and effects described in [PLAN.md](PLAN.md): WAV import/export,
 > interactive waveforms, playback, channel-aware selections and editing in the
 > browser and Electron, with undo/redo, persistent markers/regions, save-point
-> tracking, shared commands and a searchable command palette. Amplify adds
-> cancellable gain processing and a noncommitting playback preview.
+> tracking, shared commands and a searchable command palette. Processing includes
+> gain, normalization, fades and a descriptor-driven effects rack with live
+> preview, factory/user presets and cancellable, undoable offline application.
 
 ## Architecture
 
@@ -139,7 +140,27 @@ discard their private output. The dialog holds the shared document lock until
 Apply or Cancel completes. Samples above full scale are not clipped by gain;
 a predicted-peak/nonfinite warning requires a separate Apply anyway action.
 New selected-channel samples are bounded to 512 MiB, and committing must also
-fit the undo-history budget. Other destructive processes remain planned.
+fit the undo-history budget.
+
+## Effects
+
+Choose an effect or **Effect rack…** from the Effects menu or command palette.
+The rack targets selected frames and channels; a cursor targets the whole file.
+Add, remove or reorder effects, adjust their generated controls, or choose a
+factory preset. EQ curves and dynamics transfer curves are computed by the
+kernel; click an EQ curve to adjust its nearest band.
+
+Preview loops the selection with live parameter changes, rack/effect bypass,
+wet/dry balance and input/output peak/RMS meters. Apply renders the final rack
+from the selection start and creates one undo step. Cancel or Escape discards
+the private render. Samples outside the selection and unselected channels stay
+unchanged. Stereo effects require complete adjacent channel pairs.
+
+Save named rack presets in browser OPFS or Electron userData. Convolution
+accepts a mono or stereo WAV impulse response at the document's sample rate,
+up to 30 seconds within a 32 MiB kernel resource budget. Graph preparation is
+bounded to 64 MiB of upstream-estimated workspace. Presets retain the
+original impulse file and reload it into the kernel when restored.
 
 ## Undo and saving
 
