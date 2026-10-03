@@ -25,6 +25,15 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-error: var(--editor-error);
+    --color-warning: var(--editor-warning);
+    --color-playhead: var(--editor-playhead);
+    --color-selection: var(--editor-selection);
+    --color-selection-fill: var(--editor-selection-fill);
+    --color-waveform-background: var(--editor-waveform-background);
+    --color-waveform-peak: var(--editor-waveform-peak);
+    --color-waveform-sample: var(--editor-waveform-sample);
+    --color-waveform-rms: var(--editor-waveform-rms);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -48,73 +57,62 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* The single source for DOM and resolved canvas colors. Document-owned marker
+   and region colors are deliberately independent of this semantic palette. */
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
-}
+    color-scheme: dark;
+    --editor-background: #110d18;
+    --editor-foreground: #f4eefb;
+    --editor-surface: #1b1425;
+    --editor-surface-raised: #241b31;
+    --editor-muted-foreground: #b6a8c8;
+    --editor-border: #493a5b;
+    --editor-primary: #c4b5fd;
+    --editor-primary-foreground: #21152f;
+    --editor-focus: var(--editor-primary);
+    --editor-selection: var(--editor-primary);
+    --editor-selection-fill: #c4b5fd26;
+    --editor-waveform-background: #15101e;
+    --editor-waveform-peak: #fb923c;
+    --editor-waveform-sample: var(--editor-waveform-peak);
+    --editor-waveform-rms: #785794;
+    --editor-playhead: #fde047;
+    --editor-warning: var(--editor-playhead);
+    --editor-destructive: #f87171;
+    --editor-error: var(--editor-destructive);
 
-.dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --background: var(--editor-background);
+    --foreground: var(--editor-foreground);
+    --card: var(--editor-surface);
+    --card-foreground: var(--editor-foreground);
+    --popover: var(--editor-surface-raised);
+    --popover-foreground: var(--editor-foreground);
+    --primary: var(--editor-primary);
+    --primary-foreground: var(--editor-primary-foreground);
+    --secondary: var(--editor-surface-raised);
+    --secondary-foreground: var(--editor-foreground);
+    --muted: var(--editor-surface-raised);
+    --muted-foreground: var(--editor-muted-foreground);
+    --accent: var(--editor-surface-raised);
+    --accent-foreground: var(--editor-primary);
+    --destructive: var(--editor-destructive);
+    --border: var(--editor-border);
+    --input: var(--editor-border);
+    --ring: var(--editor-focus);
+    --chart-1: var(--editor-primary);
+    --chart-2: var(--editor-waveform-peak);
+    --chart-3: var(--editor-waveform-rms);
+    --chart-4: var(--editor-playhead);
+    --chart-5: var(--editor-destructive);
+    --radius: 0.625rem;
+    --sidebar: var(--editor-surface);
+    --sidebar-foreground: var(--editor-foreground);
+    --sidebar-primary: var(--editor-primary);
+    --sidebar-primary-foreground: var(--editor-primary-foreground);
+    --sidebar-accent: var(--editor-surface-raised);
+    --sidebar-accent-foreground: var(--editor-primary);
+    --sidebar-border: var(--editor-border);
+    --sidebar-ring: var(--editor-focus);
 }
 
 @layer base {
@@ -126,5 +124,9 @@
     }
   html {
     @apply font-sans;
+    }
+  ::selection {
+    background: var(--editor-selection-fill);
+    color: var(--editor-foreground);
     }
 }

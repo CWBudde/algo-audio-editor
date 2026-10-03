@@ -46,7 +46,8 @@
 
 ### Phase U.4: Purple and warm-color theme
 
-- [ ] Centralize dark semantic colors: purple primary/focus/selection, orange waveform peaks/dots, subdued purple RMS, yellow playhead/warnings and red destructive/errors. Apply colors to canvases as well as CSS, retain user marker colors and readable/non-color state indicators.
+- [x] `index.css` centralizes dark semantic roles: purple primary/focus/selection, orange waveform peaks/dots, subdued purple RMS, yellow playhead/warnings and red destructive/errors. `editor-theme.ts` resolves immutable palette snapshots for canvas consumers, including scoped overrides; ten tests cover CSS defaults/aliases, contrast, fresh snapshots and missing/unresolved styles. User marker colors remain independent.
+- [ ] Apply the resolved palette to waveform canvases and replace selection/playhead color classes during U.5 integration.
 
 ### Phase U.5: Sample dots and connecting lines
 
