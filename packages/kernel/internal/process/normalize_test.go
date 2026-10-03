@@ -3,6 +3,7 @@ package process
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"math/bits"
 	"reflect"
@@ -304,6 +305,85 @@ func TestNormalizeLoudnessIndependentFilterGateGolden(t *testing.T) {
 	}
 }
 
+func TestNormalizeLoudnessImmutableCertificationCopiedPlanAndActualCandidateParity(t *testing.T) {
+	const frames = audiobuf.BlockFrames + 17000
+	for _, amplitude := range []float64{0.5, 1e-5, 1e30, math.SmallestNonzeroFloat32} {
+		t.Run(fmt.Sprintf("amplitude%g", amplitude), func(t *testing.T) {
+			left, right := normalizeTone(frames, amplitude), normalizeTone(frames, amplitude*.75)
+			untouched := make([]float32, frames)
+			for i := range untouched {
+				untouched[i] = math.Float32frombits(0x7f812345)
+			}
+			document := fixture(t, left, untouched, right)
+			selected := ops.Range{Start: 13, End: frames - 17, ChannelMask: 5}
+			reference, err := loudness.NewTargetAnalyzer(loudness.IntegratedConfig{SampleRate: 48000, Channels: 2, MaxFrames: selected.End - selected.Start}, -23)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for start := selected.Start; start < selected.End; {
+				end := min(start+997, selected.End)
+				if err := reference.ProcessPlanar32([][]float32{left[start:end], right[start:end]}); err != nil {
+					t.Fatal(err)
+				}
+				start = end
+			}
+			for {
+				done, err := reference.FinishStep(19)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if done {
+					break
+				}
+			}
+			plan, err := reference.Result()
+			if err != nil {
+				t.Fatal(err)
+			}
+			normalizer, err := NewNormalizer(document, selected, "normalize-loudness", -23, Limits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate := finishNormalizer(t, normalizer)
+			status := normalizer.Status()
+			if status.GainDB != plan.Plan.GainDB || (status.InputLUFS != nil) != plan.HasMeasuredLUFS || (status.InputLUFS != nil && *status.InputLUFS != plan.MeasuredLUFS) {
+				t.Fatalf("immutable certification changed copied reference plan: %+v/%+v", status, plan)
+			}
+			for channel, input := range map[int][]float32{0: left, 2: right} {
+				got := samples(t, candidate, channel)
+				for frame, value := range input {
+					want := value
+					if int64(frame) >= selected.Start && int64(frame) < selected.End {
+						want = float32(float64(value) * plan.Plan.Gain)
+					}
+					if math.Float32bits(got[frame]) != math.Float32bits(want) {
+						t.Fatalf("candidate channel%d frame%d differs from copied reference", channel, frame)
+					}
+				}
+				assertBits(t, samples(t, document, channel), input)
+			}
+			assertBits(t, samples(t, candidate, 1), untouched)
+			selectedChannels := make([]audiobuf.Channel, 0, 2)
+			for _, index := range []int{0, 2} {
+				channel, _ := candidate.Channel(index)
+				part, err := channel.Slice(selected.Start, selected.End)
+				if err != nil {
+					t.Fatal(err)
+				}
+				selectedChannels = append(selectedChannels, part)
+			}
+			actualDocument, err := audiobuf.NewDocument(selectedChannels, 48000, audiobuf.Metadata{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual := measureNormalized(t, actualDocument, 3)
+			if status.OutputLUFS == nil || math.Abs(*status.OutputLUFS-actual) > 1e-10 || math.Abs(actual+23) > .01 {
+				t.Fatalf("certified stored candidate differs from ordinary actual meter: %+v/%g", status, actual)
+			}
+		})
+	}
+}
+
 func measureNormalized(t testing.TB, document audiobuf.Document, mask int) float64 {
 	t.Helper()
 	count := bits.OnesCount(uint(mask))
@@ -317,8 +397,16 @@ func measureNormalized(t testing.TB, document audiobuf.Document, mask int) float
 			block = append(block, samples(t, document, channel))
 		}
 	}
-	if err := analyzer.ProcessPlanar32(block); err != nil {
-		t.Fatal(err)
+	views := make([][]float32, count)
+	for start := 0; int64(start) < document.Frames(); {
+		end := min(start+audiobuf.BlockFrames, int(document.Frames()))
+		for channel := range views {
+			views[channel] = block[channel][start:end]
+		}
+		if err := analyzer.ProcessPlanar32(views); err != nil {
+			t.Fatal(err)
+		}
+		start = end
 	}
 	for {
 		done, err := analyzer.FinishStep(1)

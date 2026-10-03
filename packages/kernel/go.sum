@@ -1,5 +1,5 @@
-github.com/cwbudde/algo-dsp v0.7.8 h1:WGBXuDrnwbFAG+gsOsqb/L7LAUdZPUSwjt3amOOKh/w=
-github.com/cwbudde/algo-dsp v0.7.8/go.mod h1:WHf7IHUr1XZza4oQbGAymnuVM+gqbtRbIB7bMjvQHSc=
+github.com/cwbudde/algo-dsp v0.7.10 h1:mwAKhBYEMA97ftG/N/MwOx0cR9dlWSSrltI+8rFM2Uk=
+github.com/cwbudde/algo-dsp v0.7.10/go.mod h1:WHf7IHUr1XZza4oQbGAymnuVM+gqbtRbIB7bMjvQHSc=
 github.com/cwbudde/algo-vecmath v0.1.3 h1:lzXRUI1XP/RLgyCfSPGvAB7HFEU4bjQtZdfel6ZUjjw=
 github.com/cwbudde/algo-vecmath v0.1.3/go.mod h1:lc9dLv41D4RCmhXG/CsIesfJXmONI7pQXcFrkxQSfeQ=
 github.com/cwbudde/wav v0.1.2 h1:eipD0FPgcTS0NOR6EpcxMw7Rf+ku39L6C3d3KLnuFI0=

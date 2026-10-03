@@ -64,12 +64,20 @@ func TestFeedTargetAnalyzerContiguousUnalignedAndPackedChannelParity(t *testing.
 	for _, count := range []int{1, 2, 8} {
 		input := readerProgram(count, frames+offset+23)
 		input[count-1][offset+3] = math.Float32frombits(0x80000000)
+		input[count-1][0] = math.Float32frombits(0x7f812345)
+		input[0][len(input[0])-1] = float32(math.Inf(1))
 		channels := make([]Channel, count)
 		weights := make([]float64, count)
 		for i := range channels {
 			// Reverse source order makes preserving packed channel order explicit.
 			channels[i] = NewChannel(input[count-i-1])
 			weights[i] = float64(i+1) / 4
+		}
+		if count > 1 {
+			// Zero-weight channels still belong to the exact peak proof.
+			weights[0] = 0
+			input[count-1][offset+5] = .99
+			channels[0] = NewChannel(input[count-1])
 		}
 		config := loudness.IntegratedConfig{SampleRate: 48000, Channels: count, MaxFrames: frames, ChannelWeights: weights}
 		analyzer, err := loudness.NewTargetAnalyzer(config, -23)
@@ -251,4 +259,81 @@ func TestFeedTargetAnalyzerHotPathAllocatesNothing(t *testing.T) {
 		t.Fatalf("direct internal sample views allocated %g times", allocations)
 	}
 	assertFeedViewsCleared(t, &buffer)
+}
+
+func TestFeedStoredCandidateBlocksExactMeasurementAndAtomicRejection(t *testing.T) {
+	var buffer TargetFeedBuffer
+	const frames = 24000
+	input := readerProgram(2, frames)
+	blocks := make([]*Block, 2)
+	for channel := range blocks {
+		var err error
+		blocks[channel], err = NewBlock(input[channel])
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	analyzer, reference := readerAnalyzer(t, 2, frames), readerAnalyzer(t, 2, frames)
+	if err := buffer.FeedBlocks(analyzer, blocks); err != nil {
+		t.Fatal(err)
+	}
+	assertFeedViewsCleared(t, &buffer)
+	if err := reference.ProcessPlanar32(input); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := finishReaderMeasurement(t, analyzer), finishReaderMeasurement(t, reference); !reflect.DeepEqual(got, want) {
+		t.Fatal("stored candidate scan differs from copied actual reference", got, want)
+	}
+	for _, special := range []uint32{0x7f812345, 0xff800000} {
+		bad := append([]float32(nil), input[1]...)
+		bad[31] = math.Float32frombits(special)
+		badBlock, err := NewBlock(bad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		analyzer.Reset()
+		if err := buffer.FeedBlocks(analyzer, []*Block{blocks[0], badBlock}); !errors.Is(err, loudness.ErrNonFinite) || analyzer.SamplePeak() != 0 {
+			t.Fatalf("later unsafe candidate channel advanced actual meter: %v", err)
+		}
+		assertFeedViewsCleared(t, &buffer)
+		got := make([]float32, frames)
+		badBlock.Read(got, 0)
+		if math.Float32bits(got[31]) != special {
+			t.Fatal("candidate scan changed IEEE payload")
+		}
+		analyzer.Reset()
+		if err := buffer.FeedBlocks(analyzer, blocks); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := finishReaderMeasurement(t, analyzer), finishReaderMeasurement(t, reference); !reflect.DeepEqual(got, want) {
+			t.Fatal("unsafe candidate views remained after Reset")
+		}
+	}
+}
+
+func TestFeedStoredBlocksInvalidGeometryClearsViews(t *testing.T) {
+	var buffer TargetFeedBuffer
+	block, err := NewBlock([]float32{1, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	short, err := NewBlock([]float32{1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	analyzer := readerAnalyzer(t, 2, 24000)
+	for _, blocks := range [][]*Block{nil, {nil}, {block, nil}, {block, short}, {{}}, make([]*Block, 9)} {
+		buffer.views[0] = block.samples
+		if err := buffer.FeedBlocks(analyzer, blocks); err == nil || analyzer.SamplePeak() != 0 {
+			t.Fatal("invalid stored geometry advanced meter")
+		}
+		assertFeedViewsCleared(t, &buffer)
+	}
+	if err := buffer.FeedBlocks(nil, []*Block{block}); err == nil {
+		t.Fatal("missing candidate meter accepted")
+	}
+	var absent *TargetFeedBuffer
+	if err := absent.FeedBlocks(analyzer, []*Block{block}); err == nil {
+		t.Fatal("missing descriptor buffer accepted")
+	}
 }

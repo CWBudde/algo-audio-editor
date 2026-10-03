@@ -161,6 +161,9 @@ func (n *Normalizer) processLoudnessBlock(ctx context.Context, analyzer *loudnes
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("process.normalize: %w", err)
 	}
+	// The concrete feed adapter certifies only finiteness and exact sample peak
+	// from immutable storage. Both source and candidate still undergo actual
+	// independent K filtering, complete-window accumulation and gated analysis.
 	fed, err := n.feed.Feed(analyzer, n.channels, n.selected.Start+n.progress.FramesDone, frames)
 	if err != nil {
 		return fmt.Errorf("process.normalize: feed loudness: %w", err)

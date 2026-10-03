@@ -22,6 +22,20 @@ func NewFadedBlock(source Channel, start int64, frames int, offset, total int64,
 	return block, nil
 }
 
+// NewEnvelopeFadedBlock applies a precomputed upstream envelope to private
+// storage. It retains neither caller samples nor the shared envelope.
+func NewEnvelopeFadedBlock(source Channel, start int64, frames int, envelope []float64) (*Block, error) {
+	block, err := readOwnedBlock(source, start, frames)
+	if err != nil {
+		return nil, fmt.Errorf("block.fade: %w", err)
+	}
+	if err := fade.ApplyEnvelopeInto32(block.samples, block.samples, envelope); err != nil {
+		return nil, fmt.Errorf("block.fade: upstream envelope: %w", err)
+	}
+	block.buildPeaks()
+	return block, nil
+}
+
 // NewDCRemovedBlock subtracts an independently measured whole-range channel
 // mean using upstream DSP and rounds directly into immutable float32 storage.
 func NewDCRemovedBlock(source Channel, start int64, frames int, mean float64) (*Block, error) {

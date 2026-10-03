@@ -63,6 +63,9 @@ func TestOwnedProcessedBlockValidation(t *testing.T) {
 		if _, err := NewDCRemovedBlock(source, bounds.start, bounds.frames, 0); err == nil {
 			t.Fatal("invalidDC source accepted")
 		}
+		if _, err := NewEnvelopeFadedBlock(source, bounds.start, bounds.frames, []float64{1}); err == nil {
+			t.Fatal("invalid envelope source accepted")
+		}
 	}
 	if _, err := NewFadedBlock(source, 0, 4, 2, 4, fade.Linear, true); err == nil {
 		t.Fatal("invalidenvelope range accepted")
@@ -72,6 +75,31 @@ func TestOwnedProcessedBlockValidation(t *testing.T) {
 	}
 	if _, err := NewDCRemovedBlock(source, 0, 4, math.NaN()); err == nil {
 		t.Fatal("undefinedmean accepted")
+	}
+}
+
+func TestOwnedSharedEnvelopeDoesNotRetainCallerStorage(t *testing.T) {
+	source := NewChannel([]float32{2, 4, 8})
+	envelope := []float64{0, .5, 1}
+	block, err := NewEnvelopeFadedBlock(source, 0, 3, envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(envelope)
+	got := make([]float32, 3)
+	block.Read(got, 0)
+	if !reflect.DeepEqual(got, []float32{0, 2, 8}) {
+		t.Fatal("owned fade retained mutable envelope storage")
+	}
+	if peak, err := block.FinitePeak(0, 3); err != nil || peak != 8 {
+		t.Fatalf("owned envelope cache %v/%v", peak, err)
+	}
+	if _, err := NewEnvelopeFadedBlock(source, 0, 3, envelope[:2]); err == nil {
+		t.Fatal("short shared envelope accepted")
+	}
+	source.Read(got, 0)
+	if !reflect.DeepEqual(got, []float32{2, 4, 8}) {
+		t.Fatal("source changed while applying shared envelope")
 	}
 }
 

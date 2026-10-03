@@ -694,10 +694,12 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
       await captureKernelWorker(context);
       // Browser-observed destination paint excludes Playwright polling overhead.
       await context.addInitScript(() => {
-        if (!new URL(window.location.href).searchParams.has("extract")) return;
-        const parent = window.opener as Window | null;
-        if (!parent) return;
-        const observer = new MutationObserver(() => {
+        // Popup init scripts can run against the initial about:blank document,
+        // which navigation replaces. Reattach to the current document when it
+        // loads; extraction also clears its URL token before React mounts.
+        const painted = () => {
+          const parent = window.opener as Window | null;
+          if (!parent) return;
           const root = document.querySelector('[data-testid="waveform-view"]');
           if (
             !root?.getAttribute("data-document-id") ||
@@ -709,6 +711,7 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
           )
             return;
           observer.disconnect();
+          window.removeEventListener("DOMContentLoaded", attach);
           parent.postMessage(
             {
               type: "aae.benchmark.extraction-painted",
@@ -716,13 +719,20 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
             },
             window.location.origin,
           );
-        });
-        observer.observe(document, {
-          childList: true,
-          subtree: true,
-          attributes: true,
-          attributeFilter: ["data-rendered", "data-document-id"],
-        });
+        };
+        const observer = new MutationObserver(painted);
+        const attach = () => {
+          observer.disconnect();
+          observer.observe(document, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ["data-rendered", "data-document-id"],
+          });
+          painted();
+        };
+        window.addEventListener("DOMContentLoaded", attach);
+        attach();
       });
       await page.goto("/");
       await expect(page.locator("[data-kernel-state]")).toHaveAttribute(

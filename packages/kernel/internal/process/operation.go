@@ -59,12 +59,13 @@ type blockOperation struct {
 	means                       []signal.MeanAccumulator
 	generators                  []*signal.StreamGenerator
 	mono, second                []float32
-	dsp, other                  []float64
+	dsp, other, rising          []float64
 	progress                    Progress
 	status                      NormalizationStatus
 	result                      audiobuf.Document
 	peak                        float64
 	nonfinite, shared, identity bool
+	sharedGenerator             bool
 	failure                     error
 }
 
@@ -203,16 +204,23 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 	}
 	b.mono, b.second = make([]float32, audiobuf.BlockFrames), make([]float32, audiobuf.BlockFrames)
 	b.dsp, b.other = make([]float64, audiobuf.BlockFrames), make([]float64, audiobuf.BlockFrames)
+	if settings.Operation == "crossfade" {
+		b.rising = make([]float64, audiobuf.BlockFrames)
+	}
 	if settings.Operation == "remove-dc" {
 		b.means = make([]signal.MeanAccumulator, len(b.channels))
 	}
 	if settings.Operation == "generate" {
+		b.sharedGenerator = settings.Generator == "silence" || settings.Generator == "sine" || settings.Generator == "linear-sweep" || settings.Generator == "log-sweep"
 		for _, channel := range b.indices {
 			generator, err := signal.NewStreamGenerator(signal.StreamConfig{Kind: signal.StreamKind(settings.Generator), SampleRate: float64(document.SampleRate()), Amplitude: core.DBToLinear(settings.LevelDB), StartHz: settings.Frequency, EndHz: settings.EndFrequency, Frames: b.renderFrames, Seed: settings.Seed + uint64(channel)*0x9e3779b97f4a7c15})
 			if err != nil {
 				return nil, fmt.Errorf("process.new: generator: %w", err)
 			}
 			b.generators = append(b.generators, generator)
+			if b.sharedGenerator {
+				break
+			}
 		}
 	}
 	b.progress.FramesTotal = b.renderFrames
@@ -260,12 +268,21 @@ func (b *blockOperation) Step(ctx context.Context) (Progress, error) {
 				}
 			}
 		} else {
+			if err := b.prepareEnvelope(count); err != nil {
+				return b.fail(fmt.Errorf("process.step: envelope: %w", err))
+			}
 			for i := range len(b.channels) {
 				if b.settings.Operation == "stereo-to-mono" && i > 0 {
 					break
 				}
 				if err := ctx.Err(); err != nil {
 					return b.fail(fmt.Errorf("process.step: %w", err))
+				}
+				if b.sharedGenerator && i > 0 {
+					// Deterministic generators have identical global phase on all
+					// selected channels. Reuse their immutable output and summaries.
+					b.blocks[i] = append(b.blocks[i], b.blocks[0][len(b.blocks[0])-1])
+					continue
 				}
 				if b.shared {
 					cached, err := b.scanShared(i, count)
@@ -344,7 +361,7 @@ func (b *blockOperation) render(i, count int) error {
 		if b.channels[i].Read(b.second[:count], b.selected.Start+b.renderFrames+offset) != count {
 			return fmt.Errorf("short crossfade read")
 		}
-		return fade.CrossfadeInto32(b.mono[:count], b.mono[:count], b.second[:count], offset, b.renderFrames, fade.Shape(b.settings.Curve))
+		return fade.CrossfadeEnvelopeInto32(b.mono[:count], b.mono[:count], b.second[:count], b.other[:count], b.rising[:count])
 	case "reverse":
 		slices.Reverse(b.mono[:count])
 	case "invert":
@@ -369,12 +386,26 @@ func (b *blockOperation) render(i, count int) error {
 	return nil
 }
 
+func (b *blockOperation) prepareEnvelope(count int) error {
+	switch b.settings.Operation {
+	case "fade-in", "fade-out":
+		return fade.EnvelopeInto64(b.other[:count], b.progress.FramesDone, b.renderFrames, fade.Shape(b.settings.Curve), b.settings.Operation == "fade-in")
+	case "crossfade":
+		if err := fade.EnvelopeInto64(b.other[:count], b.progress.FramesDone, b.renderFrames, fade.Shape(b.settings.Curve), false); err != nil {
+			return err
+		}
+		return fade.EnvelopeInto64(b.rising[:count], b.progress.FramesDone, b.renderFrames, fade.Shape(b.settings.Curve), true)
+	default:
+		return nil
+	}
+}
+
 func (b *blockOperation) renderOwned(i, count int) (bool, error) {
 	var block *audiobuf.Block
 	var err error
 	switch b.settings.Operation {
 	case "fade-in", "fade-out":
-		block, err = audiobuf.NewFadedBlock(b.channels[i], b.selected.Start+b.progress.FramesDone, count, b.progress.FramesDone, b.renderFrames, fade.Shape(b.settings.Curve), b.settings.Operation == "fade-in")
+		block, err = audiobuf.NewEnvelopeFadedBlock(b.channels[i], b.selected.Start+b.progress.FramesDone, count, b.other[:count])
 	case "remove-dc":
 		var mean float64
 		mean, err = b.means[i].Mean()
@@ -543,7 +574,7 @@ func (b *blockOperation) MemoryDocument() (audiobuf.Document, error) {
 func (b *blockOperation) release() {
 	b.source = audiobuf.Document{}
 	b.channels, b.indices, b.blocks, b.means, b.generators = nil, nil, nil, nil, nil
-	b.mono, b.second, b.dsp, b.other = nil, nil, nil, nil
+	b.mono, b.second, b.dsp, b.other, b.rising = nil, nil, nil, nil, nil
 }
 
 func (b *blockOperation) fail(err error) (Progress, error) {

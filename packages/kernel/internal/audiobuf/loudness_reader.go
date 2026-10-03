@@ -1,15 +1,17 @@
 package audiobuf
 
 import (
+	"errors"
 	"fmt"
+	"math"
 
 	"github.com/cwbudde/algo-dsp/measure/loudness"
 )
 
 // TargetFeedBuffer owns reusable, bounded planar view descriptors, not samples.
 // Its zero value is ready for use by one owner. It deliberately accepts only the
-// concrete tagged TargetAnalyzer, whose ProcessPlanar32 contract neither mutates
-// nor retains input. Views never escape to callers, arbitrary callbacks, or
+// concrete tagged TargetAnalyzer, whose planar processing methods neither mutate
+// nor retain input. Views never escape to callers, arbitrary callbacks, or
 // processor interfaces, and are cleared after every call, including errors.
 // Changes to that upstream ownership contract require reviewing this adapter.
 type TargetFeedBuffer struct{ views [8][]float32 }
@@ -27,14 +29,23 @@ func (b *TargetFeedBuffer) FeedBlocks(analyzer *loudness.TargetAnalyzer, blocks 
 		return fmt.Errorf("audiobuf.feedLoudness: analyzer and 1-8 blocks required")
 	}
 	frames := 0
+	peak, certified := 0.0, true
 	for index, block := range blocks {
-		if block == nil || (index > 0 && block.Frames() != frames) {
+		if block == nil || block.Frames() < 1 || (index > 0 && block.Frames() != frames) {
 			return fmt.Errorf("audiobuf.feedLoudness: equal nonempty blocks required")
 		}
 		frames = block.Frames()
 		b.views[index] = block.samples[:frames:frames]
+		measured, err := block.FinitePeak(0, frames)
+		if errors.Is(err, ErrNonFiniteSamples) {
+			certified = false
+		} else if err != nil {
+			return fmt.Errorf("audiobuf.feedLoudness: prove stored block: %w", err)
+		} else {
+			peak = math.Max(peak, measured)
+		}
 	}
-	if err := analyzer.ProcessPlanar32(b.views[:len(blocks)]); err != nil {
+	if err := b.process(analyzer, len(blocks), peak, certified); err != nil {
 		return fmt.Errorf("audiobuf.feedLoudness: measure stored blocks: %w", err)
 	}
 	return nil
@@ -76,12 +87,32 @@ func (b *TargetFeedBuffer) Feed(analyzer *loudness.TargetAnalyzer, channels []Ch
 		return false, nil
 	}
 	// Fill views only after every packed channel's geometry is eligible.
+	peak, certified := 0.0, true
 	for index, channel := range channels {
 		local := localOffsets[index]
 		b.views[index] = channel.blocks[blockIndices[index]].samples[local : local+frames : local+frames]
+		measured, err := channel.FinitePeak(start, start+int64(frames))
+		if errors.Is(err, ErrNonFiniteSamples) {
+			certified = false
+		} else if err != nil {
+			return false, fmt.Errorf("audiobuf.feedLoudness: prove immutable range: %w", err)
+		} else {
+			peak = math.Max(peak, measured)
+		}
 	}
-	if err := analyzer.ProcessPlanar32(b.views[:len(channels)]); err != nil {
+	if err := b.process(analyzer, len(channels), peak, certified); err != nil {
 		return false, fmt.Errorf("audiobuf.feedLoudness: analyze immutable views: %w", err)
 	}
 	return true, nil
+}
+
+// process replaces only upstream's redundant finite/peak preflight with an
+// exact immutable-storage proof covering every supplied channel, including
+// zero-weight channels. Actual K filters, windows and gates still run on every
+// sample. Unsafe input uses ordinary atomic preflight and preserves its errors.
+func (b *TargetFeedBuffer) process(analyzer *loudness.TargetAnalyzer, channels int, peak float64, certified bool) error {
+	if certified {
+		return analyzer.ProcessCertifiedPlanar32(b.views[:channels], peak)
+	}
+	return analyzer.ProcessPlanar32(b.views[:channels])
 }

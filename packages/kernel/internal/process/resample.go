@@ -62,7 +62,7 @@ func newRateOperation(document audiobuf.Document, selected ops.Range, settings S
 	taps := resample.QualityProfile(quality).TapsPerPhase * ((down + up - 1) / up)
 	inputCount := int(min(int64(audiobuf.BlockFrames), max(int64(1), int64(audiobuf.BlockFrames-1)*int64(down)/int64(up))))
 	// The exact ratio and clone histories are bounded before designing filters.
-	workspace := int64(taps)*int64(up)*16 + int64(up)*32 + int64(document.Channels())*int64(taps)*8 + int64(inputCount+audiobuf.BlockFrames)*8 + int64(audiobuf.BlockFrames)*4
+	workspace := int64(taps)*int64(up)*16 + int64(up)*32 + int64(document.Channels())*int64(taps)*8 + int64(inputCount+audiobuf.BlockFrames)*8 + int64(audiobuf.BlockFrames)*12
 	if workspace > maxRateWorkspaceBytes {
 		return nil, fmt.Errorf("process.resample: exact ratio requires %d bytes, exceeding %d-byte workspace limit", workspace, maxRateWorkspaceBytes)
 	}

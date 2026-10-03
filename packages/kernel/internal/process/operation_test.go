@@ -140,6 +140,99 @@ func TestReverseBitsAcrossBlockBoundaries(t *testing.T) {
 	}
 }
 
+func TestMultichannelFadeGlobalEnvelopeAndUnsafeTelemetry(t *testing.T) {
+	frames := audiobuf.BlockFrames + 3
+	for _, curve := range []string{"linear", "equal-power", "logarithmic", "s-curve"} {
+		shape := func(x float64) float64 {
+			switch curve {
+			case "equal-power":
+				return math.Sin(math.Pi * x / 2)
+			case "logarithmic":
+				return math.Log10(1 + 9*x)
+			case "s-curve":
+				return x * x * (3 - 2*x)
+			default:
+				return x
+			}
+		}
+		for _, operation := range []string{"fade-in", "fade-out", "crossfade"} {
+			t.Run(operation+"/"+curve, func(t *testing.T) {
+				count := frames
+				if operation == "crossfade" {
+					count *= 2
+				}
+				unsafe, finite := make([]float32, count), make([]float32, count)
+				for i := range finite {
+					unsafe[i], finite[i] = 0.25, 0.25
+					if operation == "crossfade" && i >= frames {
+						unsafe[i], finite[i] = 0.75, 0.75
+					}
+				}
+				unsafe[3] = math.Float32frombits(0x7f812345)
+				document := operationDocument(t, unsafe, finite)
+				selection := ops.Range{End: int64(count), ChannelMask: 3}
+				if operation == "crossfade" {
+					selection.Start, selection.End = int64(frames), int64(frames)
+				}
+				stepper, err := NewOperation(document, selection, Settings{Operation: operation, Curve: curve, DurationFrames: int64(frames)}, Limits{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				result := finishOperation(t, stepper)
+				got := operationSamples(t, result, 1)
+				for _, position := range []int{0, 3, 31, frames / 2, audiobuf.BlockFrames - 1, audiobuf.BlockFrames, frames - 1} {
+					x := float64(position) / float64(frames-1)
+					want := .25 * shape(x)
+					switch operation {
+					case "fade-out":
+						want = .25 * shape(1-x)
+					case "crossfade":
+						want = .25*shape(1-x) + .75*shape(x)
+					}
+					if math.Abs(float64(got[position])-want) > 1e-7 {
+						t.Fatalf("position%d got%v want%v", position, got[position], want)
+					}
+				}
+				_, nonfinite := stepper.(*blockOperation).Peak()
+				if !nonfinite || !math.IsNaN(float64(operationSamples(t, result, 0)[3])) {
+					t.Fatal("unsafe first-channel output lost")
+				}
+				original := operationSamples(t, document, 0)
+				for i, value := range unsafe {
+					if math.Float32bits(original[i]) != math.Float32bits(value) {
+						t.Fatal("source changed during envelope reuse")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestInvalidPreparedEnvelopeFailsWithoutPublishingOutput(t *testing.T) {
+	document := operationDocument(t, []float32{1, 2, 3, 4}, []float32{1, 2, 3, 4})
+	for _, operation := range []string{"fade-in", "crossfade"} {
+		selection := ops.Range{End: 4, ChannelMask: 3}
+		if operation == "crossfade" {
+			selection.Start, selection.End = 2, 2
+		}
+		stepper, err := NewOperation(document, selection, Settings{Operation: operation, DurationFrames: 2}, Limits{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		job := stepper.(*blockOperation)
+		job.settings.Curve = "corrupt-private-curve"
+		if _, err := job.Step(context.Background()); err == nil {
+			t.Fatal("invalid envelope published a candidate")
+		}
+		if _, err := job.Result(); err == nil || job.other != nil || job.rising != nil || job.blocks != nil {
+			t.Fatal("invalid envelope retained a candidate or scratch")
+		}
+		if !reflect.DeepEqual(operationSamples(t, document, 1), []float32{1, 2, 3, 4}) {
+			t.Fatal("invalid envelope changed source")
+		}
+	}
+}
+
 func TestDCMeasuresWholeSelection(t *testing.T) {
 	values := make([]float32, audiobuf.BlockFrames+3)
 	for i := range values {
@@ -274,6 +367,67 @@ func TestGeneratorDeterminismAndIndependentChannels(t *testing.T) {
 	}
 }
 
+func TestDeterministicGeneratorSharedBlocksAndGlobalPhase(t *testing.T) {
+	frames := audiobuf.BlockFrames + 11
+	values := make([]float32, frames+2)
+	for i := range values {
+		values[i] = 0.25
+	}
+	document := operationDocument(t, values, values, values)
+	selected := ops.Range{Start: 1, End: int64(frames + 1), ChannelMask: 5}
+	for _, kind := range []string{"silence", "sine", "linear-sweep", "log-sweep"} {
+		t.Run(kind, func(t *testing.T) {
+			settings := Settings{Operation: "generate", Generator: kind, Frequency: 200, EndFrequency: 2000, LevelDB: 0, Seed: 123}
+			stepper, err := NewOperation(document, selected, settings, Limits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			job := stepper.(*blockOperation)
+			if _, err := job.Step(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(job.generators) != 1 || job.generators[0].Position() != audiobuf.BlockFrames || job.blocks[0][0] != job.blocks[1][0] {
+				t.Fatal("identical channels did not share one immutable generated block")
+			}
+			retained := job.blocks[0][0]
+			result := finishOperation(t, stepper)
+			left, right := operationSamples(t, result, 0), operationSamples(t, result, 2)
+			if !reflect.DeepEqual(left, right) || !reflect.DeepEqual(operationSamples(t, result, 1), values) {
+				t.Fatal("selected channel mapping or unselected content changed")
+			}
+			for _, position := range []int{0, 1, 31, audiobuf.BlockFrames - 1, audiobuf.BlockFrames, frames - 1} {
+				n := float64(position)
+				time := n / 48000
+				phase := 2 * math.Pi * 200 * time
+				switch kind {
+				case "silence":
+					phase = 0
+				case "linear-sweep":
+					phase += math.Pi * (2000 - 200) / (float64(frames) / 48000) * time * time
+				case "log-sweep":
+					k := math.Log(2000.0/200) / (float64(frames) / 48000)
+					phase = 2 * math.Pi * 200 * math.Expm1(k*time) / k
+				}
+				if got, want := float64(left[position+1]), math.Sin(phase); math.Abs(got-want) > 1e-6 {
+					t.Fatalf("global position%d got%v want%v", position, got, want)
+				}
+			}
+			if left[0] != 0.25 || left[len(left)-1] != 0.25 || !reflect.DeepEqual(operationSamples(t, document, 0), values) {
+				t.Fatal("selection boundaries or source ownership changed")
+			}
+			before := make([]float32, retained.Frames())
+			retained.Read(before, 0)
+			stepper.Cancel()
+			left[1] = 99
+			after := make([]float32, retained.Frames())
+			retained.Read(after, 0)
+			if !reflect.DeepEqual(before, after) || operationSamples(t, result, 2)[1] != before[0] {
+				t.Fatal("shared storage mutated through a caller or cancellation")
+			}
+		})
+	}
+}
+
 func TestOperationCancellationAndLimits(t *testing.T) {
 	values := make([]float32, audiobuf.BlockFrames+1)
 	document := operationDocument(t, values)
@@ -355,7 +509,7 @@ func TestOperationFragmentedStorageParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, settings := range []Settings{{Operation: "fade-out", Curve: "s-curve"}, {Operation: "reverse"}, {Operation: "remove-dc"}, {Operation: "resample", SampleRate: 44100, Quality: "best"}, {Operation: "generate", Generator: "pink-noise", LevelDB: -12, Seed: 432}} {
+	for _, settings := range []Settings{{Operation: "fade-out", Curve: "s-curve"}, {Operation: "reverse"}, {Operation: "remove-dc"}, {Operation: "resample", SampleRate: 44100, Quality: "best"}, {Operation: "generate", Generator: "pink-noise", LevelDB: -12, Seed: 432}, {Operation: "generate", Generator: "sine", Frequency: 1234}, {Operation: "generate", Generator: "linear-sweep", Frequency: 200, EndFrequency: 2000}, {Operation: "generate", Generator: "log-sweep", Frequency: 200, EndFrequency: 2000}} {
 		selected := ops.Range{Start: 13, End: int64(len(values) - 19), ChannelMask: 1}
 		a, err := NewOperation(ordinary, selected, settings, Limits{})
 		if err != nil {
@@ -400,6 +554,11 @@ func TestResampleExtremeRatiosAndWorkspace(t *testing.T) {
 	}
 	if _, err := NewOperation(document, ops.Range{End: 3, ChannelMask: 1}, Settings{Operation: "resample", SampleRate: 384000, Quality: "best"}, Limits{}); err == nil {
 		t.Fatal("unbounded exact-rate workspace accepted")
+	}
+	// This coprime ratio fits under the ceiling only if float64 output
+	// telemetry scratch is omitted. Reject before allocating its large filter.
+	if _, err := NewOperation(base, ops.Range{End: 3, ChannelMask: 1}, Settings{Operation: "resample", SampleRate: 61927, Quality: "best"}, Limits{}); err == nil {
+		t.Fatal("workspace budget omitted output telemetry scratch")
 	}
 }
 
@@ -670,7 +829,7 @@ func (c *operationCancelBoundary) Value(any) any { return nil }
 
 func TestOperationCancellationInsideStep(t *testing.T) {
 	document := operationDocument(t, []float32{1, 2, 3, 4}, []float32{2, 3, 4, 5})
-	for _, settings := range []Settings{{Operation: "reverse"}, {Operation: "remove-dc"}, {Operation: "mono-to-stereo"}, {Operation: "resample", SampleRate: 44100}, {Operation: "resample", SampleRate: 48000}} {
+	for _, settings := range []Settings{{Operation: "reverse"}, {Operation: "remove-dc"}, {Operation: "mono-to-stereo"}, {Operation: "resample", SampleRate: 44100}, {Operation: "resample", SampleRate: 48000}, {Operation: "generate", Generator: "silence"}, {Operation: "generate", Generator: "sine", Frequency: 12000}} {
 		source := document
 		mask := 3
 		if settings.Operation == "mono-to-stereo" {
