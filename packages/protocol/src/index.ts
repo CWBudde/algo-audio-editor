@@ -153,6 +153,60 @@ export interface RegionAddParams {
   name: string;
 }
 
+export interface ClipboardInfo {
+  version: string;
+  available: boolean;
+  sampleRate: number;
+  channels: number;
+  frames: number;
+}
+
+export type EditOperation =
+  | "delete"
+  | "cut"
+  | "copy"
+  | "paste-insert"
+  | "paste-replace"
+  | "paste-mix"
+  | "crop"
+  | "insert-silence"
+  | "duplicate"
+  | "swap-channels"
+  | "mute";
+
+/** Complete selection snapshot; paste requires the current clipboard version. */
+export interface EditApplyParams extends SelectionResult {
+  operation: EditOperation;
+  frames?: number;
+  convert?: boolean;
+  clipboardVersion?: string;
+}
+
+export interface EditResult {
+  document: DocumentInfoResult;
+  selection: SelectionResult;
+  timeline: TimelineResult;
+  clipboard: ClipboardInfo;
+  changed: boolean;
+}
+
+export interface PreparePasteParams {
+  documentId: string;
+  channelMask: number;
+  clipboardVersion: string;
+}
+
+/** Mismatched rates or selected channel counts require explicit conversion. */
+export interface PastePlan {
+  conversionRequired: boolean;
+  sourceRate: number;
+  targetRate: number;
+  sourceChannels: number;
+  targetChannels: number;
+  frames: number;
+  clipboardVersion: string;
+}
+
 export interface DocumentExportParams {
   format: "wav";
   bitDepth: number;
@@ -207,6 +261,9 @@ export interface KernelMethods {
   "timeline.get": { params: TimelineGetParams; result: TimelineResult };
   "markers.add": { params: MarkerAddParams; result: TimelineResult };
   "regions.add": { params: RegionAddParams; result: TimelineResult };
+  "edit.state": { params: undefined; result: ClipboardInfo };
+  "edit.apply": { params: EditApplyParams; result: EditResult };
+  "edit.prepare-paste": { params: PreparePasteParams; result: PastePlan };
 }
 
 export type KernelMethod = keyof KernelMethods;

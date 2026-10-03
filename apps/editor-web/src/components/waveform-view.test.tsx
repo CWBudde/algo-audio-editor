@@ -331,6 +331,44 @@ async function painted(getByTestId: (id: string) => HTMLElement, channel = 0) {
 }
 
 describe("WaveformView", () => {
+  it("exposes only completed selections to edit commands, including deferred zero snaps", async () => {
+    const { getByTestId, getByLabelText, handle, worker } = mounted(info, {
+      selection: { start: 12000, end: 24000 },
+    });
+    await painted(getByTestId);
+    expect(handle.current?.selectionState()).toMatchObject({
+      start: 12000,
+      end: 24000,
+      channelMask: 3,
+    });
+    const canvas = getByTestId("waveform-channel-0");
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 7, clientX: frameX(6000) });
+    fireEvent.pointerMove(canvas, { pointerId: 7, clientX: frameX(30000) });
+    expect(handle.current?.selectionState()).toBeUndefined();
+    fireEvent.pointerCancel(canvas, { pointerId: 7 });
+    expect(handle.current?.selectionState()).toMatchObject({
+      start: 12000,
+      end: 24000,
+      channelMask: 3,
+    });
+    worker.deferSnaps = true;
+    fireEvent.click(getByLabelText("Zero crossings"));
+    dragRange(canvas, 6000, 30000);
+    expect(handle.current?.selectionState()).toBeUndefined();
+    await act(async () => worker.rejectSnaps());
+    expect(handle.current?.selectionState()).toMatchObject({
+      start: 12000,
+      end: 24000,
+      channelMask: 3,
+    });
+    handle.current?.clearSelection(48000);
+    await flushReplies();
+    expect(handle.current?.selectionState()).toMatchObject({
+      start: 48000,
+      end: 48000,
+      channelMask: 3,
+    });
+  });
   it.each([
     { frame: 6000, start: 6000, end: 24000 },
     { frame: 30000, start: 12000, end: 30000 },

@@ -30,6 +30,7 @@ const PLANNED: Record<string, (PlannedItem | "-")[]> = {
     { label: "Cut", shortcut: "Ctrl+X" },
     { label: "Copy", shortcut: "Ctrl+C" },
     { label: "Paste", shortcut: "Ctrl+V" },
+    { label: "Delete selection" },
   ],
   Process: [{ label: "Amplify…" }, { label: "Normalize…" }, { label: "Fade In / Out" }],
   Effects: [{ label: "Equalizer…" }, { label: "Dynamics…" }, { label: "Reverb…" }],
@@ -45,6 +46,10 @@ interface AppMenubarProps {
   aboutText: string;
   onOpen?: () => void;
   onSave?: () => void;
+  onCut?: () => void;
+  onCopy?: () => void;
+  onPaste?: () => void;
+  onDelete?: () => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onZoomFit?: () => void;
@@ -55,6 +60,10 @@ export function AppMenubar({
   aboutText,
   onOpen,
   onSave,
+  onCut,
+  onCopy,
+  onPaste,
+  onDelete,
   onZoomIn,
   onZoomOut,
   onZoomFit,
@@ -64,6 +73,10 @@ export function AppMenubar({
     "Open…": onOpen,
     Save: onSave,
     "Export…": onSave,
+    Cut: onCut,
+    Copy: onCopy,
+    Paste: onPaste,
+    "Delete selection": onDelete,
     "Zoom In": onZoomIn,
     "Zoom Out": onZoomOut,
     "Zoom to Fit": onZoomFit,

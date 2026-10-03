@@ -4,8 +4,12 @@ go 1.25.0
 
 require (
 	github.com/cwbudde/algo-dsp v0.7.4
+	github.com/cwbudde/algo-vecmath v0.1.3
 	github.com/cwbudde/wav v0.1.1
 	github.com/go-audio/audio v1.0.0
 )
 
-require github.com/go-audio/riff v1.0.0 // indirect
+require (
+	github.com/go-audio/riff v1.0.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
+)

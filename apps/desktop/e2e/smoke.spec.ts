@@ -78,6 +78,14 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await expect(page.getByTestId("timeline-region-1")).toBeVisible();
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
+    await page.getByRole("button", { name: "All", exact: true }).click();
+    await page.getByRole("button", { name: "Cut", exact: true }).click();
+    await expect(page.getByTestId("document-details")).toContainText("· 12 frames");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "4");
+    await page.getByRole("button", { name: "Paste", exact: true }).click();
+    await expect(page.getByTestId("document-details")).toContainText("· 16 frames");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
     expect(errors).toEqual([]);
   } finally {
     await app.close();

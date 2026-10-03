@@ -1,4 +1,9 @@
-import type { DocumentInfoResult, SelectionResult, TimelineResult } from "@aae/protocol";
+import type {
+  DocumentInfoResult,
+  EditResult,
+  SelectionResult,
+  TimelineResult,
+} from "@aae/protocol";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,14 +48,22 @@ class DeferredWorker implements WorkerLike {
   }
 }
 
-function mounted(strict = false) {
+type SelectionSeed = Pick<EditResult, "selection" | "timeline">;
+interface HookProps {
+  client: KernelClient;
+  info: DocumentInfoResult;
+  initial?: SelectionSeed;
+}
+
+function mounted(strict = false, seed?: SelectionSeed) {
   const worker = new DeferredWorker();
   const client = new KernelClient(worker);
+  const initialProps: HookProps = { client, info, initial: seed };
   return {
     worker,
     client,
-    ...renderHook(({ client, info }) => useSelection(client, info), {
-      initialProps: { client, info },
+    ...renderHook(({ client, info, initial }: HookProps) => useSelection(client, info, initial), {
+      initialProps,
       wrapper: strict ? StrictMode : undefined,
     }),
   };
@@ -63,6 +76,96 @@ afterEach(() => {
 });
 
 describe("useSelection", () => {
+  const seeded: SelectionSeed = {
+    selection: { ...initial, start: 100, end: 200, channelMask: 2 },
+    timeline: {
+      ...timeline,
+      markers: [{ id: 1, frame: 150, name: "Cue" }],
+      regions: [{ id: 2, start: 100, end: 200, name: "Verse" }],
+    },
+  };
+
+  it("immediately seeds edit selection, channel mask and anchors before delayed initial GET replies", async () => {
+    const { worker, result } = mounted(false, seeded);
+    expect(result.current.selection).toEqual({ start: 100, end: 200, channelMask: 2 });
+    expect(result.current.timeline).toEqual(seeded.timeline);
+    expect(result.current.previewing).toBe(false);
+    expect(worker.calls("selection.get")).toHaveLength(1);
+    expect(worker.calls("timeline.get")).toHaveLength(1);
+    expect(worker.calls("selection.set")).toHaveLength(0);
+    const readBack = { ...seeded.selection, start: 110, end: 210 };
+    await act(async () => {
+      worker.reply(worker.calls("selection.get")[0], readBack);
+      worker.reply(worker.calls("timeline.get")[0], { ...seeded.timeline, markers: [] });
+    });
+    expect(result.current.selection).toEqual({ start: 110, end: 210, channelMask: 2 });
+    expect(result.current.timeline.markers).toEqual([]);
+  });
+
+  it("rolls a rejected commit back to seeded acknowledgement while GET is still pending", async () => {
+    const { worker, result } = mounted(false, seeded);
+    act(() => result.current.commit({ start: 300, end: 400, channelMask: 1 }));
+    await act(async () => worker.fail(worker.calls("selection.set")[0]));
+    expect(result.current.selection).toEqual({ start: 100, end: 200, channelMask: 2 });
+    expect(result.current.timeline).toEqual(seeded.timeline);
+    expect(result.current.error).toBe("rejected");
+    await act(async () => worker.reply(worker.calls("selection.get")[0], seeded.selection));
+    expect(result.current.selection).toEqual({ start: 100, end: 200, channelMask: 2 });
+  });
+
+  it.each(["selection", "timeline", "both"] as const)(
+    "ignores an old-document seed when %s identity mismatches",
+    (part) => {
+      const stale = {
+        selection: {
+          ...seeded.selection,
+          documentId: part === "timeline" ? info.documentId : "doc-old",
+        },
+        timeline: {
+          ...seeded.timeline,
+          documentId: part === "selection" ? info.documentId : "doc-old",
+        },
+      };
+      const { result } = mounted(false, stale);
+      expect(result.current.selection).toEqual({ start: 0, end: 0, channelMask: 3 });
+      expect(result.current.timeline).toEqual(timeline);
+    },
+  );
+
+  it("retains local preview/commit revision guards with a seeded snapshot", async () => {
+    const { worker, result } = mounted(false, seeded);
+    const preview = { start: 300, end: 400, channelMask: 1 };
+    act(() => result.current.preview(preview));
+    await act(async () => worker.reply(worker.calls("selection.get")[0], seeded.selection));
+    expect(result.current.selection).toEqual(preview);
+    expect(result.current.previewing).toBe(true);
+    act(() => result.current.cancelPreview());
+    expect(result.current.selection).toEqual({ start: 100, end: 200, channelMask: 2 });
+    act(() => result.current.commit(preview));
+    await act(async () =>
+      worker.reply(worker.calls("selection.set")[0], { ...seeded.selection, ...preview }),
+    );
+    expect(result.current.selection).toEqual(preview);
+    expect(result.current.previewing).toBe(false);
+  });
+
+  it("updates the seed dependency and rejects old GET and StrictMode initialization replies", async () => {
+    const { worker, result, client, rerender } = mounted(true, seeded);
+    expect(result.current.selection).toEqual({ start: 100, end: 200, channelMask: 2 });
+    const next = { ...seeded, selection: { ...seeded.selection, start: 500, end: 600 } };
+    rerender({ client, info, initial: next });
+    expect(result.current.selection).toEqual({ start: 500, end: 600, channelMask: 2 });
+    const gets = worker.calls("selection.get");
+    expect(gets).toHaveLength(3);
+    await act(async () => {
+      worker.reply(gets[1], seeded.selection);
+      worker.reply(gets[0], initial);
+    });
+    expect(result.current.selection).toEqual({ start: 500, end: 600, channelMask: 2 });
+    await act(async () => worker.reply(gets[2], next.selection));
+    expect(result.current.selection).toEqual({ start: 500, end: 600, channelMask: 2 });
+  });
+
   it("loads authoritative selection and real timeline anchors", async () => {
     const { worker, result } = mounted();
     expect(result.current.selection).toEqual({ start: 0, end: 0, channelMask: 3 });

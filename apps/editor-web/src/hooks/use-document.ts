@@ -9,7 +9,7 @@ interface DocumentOptions {
   reportError(action: string, error: unknown): void;
 }
 
-/** Owns file operations; only one picker/import/export may be active at a time. */
+/** Owns document revisions and serializes file and edit workflows. */
 export function useDocument(client: KernelClient | undefined, options: DocumentOptions) {
   const latest = useRef({ client, options });
   latest.current = { client, options };
@@ -18,6 +18,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
   const mounted = useRef(false);
   const [snapshot, setSnapshot] = useState<{ client: KernelClient; info: DocumentInfoResult }>();
   const [pending, setPending] = useState<{ client: KernelClient; busy: boolean }>();
+  const currentInfo = useRef<DocumentInfoResult | undefined>(undefined);
 
   useEffect(() => {
     mounted.current = true;
@@ -95,6 +96,32 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
   }, [importFile, run]);
 
   const info = snapshot?.client === client ? snapshot?.info : undefined;
+  currentInfo.current = info;
+  /** Edits share the file-operation lock, including preparation and confirmation. */
+  const withOperation = useCallback(async (work: () => Promise<void>) => {
+    const target = latest.current.client;
+    if (!target || !mounted.current) throw new Error("The audio document is unavailable.");
+    if (operation.current) throw new Error("Another document operation is in progress.");
+    const token = {};
+    generation.current++;
+    operation.current = token;
+    setPending({ client: target, busy: true });
+    try {
+      await work();
+    } finally {
+      if (mounted.current && latest.current.client === target && operation.current === token)
+        setPending({ client: target, busy: false });
+      if (operation.current === token) operation.current = undefined;
+    }
+  }, []);
+  const replaceInfo = useCallback((next: DocumentInfoResult, expectedDocumentId: string) => {
+    const target = latest.current.client;
+    if (!mounted.current || !target || currentInfo.current?.documentId !== expectedDocumentId)
+      return;
+    generation.current++;
+    currentInfo.current = next;
+    setSnapshot({ client: target, info: next });
+  }, []);
   const save = useCallback(() => {
     if (!info || latest.current.client !== client) return;
     run("Could not save audio", async (target, active) => {
@@ -109,5 +136,13 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     });
   }, [client, info, run]);
 
-  return { info, busy: pending?.client === client && pending?.busy === true, open, openFile, save };
+  return {
+    info,
+    busy: pending?.client === client && pending?.busy === true,
+    open,
+    openFile,
+    save,
+    withOperation,
+    replaceInfo,
+  };
 }

@@ -1,4 +1,4 @@
-import type { DocumentInfoResult, SelectionRange } from "@aae/protocol";
+import type { DocumentInfoResult, EditResult, SelectionRange } from "@aae/protocol";
 import {
   type MouseEvent,
   type PointerEvent,
@@ -46,6 +46,7 @@ export interface WaveformViewHandle {
   zoomFit(): void;
   zoomSelection(): void;
   selection(): FrameRange | undefined;
+  selectionState(): SelectionRange | undefined;
   clearSelection(frame?: number): void;
   updatePlayback(frame: number): void;
 }
@@ -60,6 +61,8 @@ interface WaveformViewProps {
   onSeek?(frame: number): void;
   readPosition?(): number;
   disabled?: boolean;
+  onSelectionChange?(selection: SelectionRange): void;
+  initialEdit?: Pick<EditResult, "selection" | "timeline">;
 }
 
 interface ViewState {
@@ -204,6 +207,8 @@ export function WaveformView({
   onSeek,
   readPosition,
   disabled = false,
+  onSelectionChange,
+  initialEdit,
 }: WaveformViewProps) {
   const fullRange = useMemo(() => ({ start: 0, end: info.frames }), [info]);
   const [state, setState] = useState<ViewState>({
@@ -212,9 +217,10 @@ export function WaveformView({
   });
   const current = state.document === info ? state : { document: info, viewport: fullRange };
   const { viewport } = current;
-  const editor = useSelection(client, info);
+  const editor = useSelection(client, info, initialEdit);
   const { selection, timeline } = editor;
   const selectedRange = selection.end > selection.start ? selection : undefined;
+  useLayoutEffect(() => onSelectionChange?.(selection), [selection, onSelectionChange]);
   const lanes = useRef<HTMLDivElement>(null);
   const cursorLines = useRef<(HTMLDivElement | null)[]>([]);
   const overviewCursor = useRef<HTMLDivElement>(null);
@@ -368,6 +374,8 @@ export function WaveformView({
       zoomFit,
       zoomSelection,
       selection: () => selectedRange && { start: selectedRange.start, end: selectedRange.end },
+      // Edits must not capture an unfinished drag or pending zero snap.
+      selectionState: () => (selectionDrag.current || editor.previewing ? undefined : selection),
       clearSelection: (frame = position) => {
         if (disabled) return;
         interaction.current++;
@@ -383,11 +391,13 @@ export function WaveformView({
       zoomFit,
       zoomSelection,
       selectedRange,
+      selection,
       selection.channelMask,
       position,
       disabled,
       info.frames,
       editor.commit,
+      editor.previewing,
       updatePlayback,
     ],
   );

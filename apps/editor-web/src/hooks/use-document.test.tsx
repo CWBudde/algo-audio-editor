@@ -96,6 +96,93 @@ afterEach(() => {
 });
 
 describe("useDocument", () => {
+  it("holds the shared edit lock through confirmation and rejects overlapping file/edit operations", async () => {
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const { result } = renderHook(() => useDocument(client, options()));
+    await act(async () => result.current.openFile(file()));
+    const pending = deferred<void>();
+    let editing: Promise<void> = Promise.resolve();
+    act(() => {
+      editing = result.current.withOperation(() => pending.promise);
+    });
+    expect(result.current.busy).toBe(true);
+    const ignored = file("ignored.wav");
+    act(() => result.current.openFile(ignored));
+    expect(ignored.arrayBuffer).not.toHaveBeenCalled();
+    const work = vi.fn().mockResolvedValue(undefined);
+    await expect(result.current.withOperation(work)).rejects.toThrow("in progress");
+    expect(work).not.toHaveBeenCalled();
+    await act(async () => {
+      pending.resolve(undefined);
+      await editing;
+    });
+    expect(result.current.busy).toBe(false);
+  });
+
+  it("releases the shared edit lock on failure without reporting an extra file error", async () => {
+    const worker = new DocumentWorker();
+    const callbacks = options();
+    const client = new KernelClient(worker);
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    const failure = new Error("edit failed");
+    await act(async () => {
+      await expect(
+        result.current.withOperation(async () => {
+          throw failure;
+        }),
+      ).rejects.toBe(failure);
+    });
+    expect(result.current.busy).toBe(false);
+    expect(callbacks.reportError).not.toHaveBeenCalled();
+    await act(async () => result.current.openFile(file()));
+    expect(result.current.info).toEqual(info);
+  });
+
+  it("accepts edited metadata only for the current document and ignores stale initialization", async () => {
+    const worker = new DocumentWorker();
+    worker.holdInfo = true;
+    const client = new KernelClient(worker);
+    const { result } = renderHook(() => useDocument(client, options()));
+    await act(async () => result.current.openFile(file()));
+    const changed = { ...info, documentId: "doc-2", frames: 8 };
+    act(() => result.current.replaceInfo(changed, "obsolete"));
+    expect(result.current.info).toEqual(info);
+    act(() => result.current.replaceInfo(changed, info.documentId));
+    expect(result.current.info).toEqual(changed);
+    await act(async () =>
+      worker.emit({ kind: "reply", id: worker.sent[0].id, ok: true, result: info }),
+    );
+    expect(result.current.info).toEqual(changed);
+    act(() => result.current.replaceInfo(info, info.documentId));
+    expect(result.current.info).toEqual(changed);
+  });
+
+  it("does not let a replaced client's old edit lock release a newer import", async () => {
+    const oldClient = new KernelClient(new DocumentWorker());
+    const newWorker = new DocumentWorker();
+    const newClient = new KernelClient(newWorker);
+    const { result, rerender } = renderHook(({ client }) => useDocument(client, options()), {
+      initialProps: { client: oldClient },
+    });
+    const oldWork = deferred<void>();
+    let editing: Promise<void> = Promise.resolve();
+    act(() => {
+      editing = result.current.withOperation(() => oldWork.promise);
+    });
+    rerender({ client: newClient });
+    const reading = deferred<ArrayBuffer>();
+    await act(async () => result.current.openFile(file("new.wav", () => reading.promise)));
+    await act(async () => {
+      oldWork.resolve(undefined);
+      await editing;
+    });
+    expect(result.current.busy).toBe(true);
+    await act(async () => reading.resolve(new ArrayBuffer(4)));
+    expect(result.current.info?.name).toBe("new.wav");
+    expect(result.current.busy).toBe(false);
+  });
+
   it("starts playback shutdown before reading and opens the binary document after both", async () => {
     const worker = new DocumentWorker();
     const client = new KernelClient(worker);

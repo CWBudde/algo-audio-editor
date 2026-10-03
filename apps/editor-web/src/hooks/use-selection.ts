@@ -1,4 +1,4 @@
-import type { DocumentInfoResult, SelectionRange, TimelineResult } from "@aae/protocol";
+import type { DocumentInfoResult, EditResult, SelectionRange, TimelineResult } from "@aae/protocol";
 import { useCallback, useLayoutEffect, useMemo, useReducer, useRef } from "react";
 import type { KernelClient } from "@/kernel/client";
 
@@ -29,10 +29,25 @@ interface Write {
 }
 
 /** Optimistic control state; audio analysis and authoritative state stay in Go. */
-export function useSelection(client: KernelClient | undefined, info: DocumentInfoResult) {
+export function useSelection(
+  client: KernelClient | undefined,
+  info: DocumentInfoResult,
+  initial?: Pick<EditResult, "selection" | "timeline">,
+) {
   const [, refresh] = useReducer((value: number) => value + 1, 0);
   const session = useMemo<Session>(() => {
-    const selection = { start: 0, end: 0, channelMask: (1 << info.channels) - 1 };
+    const seed =
+      initial?.selection.documentId === info.documentId &&
+      initial.timeline.documentId === info.documentId
+        ? initial
+        : undefined;
+    const selection = seed
+      ? {
+          start: seed.selection.start,
+          end: seed.selection.end,
+          channelMask: seed.selection.channelMask,
+        }
+      : { start: 0, end: 0, channelMask: (1 << info.channels) - 1 };
     return {
       client,
       info,
@@ -46,11 +61,11 @@ export function useSelection(client: KernelClient | undefined, info: DocumentInf
       committed: selection,
       acknowledged: selection,
       acknowledgedRevision: 0,
-      timeline: { documentId: info.documentId, markers: [], regions: [] },
+      timeline: seed?.timeline ?? { documentId: info.documentId, markers: [], regions: [] },
       timelineRevision: 0,
       adding: false,
     };
-  }, [client, info]);
+  }, [client, info, initial]);
   // One physical write at a time, with only the newest pending range retained.
   // A replacement session cannot let the old response paint its UI; the kernel
   // additionally rejects writes carrying an obsolete document ID.
@@ -215,6 +230,7 @@ export function useSelection(client: KernelClient | undefined, info: DocumentInf
 
   return {
     selection: session.selection,
+    previewing: session.previewing,
     timeline: session.timeline,
     adding: session.adding,
     error: session.error,

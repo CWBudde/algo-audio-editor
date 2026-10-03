@@ -14,6 +14,7 @@ const fake = vi.hoisted(() => ({
   open: vi.fn(),
   save: vi.fn(),
   openFile: vi.fn(),
+  edit: vi.fn(),
 }));
 
 vi.mock("@/audio/audio-engine", () => ({
@@ -40,7 +41,7 @@ vi.mock("@/hooks/use-kernel", () => {
   const kernel = {
     status: "ready",
     client: {},
-    hello: { kernelVersion: "test", protocolVersion: 4, goVersion: "go1.test" },
+    hello: { kernelVersion: "test", protocolVersion: 5, goVersion: "go1.test" },
   };
   return { useKernel: () => kernel };
 });
@@ -59,10 +60,15 @@ vi.mock("@/hooks/use-document", () => {
     open: fake.open,
     save: fake.save,
     openFile: fake.openFile,
+    withOperation: async (work: () => Promise<void>) => work(),
+    replaceInfo: vi.fn(),
   };
   return { useDocument: () => doc };
 });
 vi.mock("@/hooks/use-document-memory", () => ({ useDocumentMemory: () => undefined }));
+vi.mock("@/hooks/use-edit", () => ({
+  useEdit: () => ({ busy: false, clipboard: undefined, run: fake.edit }),
+}));
 vi.mock("@/components/waveform-view", () => ({ WaveformView: () => null }));
 vi.mock("@/components/app-menubar", () => ({ AppMenubar: () => null }));
 vi.mock("@/components/status-bar", () => ({ StatusBar: () => null }));

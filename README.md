@@ -5,9 +5,9 @@ An audio editor that runs in the browser and as a desktop app. All audio work
 WebAssembly** on top of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp)
 family. The UI is **React + TypeScript + shadcn**.
 
-> **Status:** Phases 1 and 2.1 of [PLAN.md](PLAN.md): WAV import/export,
-> interactive waveforms, playback and channel-aware selections in the browser
-> and Electron. Destructive editing and undo/redo are next.
+> **Status:** Phases 1–2.2 of [PLAN.md](PLAN.md): WAV import/export,
+> interactive waveforms, playback, channel-aware selections and editing in the
+> browser and Electron. Undo/redo is next; edits currently cannot be undone.
 
 ## Architecture
 
@@ -52,7 +52,7 @@ Click a waveform to place the cursor; drag to select time, Shift-click to extend
 the nearest edge, or drag either edge handle (arrow keys move it one sample).
 Double-click selects the smallest named region under the pointer, otherwise
 the interval between adjacent markers, or the whole file if there are none.
-Choose All, Left, Right or individual channels to target later edits; this does
+Choose All, Left, Right or individual channels to target edits; this does
 not mute playback channels.
 
 Enter exact start, end or length in the current ruler format and press Enter or
@@ -63,6 +63,37 @@ pixels. The zero-crossing search radius is also capped at approximately 20 ms
 and 8192 frames. Add
 named markers at the selection start or regions from a nonempty selection;
 their full management, persistence and edit shifting are planned in Phase 2.4.
+
+## Editing audio
+
+Use the edit toolbar or Edit menu to cut, copy, paste or delete a selection.
+Ctrl/Cmd+X/C/V work outside text fields. Paste inserts at the selection start;
+Replace substitutes its time range, and Mix adds clipboard samples without
+clipping or shifting existing audio. The internal clipboard shares immutable
+audio blocks and survives opening another file; system clipboard WAV support
+is not implemented yet.
+
+Mute silences selected channels without changing duration. Duplicate inserts
+the selection immediately after its end; Insert silence uses an exact positive
+frame count at its start. Swap exchanges exactly two selected channels within
+the range, or throughout the file when the range is collapsed. Crop time always
+keeps the selected time range in **all** channels. Other operations target only
+selected channels: unselected sample positions remain unchanged, and shorter
+channels receive silence at EOF to keep lengths equal.
+
+Paste asks before changing the clipboard's sample rate or channel count. Rate
+conversion uses the kernel's sinc resampler. Channel expansion repeats source
+channels cyclically; reduction averages source channels folded cyclically into
+the targets (mono is repeated; downmix to mono averages every source channel).
+The original clipboard is preserved. Conversion bounds new sample storage to
+512 MiB and filter workspace to 64 MiB. Mix also bounds newly written samples
+to 512 MiB; same-format structural pastes do not have that materialization
+limit. Copy keeps playback running; audio-changing edits
+stop it. Commands wait until pointer selection and snapping are complete.
+
+Save a separate original before editing: undo/redo and dirty tracking are
+planned for Phase 2.3. Markers and regions currently clamp to valid bounds after
+edits; their full edit-aware shifting remains Phase 2.4.
 
 ## Repository layout
 

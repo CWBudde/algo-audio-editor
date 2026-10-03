@@ -42,6 +42,9 @@ const (
 	MethodTimelineGet   = "timeline.get"
 	MethodMarkersAdd    = "markers.add"
 	MethodRegionsAdd    = "regions.add"
+	MethodEditState     = "edit.state"
+	MethodEditApply     = "edit.apply"
+	MethodPreparePaste  = "edit.prepare-paste"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -200,6 +203,53 @@ type RegionAddParams struct {
 	Start      int64  `json:"start"`
 	End        int64  `json:"end"`
 	Name       string `json:"name"`
+}
+
+// ClipboardInfo describes retained, compactly packed selected source channels.
+type ClipboardInfo struct {
+	Version    string `json:"version"`
+	Available  bool   `json:"available"`
+	SampleRate int    `json:"sampleRate"`
+	Channels   int    `json:"channels"`
+	Frames     int64  `json:"frames"`
+}
+
+// EditApplyParams supplies the complete range atomically, independently of
+// queued selection.set calls. Paste needs the inspected clipboard version;
+// channel or rate conversion additionally requires explicit Convert consent.
+type EditApplyParams struct {
+	SelectionResult
+	Operation        string `json:"operation"`
+	Frames           *int64 `json:"frames,omitempty"`
+	Convert          bool   `json:"convert,omitempty"`
+	ClipboardVersion string `json:"clipboardVersion,omitempty"`
+}
+
+type EditResult struct {
+	Document  DocumentInfoResult `json:"document"`
+	Selection SelectionResult    `json:"selection"`
+	Timeline  TimelineResult     `json:"timeline"`
+	Clipboard ClipboardInfo      `json:"clipboard"`
+	Changed   bool               `json:"changed"`
+}
+
+type PreparePasteParams struct {
+	DocumentID       string `json:"documentId"`
+	ChannelMask      int    `json:"channelMask"`
+	ClipboardVersion string `json:"clipboardVersion"`
+}
+
+// PastePlan reports converted duration and the formats requiring confirmation.
+// Conversion duplicates mono, averages N-to-mono, folds N>M channels cyclically
+// with per-target equal weights, and duplicates cyclically when M>N.
+type PastePlan struct {
+	ConversionRequired bool   `json:"conversionRequired"`
+	SourceRate         int    `json:"sourceRate"`
+	TargetRate         int    `json:"targetRate"`
+	SourceChannels     int    `json:"sourceChannels"`
+	TargetChannels     int    `json:"targetChannels"`
+	Frames             int64  `json:"frames"`
+	ClipboardVersion   string `json:"clipboardVersion"`
 }
 
 // DocumentExportParams selects the output encoding; Format must be "wav".

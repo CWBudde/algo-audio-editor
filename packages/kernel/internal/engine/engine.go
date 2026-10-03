@@ -11,6 +11,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/buildinfo"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
 
@@ -31,17 +32,19 @@ const (
 // Engine holds the kernel state. It is not safe for concurrent use; the
 // kernel runs on a single worker thread and is driven from one event loop.
 type Engine struct {
-	sampleRate       float64
-	channels         int
-	tone             *toneSource
-	document         audiobuf.Document
-	bulkData         []byte
-	sourceBitDepth   int
-	sourceFloat      bool
-	source           renderSource
-	transport        *documentTransport
-	documentSequence uint64
-	editor           editorState
+	sampleRate        float64
+	channels          int
+	tone              *toneSource
+	document          audiobuf.Document
+	bulkData          []byte
+	sourceBitDepth    int
+	sourceFloat       bool
+	source            renderSource
+	transport         *documentTransport
+	documentSequence  uint64
+	editor            editorState
+	clipboard         ops.Clipboard
+	clipboardSequence uint64
 }
 
 // New returns an engine configured for 48 kHz stereo.
@@ -116,6 +119,20 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 		return e.documentMemory(), nil
 	case protocol.MethodDocumentInfo:
 		return e.documentInfo()
+	case protocol.MethodEditState:
+		return e.clipboardInfo(), nil
+	case protocol.MethodEditApply:
+		var p protocol.EditApplyParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.applyEdit(p)
+	case protocol.MethodPreparePaste:
+		var p protocol.PreparePasteParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.preparePaste(p)
 	case protocol.MethodSelectionGet, protocol.MethodSelectionSet, protocol.MethodSelectionSnap,
 		protocol.MethodTimelineGet, protocol.MethodMarkersAdd, protocol.MethodRegionsAdd:
 		return e.dispatchEditor(method, payload)
@@ -174,7 +191,7 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 }
 
 func (e *Engine) documentMemory() protocol.DocumentMemoryResult {
-	stats := audiobuf.CountMemory(e.document)
+	stats := audiobuf.CountMemoryWithWindows([]audiobuf.Document{e.document}, e.clipboard.Windows()...)
 
 	return protocol.DocumentMemoryResult{
 		SampleBytes: stats.SampleBytes, PeakBytes: stats.PeakBytes,
