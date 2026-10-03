@@ -40,6 +40,49 @@ function mounted(
 afterEach(cleanup);
 
 describe("EditToolbar", () => {
+  it("uses an exact controlled silence value and lets the parent own draft and document resets", () => {
+    const onRun = vi.fn();
+    const onSilenceValueChange = vi.fn();
+    const props = { info, selection, onRun, onSilenceValueChange };
+    const { getByLabelText, getByRole, rerender } = render(
+      <EditToolbar {...props} silenceValue="2,147,483,649" />,
+    );
+    const field = getByLabelText("Silence frames") as HTMLInputElement;
+    fireEvent.click(getByRole("button", { name: "Insert silence" }));
+    expect(onRun).toHaveBeenCalledExactlyOnceWith("insert-silence", selection, 2147483649);
+    fireEvent.change(field, { target: { value: "128" } });
+    expect(onSilenceValueChange).toHaveBeenCalledExactlyOnceWith("128");
+    expect(field.value).toBe("2,147,483,649");
+    rerender(<EditToolbar {...props} silenceValue="128" />);
+    fireEvent.click(getByRole("button", { name: "Insert silence" }));
+    expect(onRun).toHaveBeenLastCalledWith("insert-silence", selection, 128);
+    rerender(
+      <EditToolbar
+        {...props}
+        info={{ ...info, documentId: "doc-2", sampleRate: 44100 }}
+        silenceValue="128"
+      />,
+    );
+    expect(field.value).toBe("128");
+    expect(onSilenceValueChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("validates controlled silence values and restores local defaults when control is removed", () => {
+    const props = { info, selection, onRun: vi.fn() };
+    const { getByLabelText, getByRole, rerender } = render(
+      <EditToolbar {...props} silenceValue="0" />,
+    );
+    expect(getByLabelText("Silence frames").getAttribute("aria-invalid")).toBe("true");
+    expect((getByRole("button", { name: "Insert silence" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    rerender(<EditToolbar {...props} info={{ ...info, sampleRate: 44100 }} />);
+    expect((getByLabelText("Silence frames") as HTMLInputElement).value).toBe("44100");
+    fireEvent.change(getByLabelText("Silence frames"), { target: { value: "64" } });
+    fireEvent.click(getByRole("button", { name: "Insert silence" }));
+    expect(props.onRun).toHaveBeenCalledExactlyOnceWith("insert-silence", selection, 64);
+  });
+
   it.each([
     ["Cut", "cut"],
     ["Copy", "copy"],

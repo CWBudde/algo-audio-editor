@@ -107,6 +107,16 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await page.keyboard.press("Control+Shift+z");
     await expect(page.getByTestId("document-details")).toContainText("· 16 frames");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
+    await page.keyboard.press("Control+k");
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await expect(palette).toBeVisible();
+    const search = palette.getByRole("combobox", { name: "Search commands" });
+    await expect(search).toBeFocused();
+    await search.fill("zoom to fit");
+    await search.press("Enter");
+    await expect(palette).not.toBeVisible();
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-start-frame", "0");
+    await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-end-frame", "16");
     expect(errors).toEqual([]);
   } finally {
     await app.close();

@@ -13,6 +13,7 @@ const fake = vi.hoisted(() => ({
   error: vi.fn(),
   open: vi.fn(),
   save: vi.fn(),
+  exportAudio: vi.fn(),
   openFile: vi.fn(),
   edit: vi.fn(),
   undo: vi.fn(),
@@ -62,6 +63,8 @@ vi.mock("@/hooks/use-document", () => {
     },
     open: fake.open,
     save: fake.save,
+    exportAudio: fake.exportAudio,
+    exportTimeline: vi.fn(),
     openFile: fake.openFile,
     withOperation: async (work: () => Promise<void>) => work(),
     replaceInfo: vi.fn(),
@@ -75,7 +78,16 @@ vi.mock("@/hooks/use-edit", () => ({
 vi.mock("@/hooks/use-history", () => ({
   useHistory: () => ({
     busy: false,
-    history: undefined,
+    history: {
+      canUndo: true,
+      canRedo: true,
+      entries: [],
+      currentStateId: "state-1",
+      maxEntries: 100,
+      maxBytes: 1024,
+      retainedBytes: 0,
+      dirty: false,
+    },
     undo: fake.undo,
     redo: fake.redo,
     jump: fake.jump,
@@ -154,13 +166,28 @@ it("routes undo/redo shortcuts without stealing input undo or key repeats", asyn
   const { getByLabelText } = render(<App />);
   await act(async () => fireEvent.keyDown(window, { key: "z", ctrlKey: true }));
   expect(fake.undo).toHaveBeenCalledOnce();
-  await act(async () => fireEvent.keyDown(window, { key: "Z", metaKey: true, shiftKey: true }));
+  await act(async () => fireEvent.keyDown(window, { key: "Z", ctrlKey: true, shiftKey: true }));
   await act(async () => fireEvent.keyDown(window, { key: "y", ctrlKey: true }));
   expect(fake.redo).toHaveBeenCalledTimes(2);
   fireEvent.keyDown(window, { key: "z", ctrlKey: true, repeat: true });
   fireEvent.keyDown(window, { key: "z", ctrlKey: true, altKey: true });
   fireEvent.keyDown(getByLabelText("Silence frames"), { key: "z", ctrlKey: true });
   expect(fake.undo).toHaveBeenCalledOnce();
+});
+
+it("uses Export instead of Save for Ctrl+Shift+E, including from text fields", async () => {
+  const { getByLabelText } = render(<App />);
+  await act(async () =>
+    fireEvent.keyDown(getByLabelText("Silence frames"), {
+      key: "E",
+      ctrlKey: true,
+      shiftKey: true,
+    }),
+  );
+  expect(fake.exportAudio).toHaveBeenCalledOnce();
+  expect(fake.save).not.toHaveBeenCalled();
+  await act(async () => fireEvent.keyDown(window, { key: "s", ctrlKey: true }));
+  expect(fake.save).toHaveBeenCalledOnce();
 });
 
 it("preserves Space on the focused history summary for native disclosure activation", async () => {

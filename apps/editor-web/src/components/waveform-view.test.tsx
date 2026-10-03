@@ -331,6 +331,7 @@ function mounted(
     timelineOptions?: SelectionOptions;
     onExportTimeline?: (format: "csv" | "labels") => void;
     playing?: boolean;
+    onCommandStateChange?: (ready: boolean) => void;
   } = {},
 ) {
   const worker = new PeakWorker(documentInfo);
@@ -348,6 +349,7 @@ function mounted(
         timelineOptions={options.timelineOptions}
         onExportTimeline={options.onExportTimeline}
         playing={options.playing}
+        onCommandStateChange={options.onCommandStateChange}
       />,
     ),
     worker,
@@ -405,6 +407,141 @@ async function painted(getByTestId: (id: string) => HTMLElement, channel = 0) {
 }
 
 describe("WaveformView", () => {
+  it("publishes command readiness when a preview commits identical coordinates", async () => {
+    const onCommandStateChange = vi.fn();
+    const { getByTestId, handle } = mounted(info, {
+      selection: { start: 12000, end: 24000, channelMask: 2 },
+      onCommandStateChange,
+    });
+    await painted(getByTestId);
+    expect(onCommandStateChange).toHaveBeenLastCalledWith(true);
+    const canvas = getByTestId("waveform-channel-0");
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 92, clientX: frameX(12000) });
+    fireEvent.pointerMove(canvas, { pointerId: 92, clientX: frameX(24000) });
+    const preview = selectionState(getByTestId("waveform-view"));
+    expect(preview).toEqual({ start: 12000, end: 24000, channelMask: 2 });
+    expect(onCommandStateChange).toHaveBeenLastCalledWith(false);
+    expect(handle.current?.selectionState()).toBeUndefined();
+    fireEvent.pointerUp(canvas, { pointerId: 92, clientX: frameX(24000) });
+    await flushReplies();
+    expect(selectionState(getByTestId("waveform-view"))).toEqual(preview);
+    expect(onCommandStateChange).toHaveBeenLastCalledWith(true);
+    expect(handle.current?.selectionState()).toMatchObject(preview);
+  });
+
+  it("selects the full document imperatively while preserving the selected channel subset", async () => {
+    const onSeek = vi.fn();
+    const { getByTestId, handle, worker } = mounted(info, {
+      selection: { start: 12000, end: 24000, channelMask: 2 },
+      onSeek,
+    });
+    await painted(getByTestId);
+    act(() => handle.current?.selectAll());
+    await flushReplies();
+    expect(handle.current?.selectionState()).toMatchObject({
+      start: 0,
+      end: info.frames,
+      channelMask: 2,
+    });
+    expect(worker.selection).toMatchObject({ start: 0, end: info.frames, channelMask: 2 });
+    expect(onSeek).toHaveBeenCalledExactlyOnceWith(0);
+  });
+
+  it("adds anchors imperatively with the current name, color, and completed selection", async () => {
+    const { getByTestId, getByLabelText, handle, worker } = mounted(info, {
+      selection: { start: 12000, end: 24000, channelMask: 2 },
+    });
+    await painted(getByTestId);
+    fireEvent.change(getByLabelText("Marker or region name"), { target: { value: "Cue name" } });
+    fireEvent.change(getByLabelText("Marker or region color"), { target: { value: "#112233" } });
+    act(() => handle.current?.addMarker());
+    await flushReplies();
+    const markerRequest = worker.sent.find(
+      (request) => request.op === "call" && request.method === "markers.add",
+    );
+    expect(markerRequest?.op === "call" ? markerRequest.params : undefined).toMatchObject({
+      frame: 12000,
+      name: "Cue name",
+      color: "#112233",
+      selection: { start: 12000, end: 24000, channelMask: 2 },
+    });
+    fireEvent.change(getByLabelText("Marker or region name"), { target: { value: "Region name" } });
+    fireEvent.change(getByLabelText("Marker or region color"), { target: { value: "#334455" } });
+    act(() => handle.current?.addRegion());
+    await flushReplies();
+    const regionRequest = worker.sent.find(
+      (request) => request.op === "call" && request.method === "regions.add",
+    );
+    expect(regionRequest?.op === "call" ? regionRequest.params : undefined).toMatchObject({
+      start: 12000,
+      end: 24000,
+      name: "Region name",
+      color: "#334455",
+      selection: { start: 12000, end: 24000, channelMask: 2 },
+    });
+  });
+
+  it("blocks imperative commands during a drag or delayed snap and allows them after cancellation", async () => {
+    const { getByTestId, getByLabelText, handle, worker } = mounted(info, {
+      selection: { start: 12000, end: 24000 },
+    });
+    await painted(getByTestId);
+    const canvas = getByTestId("waveform-channel-0");
+    const commands = () => {
+      handle.current?.selectAll();
+      handle.current?.addMarker();
+      handle.current?.addRegion();
+    };
+    const before = worker.sent.length;
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 91, clientX: frameX(6000) });
+    act(commands);
+    expect(worker.sent.length).toBe(before);
+    fireEvent.pointerCancel(canvas, { pointerId: 91 });
+    worker.deferSnaps = true;
+    fireEvent.click(getByLabelText("Zero crossings"));
+    dragRange(canvas, 6000, 30000);
+    const afterSnap = worker.sent.length;
+    act(commands);
+    expect(worker.sent.length).toBe(afterSnap);
+    await act(async () => worker.rejectSnaps());
+    act(() => handle.current?.addMarker());
+    await flushReplies();
+    expect(
+      worker.sent.some((request) => request.op === "call" && request.method === "markers.add"),
+    ).toBe(true);
+  });
+
+  it("blocks imperative mutations while busy or without a client and rejects collapsed regions", async () => {
+    const { getByTestId, handle, worker, client, rerender } = mounted(info, {
+      timelineOptions: { busy: true },
+    });
+    await painted(getByTestId);
+    const commands = () => {
+      handle.current?.selectAll();
+      handle.current?.addMarker();
+      handle.current?.addRegion();
+    };
+    act(commands);
+    await flushReplies();
+    expect(
+      worker.sent.some(
+        (request) =>
+          request.op === "call" &&
+          /^(selection\.set|markers\.add|regions\.add)$/.test(request.method),
+      ),
+    ).toBe(false);
+    rerender(<WaveformView client={undefined} info={info} ref={handle} />);
+    act(commands);
+    expect(handle.current?.selectionState()).toMatchObject({ start: 0, end: 0 });
+    rerender(<WaveformView client={client} info={info} ref={handle} />);
+    await flushReplies();
+    act(() => handle.current?.addRegion());
+    await flushReplies();
+    expect(
+      worker.sent.some((request) => request.op === "call" && request.method === "regions.add"),
+    ).toBe(false);
+  });
+
   it("exposes only completed selections to edit commands, including deferred zero snaps", async () => {
     const { getByTestId, getByLabelText, handle, worker } = mounted(info, {
       selection: { start: 12000, end: 24000 },

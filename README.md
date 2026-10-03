@@ -5,9 +5,10 @@ An audio editor that runs in the browser and as a desktop app. All audio work
 WebAssembly** on top of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp)
 family. The UI is **React + TypeScript + shadcn**.
 
-> **Status:** Phases 1–2.3 of [PLAN.md](PLAN.md): WAV import/export,
+> **Status:** Phases 1–2 of [PLAN.md](PLAN.md): WAV import/export,
 > interactive waveforms, playback, channel-aware selections and editing in the
-> browser and Electron, with undo/redo history and save-point tracking.
+> browser and Electron, with undo/redo, persistent markers/regions, save-point
+> tracking, shared commands and a searchable command palette.
 
 ## Architecture
 
@@ -119,7 +120,8 @@ coordinates unchanged. Copy/paste and Duplicate do not clone annotations.
 
 ## Undo and saving
 
-Ctrl/Cmd+Z undoes an audio or annotation edit; Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes it. The
+Ctrl/Cmd+Z undoes an audio or annotation edit; Ctrl/Cmd+Shift+Z redoes it
+(Ctrl+Y is also available on Windows/Linux). The
 Edit menu and expandable Edit history panel offer the same controls; click a
 history row to jump to that state. Navigation restores audio, selection and
 anchor snapshots and stops playback, without changing the clipboard. Editing
@@ -139,6 +141,22 @@ undo/redo back to that state becomes clean, while export alone does not. With
 File System Access, the write and close must succeed. The download fallback
 can observe only handoff to the browser, not disk completion or cancellation.
 Opening another file resets history. Unsaved-close prompts remain Phase 9.
+
+## Commands and shortcuts
+
+Open the command palette with Ctrl+K (Cmd+K on macOS), or Help → Command
+palette. Search by command name, menu or shortcut; arrow keys choose an
+available command, Enter runs it and Escape closes the palette. Unavailable
+and planned commands remain visible. Menus, the palette and keyboard commands
+share the same registry and recheck availability before execution.
+
+File Open/Save/Export use Ctrl/Cmd+O/S/Shift+E. Export WAV writes a copy without
+marking the working document saved. Zoom uses Ctrl/Cmd+=/−/0; Select all uses
+Ctrl/Cmd+A, Delete removes selected audio, Space toggles playback, and Home/End
+seek to the document boundaries. Text fields retain native editing/navigation
+shortcuts; file and palette commands also work while typing. Modal dialogs and
+open menus retain their own keyboard handling. Shortcuts are fixed for now;
+the planned shortcut editor is deferred.
 
 ## Repository layout
 

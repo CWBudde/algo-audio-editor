@@ -14,15 +14,27 @@ export interface EditToolbarProps {
   selection?: SelectionRange;
   clipboard?: ClipboardInfo;
   busy?: boolean;
+  silenceValue?: string;
+  onSilenceValueChange?(value: string): void;
   onRun(operation: EditOperation, selection: SelectionRange, frames?: number): void;
 }
 
-export function EditToolbar({ info, selection, clipboard, busy, onRun }: EditToolbarProps) {
-  const [silence, setSilence] = useState("48000");
+export function EditToolbar({
+  info,
+  selection,
+  clipboard,
+  busy,
+  silenceValue,
+  onSilenceValueChange,
+  onRun,
+}: EditToolbarProps) {
+  const [localSilence, setLocalSilence] = useState("48000");
+  const silence = silenceValue ?? localSilence;
   const errorId = useId();
   useEffect(() => {
-    setSilence(String(info?.documentId ? info.sampleRate : 48000));
-  }, [info?.documentId, info?.sampleRate]);
+    if (silenceValue === undefined)
+      setLocalSilence(String(info?.documentId ? info.sampleRate : 48000));
+  }, [info?.documentId, info?.sampleRate, silenceValue]);
   const available = info ? 2 ** info.channels - 1 : 0;
   const valid = Boolean(
     info &&
@@ -88,7 +100,10 @@ export function EditToolbar({ info, selection, clipboard, busy, onRun }: EditToo
           className="w-28 rounded border bg-background px-1 py-0.5 tabular-nums"
           value={silence}
           disabled={blocked}
-          onChange={(event) => setSilence(event.target.value)}
+          onChange={(event) => {
+            if (silenceValue === undefined) setLocalSilence(event.target.value);
+            onSilenceValueChange?.(event.target.value);
+          }}
         />
       </label>
       <Button

@@ -48,6 +48,9 @@ export interface WaveformViewHandle {
   zoomSelection(): void;
   selection(): FrameRange | undefined;
   selectionState(): SelectionRange | undefined;
+  selectAll(): void;
+  addMarker(): void;
+  addRegion(): void;
   clearSelection(frame?: number): void;
   updatePlayback(frame: number): void;
 }
@@ -63,6 +66,7 @@ interface WaveformViewProps {
   readPosition?(): number;
   disabled?: boolean;
   onSelectionChange?(selection: SelectionRange): void;
+  onCommandStateChange?(ready: boolean): void;
   initialEdit?: Pick<EditResult, "selection" | "timeline">;
   timelineOptions?: SelectionOptions;
   onExportTimeline?(format: "csv" | "labels"): void;
@@ -211,6 +215,7 @@ export function WaveformView({
   readPosition,
   disabled = false,
   onSelectionChange,
+  onCommandStateChange,
   initialEdit,
   timelineOptions,
   onExportTimeline,
@@ -322,6 +327,22 @@ export function WaveformView({
     },
     [disabled, editor.commit, onSeek, selection.start, selection.end],
   );
+  const commandsBlocked = Boolean(
+    disabled || timelineOptions?.busy || !client || editor.adding || editor.previewing,
+  );
+  const selectAll = useCallback(() => {
+    if (commandsBlocked || selectionDrag.current) return;
+    setSelection({ start: 0, end: info.frames, channelMask: selection.channelMask });
+  }, [commandsBlocked, setSelection, info.frames, selection.channelMask]);
+  const addAnchor = useCallback(
+    (kind: "marker" | "region") => {
+      if (commandsBlocked || selectionDrag.current || (kind === "region" && !selectedRange)) return;
+      void editor.addAnchor(kind, anchorName, anchorColor);
+    },
+    [commandsBlocked, editor.addAnchor, selectedRange, anchorName, anchorColor],
+  );
+  const addMarker = useCallback(() => addAnchor("marker"), [addAnchor]);
+  const addRegion = useCallback(() => addAnchor("region"), [addAnchor]);
 
   const zoomIn = useCallback(
     () => updateViewport((range) => zoomViewport(range, info.frames, 2)),
@@ -387,6 +408,9 @@ export function WaveformView({
       selection: () => selectedRange && { start: selectedRange.start, end: selectedRange.end },
       // Edits must not capture an unfinished drag or pending zero snap.
       selectionState: () => (selectionDrag.current || editor.previewing ? undefined : selection),
+      selectAll,
+      addMarker,
+      addRegion,
       clearSelection: (frame = position) => {
         if (disabled) return;
         interaction.current++;
@@ -402,6 +426,9 @@ export function WaveformView({
       zoomFit,
       zoomSelection,
       selectedRange,
+      selectAll,
+      addMarker,
+      addRegion,
       selection,
       selection.channelMask,
       position,
@@ -411,6 +438,10 @@ export function WaveformView({
       editor.previewing,
       updatePlayback,
     ],
+  );
+  useLayoutEffect(
+    () => onCommandStateChange?.(!editor.previewing && !editor.adding),
+    [onCommandStateChange, editor.previewing, editor.adding],
   );
 
   useEffect(() => {
@@ -734,23 +765,14 @@ export function WaveformView({
           onChange={(event) => setAnchorName(event.target.value)}
           placeholder="Optional name"
         />
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={disabled || !client || editor.adding || editor.previewing}
-          onClick={() => {
-            if (!selectionDrag.current) void editor.addAnchor("marker", anchorName, anchorColor);
-          }}
-        >
+        <Button size="xs" variant="outline" disabled={commandsBlocked} onClick={addMarker}>
           Add marker
         </Button>
         <Button
           size="xs"
           variant="outline"
-          disabled={disabled || !client || editor.adding || editor.previewing || !selectedRange}
-          onClick={() => {
-            if (!selectionDrag.current) void editor.addAnchor("region", anchorName, anchorColor);
-          }}
+          disabled={commandsBlocked || !selectedRange}
+          onClick={addRegion}
         >
           Add region
         </Button>

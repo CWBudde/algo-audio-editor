@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { AudioEngine } from "@/audio/audio-engine";
 import type { RingBufferStats } from "@/audio/ring-buffer";
 import { AppMenubar } from "@/components/app-menubar";
+import { CommandPalette } from "@/components/command-palette";
 import { EditToolbar, PasteConversionDialog } from "@/components/edit-toolbar";
 import { HistoryPanel } from "@/components/history-panel";
 import { StatusBar } from "@/components/status-bar";
@@ -22,11 +23,13 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WaveformPlaceholder } from "@/components/waveform-placeholder";
 import { WaveformView, type WaveformViewHandle } from "@/components/waveform-view";
+import { useCommands } from "@/hooks/use-commands";
 import { useDocument } from "@/hooks/use-document";
 import { useDocumentMemory } from "@/hooks/use-document-memory";
 import { useEdit } from "@/hooks/use-edit";
 import { useHistory } from "@/hooks/use-history";
 import { useKernel } from "@/hooks/use-kernel";
+import { parseSelectionTime } from "@/lib/selection";
 
 const STATS_INTERVAL_MS = 200;
 
@@ -58,6 +61,11 @@ export default function App() {
   const [selected, setSelected] = useState<{ documentId: string; range: SelectionRange }>();
   const [editSnapshot, setEditSnapshot] = useState<{ client: typeof client; result: EditResult }>();
   const [pastePlan, setPastePlan] = useState<PastePlan>();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // Preview readiness changes without changing coordinates on pointer-up.
+  // Refresh registry availability after the waveform updates its live handle.
+  const [, setCommandReady] = useState(true);
+  const [silenceValue, setSilenceValue] = useState("48000");
   const acceptHistory = useRef<((history: HistoryListResult) => void) | undefined>(undefined);
   const confirmation = useRef<
     | {
@@ -100,6 +108,9 @@ export default function App() {
   }, [client, doc.info]);
 
   const documentId = doc.info?.documentId;
+  useEffect(() => {
+    setSilenceValue(String(documentId ? (doc.info?.sampleRate ?? 48000) : 48000));
+  }, [documentId, doc.info?.sampleRate]);
   const finishConfirmation = useCallback((accept: boolean) => {
     const pending = confirmation.current;
     confirmation.current = undefined;
@@ -267,90 +278,74 @@ export default function App() {
     [engine, doc.info, busy],
   );
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      const target = event.target;
-      if (
-        event.defaultPrevented ||
-        (target instanceof HTMLElement &&
-          (target.isContentEditable || target.closest("input, textarea, select, [role='textbox']")))
-      )
-        return;
-      if (!event.ctrlKey && !event.metaKey && !event.altKey && doc.info && !busy) {
-        if (event.code === "Space" && !event.repeat) {
-          if (target instanceof HTMLElement && target.closest("button, [role='button'], summary"))
-            return;
-          event.preventDefault();
-          if (playing) stop();
-          else play();
-          return;
+  const { commands, execute } = useCommands({
+    getContext: () => ({
+      ready: Boolean(client),
+      audioReady: Boolean(engine),
+      busy,
+      info: doc.info,
+      selection: waveformView.current ? waveformView.current.selectionState() : selection,
+      clipboard: edit.clipboard,
+      canUndo: history.history?.canUndo ?? false,
+      canRedo: history.history?.canRedo ?? false,
+      playing,
+      silenceFrames: parseSelectionTime(silenceValue, 1, "samples"),
+      modalOpen: Boolean(pastePlan),
+    }),
+    paletteOpen,
+    onError: (_id, error) => reportError("Command failed")(error),
+    actions: {
+      "file.open": doc.open,
+      "file.save": doc.save,
+      "file.export": doc.exportAudio,
+      "edit.undo": async () => {
+        await history.undo();
+      },
+      "edit.redo": async () => {
+        await history.redo();
+      },
+      "edit.cut": () => runEdit("cut"),
+      "edit.copy": () => runEdit("copy"),
+      "edit.paste-insert": () => runEdit("paste-insert"),
+      "edit.paste-replace": () => runEdit("paste-replace"),
+      "edit.paste-mix": () => runEdit("paste-mix"),
+      "edit.delete": () => runEdit("delete"),
+      "edit.crop": () => runEdit("crop"),
+      "edit.duplicate": () => runEdit("duplicate"),
+      "edit.swap-channels": () => runEdit("swap-channels"),
+      "edit.mute": () => runEdit("mute"),
+      "edit.insert-silence": () =>
+        runEdit("insert-silence", parseSelectionTime(silenceValue, 1, "samples")),
+      "edit.select-all": () => waveformView.current?.selectAll(),
+      "timeline.add-marker": () => waveformView.current?.addMarker(),
+      "timeline.add-region": () => waveformView.current?.addRegion(),
+      "timeline.export-csv": () => doc.exportTimeline("csv"),
+      "timeline.export-labels": () => doc.exportTimeline("labels"),
+      "view.zoom-in": () => waveformView.current?.zoomIn(),
+      "view.zoom-out": () => waveformView.current?.zoomOut(),
+      "view.zoom-fit": () => waveformView.current?.zoomFit(),
+      "view.zoom-selection": () => waveformView.current?.zoomSelection(),
+      "transport.toggle-playback": () => {
+        if (playing) stop();
+        else play();
+      },
+      "transport.stop": stop,
+      "transport.seek-start": () => {
+        waveformView.current?.clearSelection(0);
+        seek(0);
+      },
+      "transport.seek-end": () => {
+        if (doc.info) {
+          waveformView.current?.clearSelection(doc.info.frames);
+          seek(doc.info.frames);
         }
-        if (event.key === "Home" || event.key === "End") {
-          event.preventDefault();
-          waveformView.current?.clearSelection(event.key === "Home" ? 0 : doc.info.frames);
-          seek(event.key === "Home" ? 0 : doc.info.frames);
-          return;
-        }
-      }
-      if (!(event.ctrlKey || event.metaKey) || event.altKey || !client || busy) return;
-      if (
-        doc.info &&
-        (event.key.toLowerCase() === "z" || (event.key.toLowerCase() === "y" && !event.shiftKey))
-      ) {
-        event.preventDefault();
-        if (!event.repeat) {
-          if (event.shiftKey || event.key.toLowerCase() === "y") void history.redo();
-          else void history.undo();
-        }
-      } else if (event.key.toLowerCase() === "o") {
-        event.preventDefault();
-        doc.open();
-      } else if (event.key.toLowerCase() === "s" && doc.info) {
-        event.preventDefault();
-        doc.save();
-      } else if (event.key.toLowerCase() === "e" && event.shiftKey && doc.info) {
-        event.preventDefault();
-        doc.save();
-      } else if (doc.info && (event.key === "+" || event.key === "=")) {
-        event.preventDefault();
-        waveformView.current?.zoomIn();
-      } else if (doc.info && event.key === "-") {
-        event.preventDefault();
-        waveformView.current?.zoomOut();
-      } else if (doc.info && event.key === "0") {
-        event.preventDefault();
-        waveformView.current?.zoomFit();
-      } else if (doc.info && ["x", "c", "v"].includes(event.key.toLowerCase()) && !event.shiftKey) {
-        const key = event.key.toLowerCase();
-        const range = waveformView.current ? waveformView.current.selectionState() : selection;
-        if (
-          !range ||
-          (key !== "v" && range.start === range.end) ||
-          (key === "v" && !edit.clipboard?.available)
-        )
-          return;
-        event.preventDefault();
-        runEdit(key === "x" ? "cut" : key === "c" ? "copy" : "paste-insert");
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    client,
-    busy,
-    doc.info,
-    doc.open,
-    doc.save,
-    playing,
-    play,
-    stop,
-    seek,
-    selection,
-    edit.clipboard,
-    runEdit,
-    history.undo,
-    history.redo,
-  ]);
+      },
+      "commands.palette": () => setPaletteOpen(!paletteOpen),
+      "help.about": () => {
+        toast("algo-audio-editor", { description: about });
+      },
+    },
+  });
 
   useEffect(() => {
     if (!engine || !playing) return;
@@ -387,51 +382,7 @@ export default function App() {
       <div className="flex h-dvh flex-col bg-background text-foreground">
         <header className="flex h-9 items-center gap-3 border-b px-2">
           <span className="px-1 text-sm font-semibold tracking-tight">algo-audio-editor</span>
-          <AppMenubar
-            aboutText={about}
-            onOpen={client && !busy ? doc.open : undefined}
-            onSave={doc.info && !busy ? doc.save : undefined}
-            onUndo={
-              !busy && history.history?.canUndo
-                ? () => {
-                    void history.undo();
-                  }
-                : undefined
-            }
-            onRedo={
-              !busy && history.history?.canRedo
-                ? () => {
-                    void history.redo();
-                  }
-                : undefined
-            }
-            onCut={
-              !busy && selection && selection.end > selection.start
-                ? () => runEdit("cut")
-                : undefined
-            }
-            onCopy={
-              !busy && selection && selection.end > selection.start
-                ? () => runEdit("copy")
-                : undefined
-            }
-            onPaste={
-              !busy && selection && edit.clipboard?.available
-                ? () => runEdit("paste-insert")
-                : undefined
-            }
-            onDelete={
-              !busy && selection && selection.end > selection.start
-                ? () => runEdit("delete")
-                : undefined
-            }
-            onZoomIn={doc.info && !busy ? () => waveformView.current?.zoomIn() : undefined}
-            onZoomOut={doc.info && !busy ? () => waveformView.current?.zoomOut() : undefined}
-            onZoomFit={doc.info && !busy ? () => waveformView.current?.zoomFit() : undefined}
-            onZoomSelection={
-              doc.info && !busy ? () => waveformView.current?.zoomSelection() : undefined
-            }
-          />
+          <AppMenubar commands={commands} onExecute={execute} />
         </header>
         <TransportBar
           ref={transportBar}
@@ -442,8 +393,8 @@ export default function App() {
           position={position}
           sampleRate={doc.info?.sampleRate ?? 48000}
           readPosition={readPosition}
-          onPlay={play}
-          onStop={stop}
+          onPlay={() => execute("transport.toggle-playback")}
+          onStop={() => execute("transport.stop")}
           onLoopChange={setLoop}
           onFollowChange={setFollow}
         />
@@ -452,18 +403,16 @@ export default function App() {
           selection={selection}
           clipboard={edit.clipboard}
           busy={busy}
+          silenceValue={silenceValue}
+          onSilenceValueChange={setSilenceValue}
           onRun={(operation, _range, frames) => runEdit(operation, frames)}
         />
         {doc.info && (
           <HistoryPanel
             history={history.history}
             busy={busy}
-            onUndo={() => {
-              void history.undo();
-            }}
-            onRedo={() => {
-              void history.redo();
-            }}
+            onUndo={() => execute("edit.undo")}
+            onRedo={() => execute("edit.redo")}
             onJump={(stateId) => {
               void history.jump(stateId);
             }}
@@ -517,6 +466,7 @@ export default function App() {
               readPosition={readPosition}
               disabled={busy}
               onSelectionChange={onSelectionChange}
+              onCommandStateChange={setCommandReady}
               initialEdit={editSnapshot?.client === client ? editSnapshot.result : undefined}
             />
           ) : (
@@ -531,6 +481,12 @@ export default function App() {
         />
       </div>
       <Toaster theme="dark" />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        commands={commands}
+        onExecute={execute}
+      />
       <PasteConversionDialog
         plan={pastePlan}
         onConfirm={() => finishConfirmation(true)}
