@@ -31,7 +31,7 @@ function mounted(overrides: { history?: HistoryListResult; busy?: boolean } = {}
 afterEach(cleanup);
 
 describe("HistoryPanel", () => {
-  it("is a compact collapsible landmark with an always visible dirty indicator", () => {
+  it("is an icon disclosure with retained dirty instrumentation inside its popup", () => {
     const { getByRole, getByTestId, container } = render(
       <HistoryPanel history={history} onUndo={vi.fn()} onRedo={vi.fn()} onJump={vi.fn()} />,
     );
@@ -41,8 +41,40 @@ describe("HistoryPanel", () => {
     expect(getByTestId("history-dirty").textContent).toBe("Unsaved changes");
     const summary = container.querySelector("summary");
     if (!summary) throw new Error("Missing summary");
+    expect(summary.textContent).toBe("Edit history");
+    expect(getByTestId("history-dirty").closest("summary")).toBeNull();
     fireEvent.click(summary);
     expect(details?.open).toBe(true);
+  });
+
+  it("routes undo and redo through the registry when supplied", () => {
+    const onExecute = vi.fn();
+    const onUndo = vi.fn();
+    const onRedo = vi.fn();
+    const commands = [
+      { id: "edit.undo" as const, label: "Undo", menu: "Edit", enabled: false },
+      { id: "edit.redo" as const, label: "Redo", menu: "Edit", enabled: true },
+    ];
+    const ui = render(
+      <HistoryPanel
+        history={history}
+        commands={commands}
+        onExecute={onExecute}
+        onUndo={onUndo}
+        onRedo={onRedo}
+        onJump={vi.fn()}
+        frameless
+      />,
+    );
+    const details = ui.container.querySelector("details");
+    if (!details) throw new Error("Missing history disclosure");
+    details.open = true;
+    fireEvent.click(ui.getByRole("button", { name: "Undo edit" }));
+    expect(onExecute).not.toHaveBeenCalled();
+    fireEvent.click(ui.getByRole("button", { name: "Redo edit" }));
+    expect(onExecute).toHaveBeenCalledExactlyOnceWith("edit.redo");
+    expect(onUndo).not.toHaveBeenCalled();
+    expect(onRedo).not.toHaveBeenCalled();
   });
 
   it("exposes undo/redo and row jumps with exact state IDs", () => {

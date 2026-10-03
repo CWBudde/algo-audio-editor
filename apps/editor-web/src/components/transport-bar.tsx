@@ -1,7 +1,8 @@
-import { Play, Square } from "lucide-react";
+import { Play, Repeat2, Settings2, Square } from "lucide-react";
 import { type Ref, useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
+import { ControlDisclosure } from "@/components/control-disclosure";
+import { IconAction } from "@/components/icon-action";
+import type { CommandId, ResolvedCommand } from "@/lib/commands";
 
 export type PlaybackFollow = "off" | "page" | "continuous";
 
@@ -16,6 +17,9 @@ interface TransportBarProps {
   follow: PlaybackFollow;
   position: number;
   sampleRate: number;
+  frameless?: boolean;
+  commands?: readonly ResolvedCommand[];
+  onExecute?(id: CommandId): void;
   ref?: Ref<TransportBarHandle>;
   readPosition?(): number;
   onPlay(): void;
@@ -26,6 +30,8 @@ interface TransportBarProps {
 
 export function TransportBar(props: TransportBarProps) {
   const { ready, playing } = props;
+  const playCommand = props.commands?.find((command) => command.id === "transport.toggle-playback");
+  const stopCommand = props.commands?.find((command) => command.id === "transport.stop");
   const readout = useRef<HTMLOutputElement>(null);
   const updatePosition = useCallback(
     (frame: number) => {
@@ -42,55 +48,78 @@ export function TransportBar(props: TransportBarProps) {
   useLayoutEffect(() => updatePosition(props.readPosition?.() ?? props.position));
 
   return (
-    <div className="flex h-12 items-center gap-3 border-b px-3">
-      <Button
-        size="icon"
+    <fieldset
+      aria-label="Playback"
+      className={
+        props.frameless
+          ? "flex min-w-0 flex-wrap items-center gap-1"
+          : "flex min-h-9 flex-wrap items-center gap-1 border-b px-2 py-1"
+      }
+    >
+      <IconAction
+        icon={Play}
+        label="Play"
         variant={playing ? "secondary" : "default"}
-        disabled={!ready || playing}
-        onClick={props.onPlay}
-        aria-label="Play"
-        data-testid="play"
+        disabled={!ready || playing || Boolean(props.commands && !playCommand?.enabled)}
+        onClick={() =>
+          props.onExecute ? props.onExecute("transport.toggle-playback") : props.onPlay()
+        }
+        shortcutLabel={playCommand?.shortcutLabel ?? "Space"}
+        ariaShortcut={playCommand?.ariaShortcut ?? "Space"}
+        testId="play"
+      />
+      <IconAction
+        icon={Square}
+        label="Stop"
+        disabled={props.commands ? !stopCommand?.enabled : !playing}
+        onClick={() => (props.onExecute ? props.onExecute("transport.stop") : props.onStop())}
+        shortcutLabel="Space"
+        testId="stop"
+      />
+      <label
+        className="flex size-7 cursor-pointer items-center justify-center rounded-md has-[:focus-visible]:ring-2 has-[:disabled]:cursor-default has-[:disabled]:opacity-50 has-[:checked]:bg-primary/15"
+        title="Loop"
       >
-        <Play />
-      </Button>
-      <Button
-        size="icon"
-        variant="outline"
-        disabled={!playing}
-        onClick={props.onStop}
-        aria-label="Stop"
-        data-testid="stop"
-      >
-        <Square />
-      </Button>
-
-      <Separator orientation="vertical" className="mx-1 h-6" />
-
-      <label className="flex items-center gap-1.5 text-xs">
         <input
           type="checkbox"
+          className="sr-only"
           checked={props.loop}
           disabled={!ready || playing}
           onChange={(event) => props.onLoopChange(event.target.checked)}
         />
-        Loop
+        <Repeat2 className="size-4" aria-hidden="true" />
+        <span className="sr-only">Loop</span>
       </label>
-      <label className="flex items-center gap-1.5 text-xs">
-        Follow playback
-        <select
-          className="rounded border bg-background p-1"
-          aria-label="Follow playback"
-          value={props.follow}
-          onChange={(event) => props.onFollowChange(event.target.value as PlaybackFollow)}
+      <ControlDisclosure className="relative">
+        <summary
+          className="flex size-7 cursor-pointer list-none items-center justify-center rounded-md hover:bg-muted focus-visible:outline-ring"
+          title="Playback settings"
         >
-          <option value="off">Off</option>
-          <option value="page">Page</option>
-          <option value="continuous">Continuous</option>
-        </select>
-      </label>
+          <Settings2 className="size-4" aria-hidden="true" />
+          <span className="sr-only">Playback settings</span>
+        </summary>
+        <div
+          data-disclosure-panel
+          className="absolute left-0 top-full z-40 mt-1 w-56 max-w-[calc(100vw-1rem)] rounded-md border bg-popover p-3 text-popover-foreground shadow-lg"
+        >
+          <label className="flex flex-wrap items-center gap-1.5 text-xs">
+            Follow playback
+            <select
+              className="rounded border bg-background p-1"
+              aria-label="Follow playback"
+              value={props.follow}
+              onChange={(event) => props.onFollowChange(event.target.value as PlaybackFollow)}
+            >
+              <option value="off">Off</option>
+              <option value="page">Page</option>
+              <option value="continuous">Continuous</option>
+            </select>
+          </label>
+        </div>
+      </ControlDisclosure>
       <output
         ref={readout}
-        className="ml-auto text-xs tabular-nums"
+        className="mx-2 whitespace-nowrap text-xs tabular-nums"
         aria-label="Playback position"
         aria-live="off"
         data-testid="play-position"
@@ -98,6 +127,6 @@ export function TransportBar(props: TransportBarProps) {
       >
         {(props.position / props.sampleRate).toFixed(3)} s · {props.position} frames
       </output>
-    </div>
+    </fieldset>
   );
 }

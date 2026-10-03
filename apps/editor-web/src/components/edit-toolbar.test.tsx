@@ -7,6 +7,7 @@ import type {
 } from "@aae/protocol";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveCommands } from "@/lib/commands";
 import { EditToolbar, PasteConversionDialog } from "./edit-toolbar";
 
 const info: DocumentInfoResult = {
@@ -40,6 +41,68 @@ function mounted(
 afterEach(cleanup);
 
 describe("EditToolbar", () => {
+  it("keeps common edits iconic and secondary controls mounted behind More edits", () => {
+    const ui = render(
+      <EditToolbar
+        info={info}
+        selection={selection}
+        clipboard={clipboard}
+        onRun={vi.fn()}
+        frameless
+      />,
+    );
+    for (const name of ["Cut", "Copy", "Paste", "Delete", "Crop time (all channels)"]) {
+      const button = ui.getByRole("button", { name });
+      expect(button.textContent).toBe("");
+      expect(button.closest("details")).toBeNull();
+    }
+    const secondary = ui.getByLabelText("Silence frames").closest("details");
+    expect(secondary?.open).toBe(false);
+    expect(ui.getByRole("button", { name: "Mute" }).closest("details")).toBe(secondary);
+    const summary = secondary?.querySelector("summary");
+    if (!summary) throw new Error("Missing More edits");
+    expect(summary.textContent).toBe("More edits");
+    fireEvent.click(summary);
+    expect(secondary?.open).toBe(true);
+  });
+
+  it("uses the shared registry for availability and dispatch when provided", () => {
+    const onExecute = vi.fn();
+    const onRun = vi.fn();
+    const context = {
+      ready: true,
+      audioReady: true,
+      busy: false,
+      info,
+      selection,
+      clipboard,
+      canUndo: false,
+      canRedo: false,
+      playing: false,
+      silenceFrames: 48000,
+    };
+    const actions = { "edit.copy": vi.fn(), "edit.insert-silence": vi.fn() };
+    const commands = resolveCommands(context, "other", actions);
+    const ui = render(
+      <EditToolbar info={info} commands={commands} onExecute={onExecute} onRun={onRun} />,
+    );
+    const copy = ui.getByRole("button", { name: "Copy" });
+    expect(copy.title).toBe("Copy (Ctrl+C)");
+    fireEvent.click(copy);
+    expect(onExecute).toHaveBeenCalledExactlyOnceWith("edit.copy");
+    expect(onRun).not.toHaveBeenCalled();
+    expect((ui.getByRole("button", { name: "Cut" }) as HTMLButtonElement).disabled).toBe(true);
+    ui.rerender(
+      <EditToolbar
+        info={info}
+        commands={resolveCommands({ ...context, busy: true }, "other", actions)}
+        onExecute={onExecute}
+        onRun={onRun}
+      />,
+    );
+    fireEvent.click(copy);
+    expect(onExecute).toHaveBeenCalledTimes(1);
+  });
   it("uses an exact controlled silence value and lets the parent own draft and document resets", () => {
     const onRun = vi.fn();
     const onSilenceValueChange = vi.fn();

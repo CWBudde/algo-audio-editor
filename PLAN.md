@@ -35,8 +35,9 @@
 
 ### Phase U.2: Compact icon bands
 
-- [ ] Group transport, history/clipboard edits and zoom/view actions into compact separated icon bands, preserving accessible names, shortcut tooltips, focus and command-registry availability.
-- [ ] Put secondary edits and silence length behind an additional-edits disclosure without removing menu or command-palette access.
+- [x] `App`, `TransportBar`, `EditToolbar` and `HistoryPanel` now share one compact grouped primary band. `IconAction` preserves accessible names and registry shortcut tooltips; App routes edit/transport/history actions through fresh command execution. The responsive menubar retains every command. Seventy-two focused component tests and TypeScript pass.
+- [ ] Convert the zoom/view band to icons alongside the U.3 settings disclosures.
+- [x] Secondary edits, silence length, playback-follow settings and history now use `ControlDisclosure`, with native activation, outside/Escape dismissal, focus restoration and viewport-clamped popovers. Secondary commands remain available in menus and the palette; the shared disclosure has three focused regressions.
 
 ### Phase U.3: Secondary controls on demand
 

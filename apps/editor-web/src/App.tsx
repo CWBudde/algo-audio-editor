@@ -5,6 +5,7 @@ import type {
   PastePlan,
   SelectionRange,
 } from "@aae/protocol";
+import { Redo2, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AudioEngine } from "@/audio/audio-engine";
@@ -14,6 +15,7 @@ import { AppMenubar } from "@/components/app-menubar";
 import { CommandPalette } from "@/components/command-palette";
 import { EditToolbar, PasteConversionDialog } from "@/components/edit-toolbar";
 import { HistoryPanel } from "@/components/history-panel";
+import { IconAction } from "@/components/icon-action";
 import { ProcessDialog } from "@/components/process-dialog";
 import { StatusBar } from "@/components/status-bar";
 import {
@@ -421,8 +423,10 @@ export default function App() {
         className="flex h-dvh flex-col bg-background text-foreground"
         data-kernel-state={kernel.status}
       >
-        <header className="flex h-9 items-center gap-3 border-b px-2">
-          <span className="px-1 text-sm font-semibold tracking-tight">algo-audio-editor</span>
+        <header className="flex h-9 shrink-0 min-w-0 items-center gap-2 border-b px-2">
+          <span className="hidden shrink-0 px-1 text-sm font-semibold tracking-tight md:inline">
+            algo-audio-editor
+          </span>
           <AppMenubar commands={commands} onExecute={execute} />
         </header>
         {kernel.status === "error" && (
@@ -440,40 +444,76 @@ export default function App() {
             or the desktop app.
           </p>
         )}
-        <TransportBar
-          ref={transportBar}
-          ready={engine !== undefined && !busy && Boolean(doc.info?.frames)}
-          playing={playing}
-          loop={loop}
-          follow={follow}
-          position={position}
-          sampleRate={doc.info?.sampleRate ?? 48000}
-          readPosition={readPosition}
-          onPlay={() => execute("transport.toggle-playback")}
-          onStop={() => execute("transport.stop")}
-          onLoopChange={setLoop}
-          onFollowChange={setFollow}
-        />
-        <EditToolbar
-          info={doc.info}
-          selection={selection}
-          clipboard={edit.clipboard}
-          busy={busy}
-          silenceValue={silenceValue}
-          onSilenceValueChange={setSilenceValue}
-          onRun={(operation, _range, frames) => runEdit(operation, frames)}
-        />
-        {doc.info && (
-          <HistoryPanel
-            history={history.history}
-            busy={busy}
-            onUndo={() => execute("edit.undo")}
-            onRedo={() => execute("edit.redo")}
-            onJump={(stateId) => {
-              void history.jump(stateId);
-            }}
+        <fieldset
+          className="flex min-h-9 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-2 py-1"
+          aria-label="Editor actions"
+          data-testid="primary-controls"
+        >
+          <TransportBar
+            frameless
+            commands={commands}
+            onExecute={execute}
+            ref={transportBar}
+            ready={engine !== undefined && !busy && Boolean(doc.info?.frames)}
+            playing={playing}
+            loop={loop}
+            follow={follow}
+            position={position}
+            sampleRate={doc.info?.sampleRate ?? 48000}
+            readPosition={readPosition}
+            onPlay={() => execute("transport.toggle-playback")}
+            onStop={() => execute("transport.stop")}
+            onLoopChange={setLoop}
+            onFollowChange={setFollow}
           />
-        )}
+          <fieldset aria-label="Undo and redo" className="flex items-center gap-1 border-l pl-2">
+            {(
+              [
+                ["edit.undo", Undo2, "Undo"],
+                ["edit.redo", Redo2, "Redo"],
+              ] as const
+            ).map(([id, icon, label]) => {
+              const command = commands.find((item) => item.id === id);
+              return (
+                <IconAction
+                  key={id}
+                  icon={icon}
+                  label={label}
+                  disabled={!command?.enabled}
+                  onClick={() => execute(id)}
+                  shortcutLabel={command?.shortcutLabel}
+                  ariaShortcut={command?.ariaShortcut}
+                />
+              );
+            })}
+          </fieldset>
+          <EditToolbar
+            frameless
+            commands={commands}
+            onExecute={execute}
+            info={doc.info}
+            selection={selection}
+            clipboard={edit.clipboard}
+            busy={busy}
+            silenceValue={silenceValue}
+            onSilenceValueChange={setSilenceValue}
+            onRun={(operation, _range, frames) => runEdit(operation, frames)}
+          />
+          {doc.info && (
+            <HistoryPanel
+              frameless
+              commands={commands}
+              onExecute={execute}
+              history={history.history}
+              busy={busy}
+              onUndo={() => execute("edit.undo")}
+              onRedo={() => execute("edit.redo")}
+              onJump={(stateId) => {
+                void history.jump(stateId);
+              }}
+            />
+          )}
+        </fieldset>
         <input
           ref={fileInput}
           type="file"

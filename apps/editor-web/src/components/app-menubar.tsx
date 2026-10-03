@@ -17,10 +17,10 @@ interface AppMenubarProps {
 export function AppMenubar({ commands, onExecute }: AppMenubarProps) {
   const byId = new Map(commands.map((command) => [command.id, command]));
   return (
-    <Menubar className="h-8 rounded-none border-0 bg-transparent p-0 shadow-none">
+    <Menubar className="h-8 min-w-0 flex-1 overflow-x-auto rounded-none border-0 bg-transparent p-0 shadow-none">
       {COMMAND_MENUS.map((menu) => (
         <MenubarMenu key={menu.label}>
-          <MenubarTrigger>{menu.label}</MenubarTrigger>
+          <MenubarTrigger className="shrink-0">{menu.label}</MenubarTrigger>
           <MenubarContent>
             {menu.items.map((item, i) => {
               if (item === "-")

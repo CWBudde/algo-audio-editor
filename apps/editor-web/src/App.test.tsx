@@ -244,6 +244,37 @@ it("routes Amplify and Normalize commands into the shared processing dialog", ()
   );
 });
 
+it("groups primary icons in one band and sends undo/redo through the command registry", async () => {
+  const ui = render(<App />);
+  const band = ui.getByTestId("primary-controls");
+  for (const name of [
+    "Play",
+    "Stop",
+    "Undo",
+    "Redo",
+    "Cut",
+    "Copy",
+    "Paste",
+    "Delete",
+    "Crop time (all channels)",
+  ]) {
+    const button = ui.getByRole("button", { name });
+    expect(band.contains(button)).toBe(true);
+    expect(button.textContent).toBe("");
+  }
+  expect((ui.getByRole("button", { name: "Cut" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(ui.getByRole("button", { name: "Undo" }).title).toBe("Undo (Ctrl+Z)");
+  await act(async () => fireEvent.click(ui.getByRole("button", { name: "Undo" })));
+  await act(async () => fireEvent.click(ui.getByRole("button", { name: "Redo" })));
+  expect(fake.undo).toHaveBeenCalledOnce();
+  expect(fake.redo).toHaveBeenCalledOnce();
+  const information = ui.getByRole("button", { name: "Information" });
+  fireEvent.click(information);
+  expect((ui.getByRole("button", { name: "Undo" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(ui.getByRole("button", { name: "Undo" }));
+  expect(fake.undo).toHaveBeenCalledOnce();
+});
+
 it("plays the document using Space, ignores repeats and stops cleanly", async () => {
   const { getByTestId } = render(<App />);
   await act(async () => fireEvent.keyDown(window, { code: "Space", key: " " }));

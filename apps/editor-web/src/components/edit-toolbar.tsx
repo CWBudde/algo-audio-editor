@@ -5,8 +5,12 @@ import type {
   PastePlan,
   SelectionRange,
 } from "@aae/protocol";
+import { ClipboardPaste, Copy, Crop, MoreHorizontal, Scissors, Trash2 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import { ControlDisclosure } from "@/components/control-disclosure";
+import { IconAction } from "@/components/icon-action";
 import { Button } from "@/components/ui/button";
+import type { CommandId, ResolvedCommand } from "@/lib/commands";
 import { parseSelectionTime } from "@/lib/selection";
 
 export interface EditToolbarProps {
@@ -14,6 +18,9 @@ export interface EditToolbarProps {
   selection?: SelectionRange;
   clipboard?: ClipboardInfo;
   busy?: boolean;
+  frameless?: boolean;
+  commands?: readonly ResolvedCommand[];
+  onExecute?(id: CommandId): void;
   silenceValue?: string;
   onSilenceValueChange?(value: string): void;
   onRun(operation: EditOperation, selection: SelectionRange, frames?: number): void;
@@ -24,6 +31,9 @@ export function EditToolbar({
   selection,
   clipboard,
   busy,
+  frameless,
+  commands,
+  onExecute,
   silenceValue,
   onSilenceValueChange,
   onRun,
@@ -62,63 +72,107 @@ export function EditToolbar({
     selection && [...selection.channelMask.toString(2)].filter((bit) => bit === "1").length === 2,
   );
   const invoke = (operation: EditOperation, frames?: number) => {
+    if (commands && onExecute) {
+      const id: CommandId = `edit.${operation}`;
+      if (commands.find((command) => command.id === id)?.enabled) onExecute(id);
+      return;
+    }
     if (!blocked && selection) onRun(operation, selection, frames);
   };
+  const commandFor = (operation: EditOperation) =>
+    commands?.find((command) => command.id === `edit.${operation}`);
+  const disabled = (operation: EditOperation, enabled: boolean) =>
+    commands ? !commandFor(operation)?.enabled : blocked || !enabled;
   const button = (label: string, operation: EditOperation, enabled: boolean, title?: string) => (
     <Button
       size="xs"
       variant="outline"
-      disabled={blocked || !enabled}
+      disabled={disabled(operation, enabled)}
       onClick={() => invoke(operation)}
-      title={title}
+      title={title ?? commandFor(operation)?.shortcutLabel}
+      aria-keyshortcuts={commandFor(operation)?.ariaShortcut}
     >
       {label}
     </Button>
   );
+  const iconButton = (
+    label: string,
+    operation: EditOperation,
+    enabled: boolean,
+    icon: typeof Scissors,
+  ) => (
+    <IconAction
+      icon={icon}
+      label={label}
+      disabled={disabled(operation, enabled)}
+      onClick={() => invoke(operation)}
+      shortcutLabel={commandFor(operation)?.shortcutLabel}
+      ariaShortcut={commandFor(operation)?.ariaShortcut}
+      variant={operation === "delete" ? "destructive" : "ghost"}
+    />
+  );
   return (
     <fieldset
-      className="flex flex-wrap items-center gap-2 border-b px-3 py-1.5"
+      className={
+        frameless
+          ? "flex min-w-0 flex-wrap items-center gap-1 border-l pl-2"
+          : "flex min-w-0 flex-wrap items-center gap-1 border-b px-2 py-1"
+      }
       aria-label="Audio edits"
     >
-      {button("Cut", "cut", nonempty)}
-      {button("Copy", "copy", nonempty)}
-      {button("Paste", "paste-insert", canPaste)}
-      {button("Replace with clipboard", "paste-replace", canPaste)}
-      {button("Mix clipboard", "paste-mix", canPaste)}
-      {button("Delete", "delete", nonempty)}
-      {button("Crop time (all channels)", "crop", nonempty, "Keep selected time in every channel")}
-      {button("Duplicate", "duplicate", nonempty)}
-      {button("Swap selected channels", "swap-channels", twoChannels)}
-      {button("Mute", "mute", nonempty)}
-      <label className="flex items-center gap-1 text-xs">
-        Silence frames
-        <input
-          aria-label="Silence frames"
-          aria-invalid={Boolean(info && !validSilence)}
-          aria-describedby={info && !validSilence ? errorId : undefined}
-          inputMode="numeric"
-          className="w-28 rounded border bg-background px-1 py-0.5 tabular-nums"
-          value={silence}
-          disabled={blocked}
-          onChange={(event) => {
-            if (silenceValue === undefined) setLocalSilence(event.target.value);
-            onSilenceValueChange?.(event.target.value);
-          }}
-        />
-      </label>
-      <Button
-        size="xs"
-        variant="outline"
-        disabled={blocked || !validSilence}
-        onClick={() => invoke("insert-silence", silenceFrames)}
-      >
-        Insert silence
-      </Button>
-      {!validSilence && info && (
-        <span id={errorId} role="alert" className="text-xs text-destructive">
-          Enter a positive whole frame count within the safe document size.
-        </span>
-      )}
+      {iconButton("Cut", "cut", nonempty, Scissors)}
+      {iconButton("Copy", "copy", nonempty, Copy)}
+      {iconButton("Paste", "paste-insert", canPaste, ClipboardPaste)}
+      {iconButton("Delete", "delete", nonempty, Trash2)}
+      {iconButton("Crop time (all channels)", "crop", nonempty, Crop)}
+      <ControlDisclosure className="relative">
+        <summary
+          className="flex size-7 cursor-pointer list-none items-center justify-center rounded-md hover:bg-muted focus-visible:outline-ring"
+          title="More edits"
+        >
+          <MoreHorizontal className="size-4" aria-hidden="true" />
+          <span className="sr-only">More edits</span>
+        </summary>
+        <div
+          data-disclosure-panel
+          className="absolute right-0 top-full z-40 mt-1 flex w-64 max-w-[calc(100vw-1rem)] flex-col items-stretch gap-2 rounded-md border bg-popover p-3 text-popover-foreground shadow-lg"
+        >
+          {button("Replace with clipboard", "paste-replace", canPaste)}
+          {button("Mix clipboard", "paste-mix", canPaste)}
+          {button("Duplicate", "duplicate", nonempty)}
+          {button("Swap selected channels", "swap-channels", twoChannels)}
+          {button("Mute", "mute", nonempty)}
+          <label className="flex items-center gap-1 text-xs">
+            Silence frames
+            <input
+              aria-label="Silence frames"
+              aria-invalid={Boolean(info && !validSilence)}
+              aria-describedby={info && !validSilence ? errorId : undefined}
+              inputMode="numeric"
+              className="w-28 rounded border bg-background px-1 py-0.5 tabular-nums"
+              value={silence}
+              disabled={blocked}
+              onChange={(event) => {
+                if (silenceValue === undefined) setLocalSilence(event.target.value);
+                onSilenceValueChange?.(event.target.value);
+              }}
+            />
+          </label>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={disabled("insert-silence", validSilence)}
+            onClick={() => invoke("insert-silence", silenceFrames)}
+          >
+            Insert silence
+          </Button>
+          {!validSilence && info && (
+            <span id={errorId} role="alert" className="text-xs text-destructive">
+              Enter a positive whole frame count within the safe document size.
+            </span>
+          )}
+        </div>
+      </ControlDisclosure>
     </fieldset>
   );
 }
