@@ -450,3 +450,18 @@ describe("useEdit", () => {
     );
   });
 });
+
+it("refreshes the live document after a mutating reply outlives its captured identity", async () => {
+  const refreshDocument = vi.fn().mockResolvedValue(undefined);
+  const s = mounted({ refreshDocument });
+  const pending = start(s.result, "delete");
+  await flush();
+  s.rerender({ ...s.options, info: { ...info } });
+  await act(async () => {
+    s.worker.reply(s.worker.last("edit.apply"), edited);
+    await pending;
+  });
+  expect(refreshDocument).toHaveBeenCalledExactlyOnceWith(s.options.client);
+  expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
+});

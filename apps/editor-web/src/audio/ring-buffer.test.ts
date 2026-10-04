@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FrameRingBuffer } from "./ring-buffer";
 
 /** Interleaved frames whose samples encode (frame index, channel). */
@@ -198,7 +198,34 @@ describe("FrameRingBuffer", () => {
     const stats = ring.stats();
     const counters = new BigInt64Array(ring.init.sab, 16, 8);
     Atomics.store(counters, 5, 3n);
-    expect(ring.audiblePosition(1)).toBe(2);
+    expect(ring.audiblePosition(1)).toBeUndefined();
     expect(ring.stats()).toBe(stats);
   });
+});
+
+it("rejects a cursor history read overlapping a split-word overwrite", () => {
+  const ring = FrameRingBuffer.create(8, 1, 4);
+  ring.write(new Float32Array(2), 2, BigInt64Array.from([4294967306n, 4294967307n]));
+  ring.readPlanar([new Float32Array(2)], 2, 0);
+  const counters = new Uint32Array(ring.init.sab, 16, 20);
+  const history = new Uint32Array(ring.init.sab, 16 + 80 + 8 * 8, 8);
+  const load = Atomics.load;
+  const spy = vi.spyOn(Atomics, "load").mockImplementation(((
+    array: BigInt64Array,
+    index: number,
+  ) => {
+    if (array instanceof BigInt64Array && array.length === 4) {
+      Atomics.add(counters, 10, 1);
+      history[index * 2] = 99;
+    }
+    return load(array, index);
+  }) as typeof Atomics.load);
+  try {
+    expect(ring.audiblePosition(1)).toBeUndefined();
+  } finally {
+    spy.mockRestore();
+  }
+  history[3] = 2;
+  Atomics.add(counters, 10, 1);
+  expect(ring.audiblePosition(1)).toBe(8589934691);
 });

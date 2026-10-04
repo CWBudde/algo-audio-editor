@@ -5,8 +5,8 @@ import type {
   KernelResponse,
   PeaksGetInfo,
 } from "@aae/protocol";
+import { BULK_DATA_METHODS } from "./bulk-data";
 import type { WorkerResult } from "./messages";
-import { decodePeaks } from "./peak-data";
 
 /** Take bulk output synchronously, before another call can replace the bridge slot. */
 export function callKernel(
@@ -24,21 +24,8 @@ export function callKernel(
   ) as KernelResponse<unknown>;
   if (!response.ok) throw new Error(response.error);
   const analysis = method === "analysis.start" || method === "analysis.step";
-  if (
-    (analysis || method === "analysis.spectrum") &&
-    !(response.result as { dataBytes?: number }).dataBytes
-  )
-    return { result: response.result };
-  if (
-    method !== "peaks.get" &&
-    method !== "doc.export" &&
-    method !== "doc.readPCM" &&
-    method !== "timeline.export" &&
-    method !== "process.exportCandidate" &&
-    method !== "effects.response" &&
-    method !== "analysis.spectrum" &&
-    !analysis
-  )
+  const bulk = BULK_DATA_METHODS[method];
+  if (!bulk || (bulk.optional && !(response.result as { dataBytes?: number }).dataBytes))
     return { result: response.result };
 
   const bytes = bridge.takeData();
@@ -71,7 +58,7 @@ export function callKernel(
   }
   const result = { ...info, data };
   if (analysis || method === "analysis.spectrum") validateAnalysisData(method, result);
-  if (method === "peaks.get") decodePeaks({ ...(info as PeaksGetInfo), data });
+  // Packed peaks are decoded and validated once by usePeaks on the main thread.
   return { result, transfer: [data] };
 }
 

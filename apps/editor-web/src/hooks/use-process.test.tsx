@@ -745,3 +745,27 @@ it("records the kernel-resolved whole range when processing a cursor", async () 
     info,
   );
 });
+
+it("refreshes document info when a successful commit outlives its session identity", async () => {
+  const refreshDocument = vi.fn().mockResolvedValue(undefined);
+  const s = setup("gain", { refreshDocument });
+  const committing = deferred<EditResult>();
+  const original = s.call.getMockImplementation();
+  s.call.mockImplementation(async (method, params) =>
+    method === "process.commit" ? committing.promise : original?.(method, params),
+  );
+  let applying: Promise<void> | undefined;
+  act(() => {
+    applying = s.result.current.apply();
+  });
+  await waitFor(() => expect(s.result.current.view?.phase).toBe("committing"));
+  s.rerender({ ...s.options, info: { ...info, documentId: "doc-new" } });
+  await act(async () => {
+    committing.resolve(result);
+    await applying;
+  });
+  expect(refreshDocument).toHaveBeenCalledExactlyOnceWith(s.options.client);
+  expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
+  expect(s.held()).toBe(false);
+});

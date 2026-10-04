@@ -7,12 +7,17 @@
  * Loaded through `?worker&url` so Vite bundles the ring-buffer import into a
  * single self-contained script.
  */
-import { PLAYBACK_PROCESSOR, type PlaybackProcessorOptions } from "./playback-shared";
+import {
+  PLAYBACK_PROCESSOR,
+  type PlaybackProcessorOptions,
+  STOP_PLAYBACK_PROCESSOR,
+} from "./playback-shared";
 import { FrameRingBuffer } from "./ring-buffer";
 
 // AudioWorkletGlobalScope is not part of lib.dom; declare the little we use.
 declare abstract class AudioWorkletProcessor {
   constructor(options?: AudioWorkletNodeOptions);
+  readonly port: MessagePort;
   abstract process(
     inputs: Float32Array[][],
     outputs: Float32Array[][],
@@ -27,14 +32,19 @@ declare const currentFrame: number;
 
 class PlaybackProcessor extends AudioWorkletProcessor {
   private readonly ring: FrameRingBuffer;
+  private stopped = false;
 
   constructor(options: AudioWorkletNodeOptions) {
     super(options);
     const { ring } = options.processorOptions as PlaybackProcessorOptions;
     this.ring = FrameRingBuffer.attach(ring);
+    this.port.onmessage = (event: MessageEvent) => {
+      if (event.data === STOP_PLAYBACK_PROCESSOR) this.stopped = true;
+    };
   }
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
+    if (this.stopped) return false;
     const out = outputs[0];
     if (out.length > 0) {
       this.ring.readPlanar(out, out[0].length, currentFrame);

@@ -7,7 +7,7 @@
  * Atomics.load/store is enough; no compare-and-swap is needed. One slot always
  * stays empty so that read === write unambiguously means "empty".
  *
- * Layout: 16-byte Int32 header, aligned BigInt64 consumed/cursor header,
+ * Layout: 16-byte Int32 header, aligned 64-bit consumed/cursor header,
  * one BigInt64 cursor tag per frame, then interleaved float32 samples.
  */
 
@@ -178,7 +178,7 @@ export class FrameRingBuffer {
    * Returns the number of frames actually read.
    */
   readPlanar(outputs: Float32Array[], frames: number, contextFrame?: number): number {
-    Atomics.add(this.counters, COUNTER.sequence, 1n);
+    Atomics.add(this.counterWords, COUNTER.sequence * 2, 1);
     const available = this.availableRead();
     const n = Math.min(frames, available);
     const ch = this.channels;
@@ -209,50 +209,59 @@ export class FrameRingBuffer {
         this.historyWords[target + 1] = i < n ? this.positionWords[source + 1] : lastHigh;
       }
       const end = contextFrame + frames;
-      const previousStart = Number(Atomics.load(this.counters, COUNTER.historyStart));
-      if (previousStart < 0)
-        Atomics.store(this.counters, COUNTER.firstContextFrame, BigInt(contextFrame));
-      Atomics.store(
-        this.counters,
+      const previousStart = this.readCounter(COUNTER.historyStart);
+      if (previousStart < 0) this.writeCounter(COUNTER.firstContextFrame, contextFrame);
+      this.writeCounter(
         COUNTER.historyStart,
-        BigInt(
-          Math.max(previousStart < 0 ? contextFrame : previousStart, end - this.history.length),
-        ),
+        Math.max(previousStart < 0 ? contextFrame : previousStart, end - this.history.length),
       );
-      Atomics.store(this.counters, COUNTER.historyEnd, BigInt(end));
+      this.writeCounter(COUNTER.historyEnd, end);
       if (
         Atomics.load(this.header, HEADER.eos) !== 0 &&
         n === available &&
-        Atomics.load(this.counters, COUNTER.finalFrame) < 0n
+        this.readCounter(COUNTER.finalFrame) < 0
       ) {
-        Atomics.store(this.counters, COUNTER.finalFrame, BigInt(contextFrame + n));
+        this.writeCounter(COUNTER.finalFrame, contextFrame + n);
       }
     }
     if (n > 0) {
-      Atomics.store(this.counters, 1, this.positions[(read + n - 1) % this.capacityFrames]);
-      Atomics.add(this.counters, 0, BigInt(n));
+      const last = ((read + n - 1) % this.capacityFrames) * 2;
+      this.counterWords[COUNTER.cursor * 2] = this.positionWords[last];
+      this.counterWords[COUNTER.cursor * 2 + 1] = this.positionWords[last + 1];
+      this.writeCounter(COUNTER.consumed, this.readCounter(COUNTER.consumed) + n);
     }
     Atomics.store(this.header, HEADER.read, (read + n) % this.capacityFrames);
     if (n < frames && Atomics.load(this.header, HEADER.eos) === 0) {
       Atomics.add(this.header, HEADER.underrunFrames, frames - n);
     }
-    Atomics.add(this.counters, COUNTER.sequence, 1n);
+    Atomics.add(this.counterWords, COUNTER.sequence * 2, 1);
     return n;
+  }
+
+  // Consumer-owned counters are copied as words under sequence. Number arithmetic
+  // preserves JS-safe frame positions without allocating BigInts in the worklet.
+  private readCounter(index: number): number {
+    return (this.counterWords[index * 2 + 1] | 0) * 4294967296 + this.counterWords[index * 2];
+  }
+
+  private writeCounter(index: number, value: number): void {
+    this.counterWords[index * 2] = value;
+    this.counterWords[index * 2 + 1] = Math.floor(value / 4294967296);
   }
 
   stats(): RingBufferStats {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const version = Atomics.load(this.counters, COUNTER.sequence);
-      if ((version & 1n) !== 0n) continue;
+      const version = Atomics.load(this.counterWords, COUNTER.sequence * 2);
+      if ((version & 1) !== 0) continue;
       const bufferedFrames = this.availableRead();
       const snapshot = {
         underrunFrames: Atomics.load(this.header, HEADER.underrunFrames),
-        consumedFrames: Number(Atomics.load(this.counters, 0)),
+        consumedFrames: Number(Atomics.load(this.counters, COUNTER.consumed)),
         bufferedFrames,
-        documentFrame: Number(Atomics.load(this.counters, 1)),
+        documentFrame: Number(Atomics.load(this.counters, COUNTER.cursor)),
         ended: Atomics.load(this.header, HEADER.eos) !== 0 && bufferedFrames === 0,
       };
-      if (Atomics.load(this.counters, COUNTER.sequence) === version) {
+      if (Atomics.load(this.counterWords, COUNTER.sequence * 2) === version) {
         this.lastStats = snapshot;
         return snapshot;
       }
@@ -260,9 +269,11 @@ export class FrameRingBuffer {
     return this.lastStats;
   }
 
-  /** Published history remains readable while a later quantum is being copied. */
+  /** Reject in-progress or overwritten split-word history reads and reset epochs. */
   audiblePosition(contextFrame: number): number | undefined {
     for (let attempt = 0; attempt < 3; attempt++) {
+      const sequence = Atomics.load(this.counterWords, COUNTER.sequence * 2);
+      if ((sequence & 1) !== 0) continue;
       const epoch = Atomics.load(this.counters, COUNTER.epoch);
       if ((epoch & 1n) !== 0n) continue;
       const start = Number(Atomics.load(this.counters, COUNTER.historyStart));
@@ -274,6 +285,7 @@ export class FrameRingBuffer {
           ? Atomics.load(this.counters, COUNTER.initialCursor)
           : Atomics.load(this.history, frame % this.history.length);
       if (
+        Atomics.load(this.counterWords, COUNTER.sequence * 2) === sequence &&
         Atomics.load(this.counters, COUNTER.epoch) === epoch &&
         (start < 0 ||
           contextFrame < first ||

@@ -7,7 +7,7 @@ import type {
   TimelineMutationResult,
   TimelineResult,
 } from "@aae/protocol";
-import { useCallback, useLayoutEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useLayoutEffect, useReducer, useRef } from "react";
 import type { KernelClient } from "@/kernel/client";
 
 interface Session {
@@ -54,37 +54,55 @@ export function useSelection(
   options: SelectionOptions = {},
 ) {
   const [, refresh] = useReducer((value: number) => value + 1, 0);
-  const session = useMemo<Session>(() => {
-    const seed =
-      initial?.selection.documentId === info.documentId &&
-      initial.timeline.documentId === info.documentId
-        ? initial
-        : undefined;
-    const selection = seed
-      ? {
-          start: seed.selection.start,
-          end: seed.selection.end,
-          channelMask: seed.selection.channelMask,
-        }
-      : { start: 0, end: 0, channelMask: (1 << info.channels) - 1 };
-    return {
-      client,
-      info,
-      active: false,
-      epoch: 0,
-      revision: 0,
-      commitRevision: 0,
-      commits: 0,
-      previewing: false,
-      selection,
-      committed: selection,
-      acknowledged: selection,
-      acknowledgedRevision: 0,
-      timeline: seed?.timeline ?? { documentId: info.documentId, markers: [], regions: [] },
-      timelineRevision: 0,
-      adding: false,
+  const store = useRef<
+    | {
+        client: KernelClient | undefined;
+        info: DocumentInfoResult;
+        initial: typeof initial;
+        session: Session;
+      }
+    | undefined
+  >(undefined);
+  if (
+    !store.current ||
+    store.current.client !== client ||
+    store.current.info !== info ||
+    store.current.initial !== initial
+  ) {
+    const create = (): Session => {
+      const seed =
+        initial?.selection.documentId === info.documentId &&
+        initial.timeline.documentId === info.documentId
+          ? initial
+          : undefined;
+      const selection = seed
+        ? {
+            start: seed.selection.start,
+            end: seed.selection.end,
+            channelMask: seed.selection.channelMask,
+          }
+        : { start: 0, end: 0, channelMask: (1 << info.channels) - 1 };
+      return {
+        client,
+        info,
+        active: false,
+        epoch: 0,
+        revision: 0,
+        commitRevision: 0,
+        commits: 0,
+        previewing: false,
+        selection,
+        committed: selection,
+        acknowledged: selection,
+        acknowledgedRevision: 0,
+        timeline: seed?.timeline ?? { documentId: info.documentId, markers: [], regions: [] },
+        timelineRevision: 0,
+        adding: false,
+      };
     };
-  }, [client, info, initial]);
+    store.current = { client, info, initial, session: create() };
+  }
+  const session = store.current.session;
   const latestOptions = useRef(options);
   latestOptions.current = options;
   const currentSession = useRef(session);

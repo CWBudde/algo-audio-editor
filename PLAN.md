@@ -735,15 +735,14 @@
 
 ### R.6 Frontend correctness
 
-- [ ] Worklet:
-  - stop orphaned processors on a channel-count change, via a port message that makes `process()` return `false`
-  - remove the BigInt allocations from `readPlanar` (rule 2)
-  - fix the seqlock comment, or make the read actually safe
-- [ ] Serialize `AudioEngine.play()` behind the same fence as `prepare`, `stop` and `seek`
-- [ ] Move selection session state out of mutable `useMemo` into a ref- or `useSyncExternalStore`-based store. Make it the single source of truth instead of App's `selected` plus imperative `selectionState()`
-- [ ] When an identity check drops the result of a kernel-mutating call (`edit.apply`, history jump, `process.commit`), refetch document info so the UI never keeps a stale `documentId`
-- [ ] Protocol TS: make `ProcessJobResult.candidate` nullable and allow `format: ""`. Add a Go↔TS parity test generated from `protocol.go` (method names and payload field names)
-- [ ] Define the bulk-data method list once, shared by `kernel-call.ts` and `stream-pump.ts`, and decode peaks only once (worker *or* main thread)
+- [x] Worklet lifetime and allocation safety (2026-10-04): `AudioEngine.releaseNode` sends the shared stop message before disconnecting replaced/disposed nodes; `PlaybackProcessor` then returns `false`. `FrameRingBuffer.readPlanar` copies cursor/counter words with Number arithmetic and 32-bit atomics, retaining exact JS-safe positions without BigInt conversions or 64-bit atomic results on the audio thread. `audiblePosition` now checks the quantum sequence as well as the reset epoch, rejecting split-word overwrites. Worklet/ring regressions cover retirement, >32-bit/MAX_SAFE_INTEGER tags, EOF silence, forbidden BigInt operations and reads overlapping a split-word overwrite.
+- [x] `AudioEngine.play()` joins `enqueue`, the same fence used by prepare/stop/seek (2026-10-04). Browser context creation stays under the gesture; generation checks suppress superseded playback. The delayed-prime regression verifies Stop waits for the outstanding play and never resumes it; rapid channel changes, setup/seek supersession, late resumes and failed setup remain covered.
+- [x] Selection sessions now live in a ref-backed store in `use-selection.ts`, owned once by App and passed to `WaveformView` (2026-10-04). App's duplicate `selected` state, layout-effect synchronization and imperative `selectionState()` reads are removed. Standalone waveform consumers retain their own hook through a wrapper. The App regression verifies shared selection/channel-mask routing to playback, edits and processing, plus command fencing during previews; existing selection and waveform regressions pass.
+- [x] Recover document identity after dropped mutating replies (2026-10-04): `useDocument.refreshInfo` refetches `doc.info` with client/mount/generation guards; edit, undo/redo/history jump, process and effect commit hooks invoke it when a successful mutation outlives its UI identity. `replaceInfo` also refetches on a rejected identity, and App stops publishing that stale edit snapshot. Deferred regressions cover each mutation path and an older info reply arriving after the current refresh.
+- [x] Protocol TS accepts `ProcessJobResult.candidate: ProcessCandidate | null` and the existing empty document format (2026-10-04). `scripts/protocol-schema.go` generates method/version and flattened JSON-field names directly from all Go protocol sources using the Go AST; `protocol-parity.test.ts` compares every payload (including embedded, renamed and inline types) with the TypeScript compiler's types. Wire shapes/ABI v18 are unchanged. The Vitest CI job installs Go for the extractor; type regressions cover null candidates and empty formats.
+- [x] `kernel/bulk-data.ts` defines binary-output metadata once for `callKernel` and stream-refill routing (2026-10-04). Packed peaks are decoded/validated only on the main thread in `usePeaks`; the worker takes and transfers bytes without a second decode. Existing binary-length, transfer/subview, malformed-peak, analysis and refill-order regressions pass; the worker regression explicitly checks that packed-field validation is deferred to the main-thread decoder.
+
+Validation (2026-10-04): the full frontend suite passes (1,061 tests), with the subsequently added App/protocol/ring regressions also passing. `just lint-web`, scoped formatting, Go schema-tool vet and `just build` pass. Production Chromium checks pass 52/53; `edits.spec.ts:211` still expects the old 512 MiB mix rejection, while the concurrent R.2 shared budget allows that fixture. That R.2 expectation is left unchanged.
 
 ### R.7 Frontend structure and performance
 

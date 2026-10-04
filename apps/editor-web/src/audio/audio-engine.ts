@@ -1,6 +1,10 @@
 import type { DocumentInfoResult, TransportPlayParams } from "@aae/protocol";
 import type { KernelClient } from "@/kernel/client";
-import { PLAYBACK_PROCESSOR, type PlaybackProcessorOptions } from "./playback-shared";
+import {
+  PLAYBACK_PROCESSOR,
+  type PlaybackProcessorOptions,
+  STOP_PLAYBACK_PROCESSOR,
+} from "./playback-shared";
 import workletUrl from "./playback-worklet.ts?worker&url";
 import { FrameRingBuffer, type RingBufferStats } from "./ring-buffer";
 
@@ -77,29 +81,30 @@ export class AudioEngine {
     // Must happen synchronously under the caller's browser user gesture.
     try {
       this.ctx ??= new AudioContext({ latencyHint: OUTPUT_LATENCY_HINT_SECONDS });
-      await this.fence.catch(() => {});
-      if (generation !== this.generation) return;
-      await this.ensureSetup(info.channels, generation);
-      if (generation !== this.generation) return;
-      await this.quiet();
-      if (generation !== this.generation) return;
-      this.ring?.reset(params.start);
-      this.cursor = params.start;
-      this.audibleCursor = params.start;
-      await this.kernel.call("transport.play", params);
-      if (generation !== this.generation) return;
-      this.transportStarted = true;
-      await this.kernel.startStream(
-        this.params?.effectPreviewId && this.ctx
-          ? Math.min(
-              RING_CAPACITY_FRAMES - 1,
-              Math.ceil((this.ctx.sampleRate * EFFECT_PREVIEW_BUFFER_SECONDS) / 128) * 128,
-            )
-          : undefined,
-      );
-      if (generation !== this.generation) return;
-      this.resume = this.ctx.resume();
-      await this.resume;
+      await this.enqueue(async () => {
+        if (generation !== this.generation) return;
+        await this.ensureSetup(info.channels, generation);
+        if (generation !== this.generation) return;
+        await this.quiet();
+        if (generation !== this.generation) return;
+        this.ring?.reset(params.start);
+        this.cursor = params.start;
+        this.audibleCursor = params.start;
+        await this.kernel.call("transport.play", params);
+        if (generation !== this.generation) return;
+        this.transportStarted = true;
+        await this.kernel.startStream(
+          this.params?.effectPreviewId && this.ctx
+            ? Math.min(
+                RING_CAPACITY_FRAMES - 1,
+                Math.ceil((this.ctx.sampleRate * EFFECT_PREVIEW_BUFFER_SECONDS) / 128) * 128,
+              )
+            : undefined,
+        );
+        if (generation !== this.generation) return;
+        this.resume = this.ctx?.resume();
+        await this.resume;
+      });
     } catch (error) {
       if (generation === this.generation) await this.stop().catch(() => {});
       throw error;
@@ -195,7 +200,7 @@ export class AudioEngine {
       // A fatal processing watchdog has already killed the worker. Its stop
       // RPC may reject, but browser resources must still be released.
       try {
-        this.node?.disconnect();
+        this.releaseNode();
       } finally {
         try {
           await this.ctx?.close();
@@ -210,6 +215,14 @@ export class AudioEngine {
         }
       }
     }
+  }
+
+  private releaseNode(): void {
+    if (!this.node) return;
+    this.node.port.postMessage(STOP_PLAYBACK_PROCESSOR);
+    this.node.disconnect();
+    this.node = undefined;
+    this.ring = undefined;
   }
 
   private enqueue(operation: () => Promise<void>): Promise<void> {
@@ -236,7 +249,7 @@ export class AudioEngine {
     if (!ctx) throw new Error("audio context unavailable");
     this.setup = (async () => {
       await this.quiet();
-      this.node?.disconnect();
+      this.releaseNode();
       await this.kernel.call("engine.configure", { sampleRate: ctx.sampleRate, channels });
       this.module ??= ctx.audioWorklet.addModule(workletUrl);
       await this.module;

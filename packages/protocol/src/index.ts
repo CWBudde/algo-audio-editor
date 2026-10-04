@@ -79,7 +79,7 @@ export interface DocumentOpenParams {
 }
 
 export interface DocumentInfoResult {
-  format?: "wav" | "flac" | "aiff" | "mp3";
+  format?: "" | "wav" | "flac" | "aiff" | "mp3";
   documentId: string;
   name: string;
   sampleRate: number;
@@ -353,7 +353,7 @@ export interface ProcessJobParams {
 
 /** Private candidate progress; only process.commit changes the document. */
 export interface ProcessJobResult extends SelectionResult {
-  candidate: ProcessCandidate;
+  candidate: ProcessCandidate | null;
   jobId: string;
   state: "running" | "ready" | "cancelled";
   operation: ProcessOperation;

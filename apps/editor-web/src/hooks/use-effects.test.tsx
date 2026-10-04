@@ -1,5 +1,5 @@
 import type { EffectDescriptor, ProcessJobResult } from "@aae/protocol";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { KernelClient } from "@/kernel/client";
 import {
@@ -122,6 +122,7 @@ async function fixture() {
     onEdited: vi.fn(),
     onRecorded: vi.fn(),
     onError: vi.fn(),
+    refreshDocument: vi.fn().mockResolvedValue(undefined),
   };
   const ui = renderHook((props) => useEffects(props), { initialProps: options });
   await act(async () => Promise.resolve());
@@ -440,4 +441,27 @@ it("defers unreferenced convolution cleanup during live preview and releases it 
     irId: 7,
   });
   await act(async () => f.result.current.cancel());
+});
+
+it("refreshes document info after an effect commit loses its document identity", async () => {
+  const f = await fixture();
+  const committing = deferred<unknown>();
+  const original = f.call.getMockImplementation();
+  f.call.mockImplementation(async (method, params) =>
+    method === "process.commit" ? committing.promise : original?.(method, params),
+  );
+  let applying: Promise<void> | undefined;
+  act(() => {
+    applying = f.result.current.apply();
+  });
+  await waitFor(() => expect(f.result.current.view?.phase).toBe("committing"));
+  f.rerender({ ...f.options, info: { ...info, documentId: "doc-new" } });
+  await act(async () => {
+    committing.resolve({ changed: true, document: { ...info, documentId: "doc-2" } });
+    await applying;
+  });
+  expect(f.options.refreshDocument).toHaveBeenCalledExactlyOnceWith(f.options.client);
+  expect(f.options.onEdited).not.toHaveBeenCalled();
+  expect(f.options.onRecorded).not.toHaveBeenCalled();
+  expect(f.locked()).toBe(false);
 });

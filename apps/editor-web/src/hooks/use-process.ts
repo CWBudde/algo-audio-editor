@@ -26,6 +26,7 @@ export interface ProcessOptions {
   stopPreview(): Promise<void>;
   onRecorded?(operation: AppliedOperation, info: DocumentInfoResult): void;
   onEdited(result: EditResult, sourceDocumentId: string): void;
+  refreshDocument?(client: KernelClient): Promise<void>;
   onExtract?(info: DocumentInfoResult, job: ProcessJobResult): Promise<void>;
   prepareExtract?(): void;
   cancelExtract?(): void;
@@ -434,6 +435,8 @@ export function useProcess(options: ProcessOptions) {
               s.info,
             );
             latest.current.onEdited(result, s.info.documentId);
+          } else if (mounted.current && latest.current.client === s.client) {
+            await latest.current.refreshDocument?.(s.client);
           }
           await finish(s);
         } catch (error) {

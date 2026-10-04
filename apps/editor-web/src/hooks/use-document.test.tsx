@@ -814,3 +814,31 @@ describe("useDocument", () => {
     expect(result.current.info).toEqual(info);
   });
 });
+
+it("refetches a rejected mutation identity and ignores an older info reply", async () => {
+  const worker = new DocumentWorker();
+  worker.holdInfo = true;
+  const client = new KernelClient(worker);
+  const { result } = renderHook(() => useDocument(client, options()));
+  await act(async () =>
+    worker.emit({ kind: "reply", id: worker.sent[0].id, ok: true, result: info }),
+  );
+  expect(result.current.info).toEqual(info);
+  const next = { ...info, documentId: "doc-2" };
+  let first!: Promise<void>;
+  act(() => {
+    first = result.current.refreshInfo(client);
+  });
+  act(() => {
+    expect(result.current.replaceInfo(next, "obsolete-id")).toBe(false);
+  });
+  const requests = worker.sent.filter(
+    (request) => request.op === "call" && request.method === "doc.info",
+  );
+  await act(async () => worker.emit({ kind: "reply", id: requests[2].id, ok: true, result: next }));
+  await act(async () => {
+    worker.emit({ kind: "reply", id: requests[1].id, ok: true, result: info });
+    await first;
+  });
+  expect(result.current.info).toEqual(next);
+});

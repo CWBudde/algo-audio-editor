@@ -76,6 +76,7 @@ export interface WaveformViewHandle {
 }
 
 interface WaveformViewProps {
+  selectionEditor?: ReturnType<typeof useSelection>;
   client: KernelClient | undefined;
   info: DocumentInfoResult;
   ref?: Ref<WaveformViewHandle>;
@@ -261,7 +262,23 @@ function PeakCanvas({
   );
 }
 
-export function WaveformView({
+export function WaveformView(props: WaveformViewProps) {
+  return props.selectionEditor ? (
+    <WaveformContent {...props} editor={props.selectionEditor} />
+  ) : (
+    <StandaloneWaveformView {...props} />
+  );
+}
+
+function StandaloneWaveformView(props: WaveformViewProps) {
+  const editor = useSelection(props.client, props.info, props.initialEdit, {
+    ...props.timelineOptions,
+    busy: props.disabled || props.timelineOptions?.busy,
+  });
+  return <WaveformContent {...props} editor={editor} />;
+}
+
+function WaveformContent({
   client,
   info,
   ref,
@@ -273,7 +290,7 @@ export function WaveformView({
   disabled = false,
   onSelectionChange,
   onCommandStateChange,
-  initialEdit,
+  editor,
   timelineOptions,
   onExportTimeline,
   commands,
@@ -283,7 +300,7 @@ export function WaveformView({
   analysisPaused = false,
   analysisStateId,
   onSpectralSelectionChange,
-}: WaveformViewProps) {
+}: WaveformViewProps & { editor: ReturnType<typeof useSelection> }) {
   const [spectralTool, setSpectralTool] = useState<SpectralTool>("time");
   const [spectralSelection, setSpectralSelection] = useState<SpectralSelection>();
   const changeSpectralSelection = (value: SpectralSelection | undefined) => {
@@ -302,10 +319,6 @@ export function WaveformView({
   });
   const current = state.document === info ? state : { document: info, viewport: fullRange };
   const { viewport } = current;
-  const editor = useSelection(client, info, initialEdit, {
-    ...timelineOptions,
-    busy: disabled || timelineOptions?.busy,
-  });
   const { selection, timeline } = editor;
   const selectedRange = selection.end > selection.start ? selection : undefined;
   useLayoutEffect(() => onSelectionChange?.(selection), [selection, onSelectionChange]);

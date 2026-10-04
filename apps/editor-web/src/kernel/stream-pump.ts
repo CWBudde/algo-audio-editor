@@ -1,5 +1,7 @@
-import type { KernelBridge } from "@aae/protocol";
+import type { KernelBridge, KernelMethod } from "@aae/protocol";
 import type { FrameRingBuffer } from "@/audio/ring-buffer";
+
+import { BULK_DATA_METHODS } from "./bulk-data";
 
 export const PUMP_BLOCK_FRAMES = 512;
 const DEFAULT_PUMP_INTERVAL_MS = 10;
@@ -14,16 +16,15 @@ export function withStreamRefill<T>(
 ): T {
   if (
     !refill ||
-    ![
-      "effects.preview.update",
-      "effects.preview.meters",
-      "effects.response",
-      "meters.configure",
-      "analysis.start",
-      "analysis.step",
-      "analysis.cancel",
-      "analysis.spectrum",
-    ].includes(method)
+    !(
+      BULK_DATA_METHODS[method as KernelMethod]?.refill ||
+      [
+        "effects.preview.update",
+        "effects.preview.meters",
+        "meters.configure",
+        "analysis.cancel",
+      ].includes(method)
+    )
   )
     return call();
   refill();

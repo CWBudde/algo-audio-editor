@@ -125,10 +125,11 @@ describe("callKernel bulk replies", () => {
     expect(() => callKernel(bridge, "peaks.get", {})).toThrow(/bulk data length/);
   });
 
-  it("rejects malformed packed bucket metadata", () => {
+  it("defers packed bucket validation to the main-thread decoder", () => {
     const result = fixture();
     result.count = 1;
-    expect(() => callKernel(bridgeFor(result), "peaks.get", {})).toThrow(/bucket count/);
+    const reply = callKernel(bridgeFor(result), "peaks.get", {});
+    expect(() => decodePeaks(reply.result as PeaksGetResult)).toThrow(/bucket count/);
   });
 
   it("leaves ordinary replies intact without taking or transferring bulk data", () => {

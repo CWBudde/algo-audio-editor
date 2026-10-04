@@ -44,7 +44,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+      # Vitest extracts protocol wire names with the Go AST parser.
       - uses: ./.github/actions/setup
-        with:
-          go: "false"
       - run: just test-web

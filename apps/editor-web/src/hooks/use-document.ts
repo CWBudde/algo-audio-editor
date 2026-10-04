@@ -164,14 +164,32 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
       if (operation.current === token) operation.current = undefined;
     }
   }, []);
-  const replaceInfo = useCallback((next: DocumentInfoResult, expectedDocumentId: string) => {
-    const target = latest.current.client;
-    if (!mounted.current || !target || currentInfo.current?.documentId !== expectedDocumentId)
+  const refreshInfo = useCallback(async (target: KernelClient) => {
+    if (!mounted.current || latest.current.client !== target) return;
+    const started = ++generation.current;
+    const info = await target.call("doc.info");
+    if (!mounted.current || latest.current.client !== target || generation.current !== started)
       return;
-    generation.current++;
-    currentInfo.current = next;
-    setSnapshot({ client: target, info: next });
+    currentInfo.current = info;
+    setSnapshot({ client: target, info });
   }, []);
+  const replaceInfo = useCallback(
+    (next: DocumentInfoResult, expectedDocumentId: string) => {
+      const target = latest.current.client;
+      if (!mounted.current || !target) return false;
+      if (currentInfo.current?.documentId !== expectedDocumentId) {
+        void refreshInfo(target).catch((error: unknown) =>
+          latest.current.options.reportError("Could not refresh audio document", error),
+        );
+        return false;
+      }
+      generation.current++;
+      currentInfo.current = next;
+      setSnapshot({ client: target, info: next });
+      return true;
+    },
+    [refreshInfo],
+  );
   const saveAndWait = useCallback(() => {
     if (!info || latest.current.client !== client) return;
     let savedSuccessfully = false;
@@ -261,5 +279,6 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     exportTimeline,
     withOperation,
     replaceInfo,
+    refreshInfo,
   };
 }

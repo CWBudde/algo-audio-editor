@@ -17,6 +17,7 @@ export interface EditOptions {
   beforeEdit(): Promise<void>;
   onRecorded?(operation: AppliedOperation, info: DocumentInfoResult): void;
   onEdited(result: EditResult, sourceDocumentId: string): void;
+  refreshDocument?(client: KernelClient): Promise<void>;
   confirmConversion(plan: PastePlan): Promise<boolean>;
   onError(action: string, error: unknown): void;
   withOperation?(work: () => Promise<void>): Promise<void>;
@@ -140,7 +141,11 @@ export function useEdit(options: EditOptions) {
           ...(convert === undefined ? {} : { convert }),
         };
         const result = await client.call("edit.apply", params);
-        if (!active()) return;
+        if (!active()) {
+          if (result.changed && mounted.current && latest.current.client === client)
+            await latest.current.refreshDocument?.(client);
+          return;
+        }
         clipboardRevision.current++;
         setClipboard({ client, value: result.clipboard });
         latest.current.onRecorded?.({ method: "edit.apply", params }, info);

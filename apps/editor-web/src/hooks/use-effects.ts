@@ -34,6 +34,7 @@ export interface EffectsOptions {
   stopPreview(): Promise<void>;
   onRecorded?(operation: AppliedOperation, info: DocumentInfoResult): void;
   onEdited(result: EditResult, sourceDocumentId: string): void;
+  refreshDocument?(client: KernelClient): Promise<void>;
   onError(action: string, error: unknown): void;
 }
 export interface EffectsView {
@@ -459,7 +460,7 @@ export function useEffects(options: EffectsOptions) {
             documentId: s.info.documentId,
             jobId: ready.jobId,
           });
-          if (mounted.current && latest.current.client === s.client) {
+          if (owns(s)) {
             latest.current.onRecorded?.(
               {
                 method: "effects.apply",
@@ -473,6 +474,8 @@ export function useEffects(options: EffectsOptions) {
               s.info,
             );
             latest.current.onEdited(result, s.info.documentId);
+          } else if (mounted.current && latest.current.client === s.client) {
+            await latest.current.refreshDocument?.(s.client);
           }
           s.job = undefined;
           await removeImpulses(s, true).catch((error) => {

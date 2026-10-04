@@ -7,6 +7,8 @@ import type { RingBufferInit } from "./ring-buffer";
  */
 export const PLAYBACK_PROCESSOR = "aae-playback";
 
+export const STOP_PLAYBACK_PROCESSOR = "stop";
+
 export interface PlaybackProcessorOptions {
   ring: RingBufferInit;
 }

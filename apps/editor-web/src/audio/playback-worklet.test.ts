@@ -1,12 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FrameRingBuffer } from "./ring-buffer";
 
-type Processor = { process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean };
+type Processor = {
+  port: { onmessage?: (event: { data: unknown }) => void };
+  process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean;
+};
 
 async function processor(ring: FrameRingBuffer) {
   vi.resetModules();
   let Constructor: (new (options: AudioWorkletNodeOptions) => Processor) | undefined;
-  vi.stubGlobal("AudioWorkletProcessor", class {});
+  vi.stubGlobal(
+    "AudioWorkletProcessor",
+    class {
+      port = {};
+    },
+  );
   vi.stubGlobal("registerProcessor", (_name: string, ctor: typeof Constructor) => {
     Constructor = ctor;
   });
@@ -53,6 +61,60 @@ describe("PlaybackProcessor", () => {
     vi.stubGlobal("currentFrame", 4294967296);
     worklet.process([], [[new Float32Array(2)]]);
     expect(ring.audiblePosition(4294967296)).toBe(4294967296);
+    expect(ring.audiblePosition(4294967297)).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it("terminates a retired processor without reading or writing its ring", async () => {
+    const ring = FrameRingBuffer.create(8, 1);
+    ring.write(new Float32Array(2), 2);
+    const worklet = await processor(ring);
+    worklet.port.onmessage?.({ data: "unrelated" });
+    expect(worklet.process([], [[]])).toBe(true);
+    worklet.port.onmessage?.({ data: "stop" });
+    expect(worklet.process([], [[new Float32Array(128)]])).toBe(false);
+    expect(ring.availableRead()).toBe(2);
+  });
+
+  it("copies without BigInt conversions or 64-bit atomic operations on the audio thread", async () => {
+    const ring = FrameRingBuffer.create(8, 1, 256);
+    ring.write(new Float32Array(2), 2, BigInt64Array.from([4294967296n, 9007199254740991n]));
+    ring.markEnd();
+    const worklet = await processor(ring);
+    vi.stubGlobal("currentFrame", 4294967296);
+    const bigint = vi.fn(() => {
+      throw new Error("BigInt on audio thread");
+    });
+    vi.stubGlobal("BigInt", bigint);
+    const load = Atomics.load;
+    const store = Atomics.store;
+    const add = Atomics.add;
+    const check = (array: unknown) => expect(array).not.toBeInstanceOf(BigInt64Array);
+    vi.spyOn(Atomics, "load").mockImplementation(((array: Int32Array, index: number) => {
+      check(array);
+      return load(array, index);
+    }) as typeof Atomics.load);
+    vi.spyOn(Atomics, "store").mockImplementation(((
+      array: Int32Array,
+      index: number,
+      value: number,
+    ) => {
+      check(array);
+      return store(array, index, value);
+    }) as typeof Atomics.store);
+    vi.spyOn(Atomics, "add").mockImplementation(((
+      array: Int32Array,
+      index: number,
+      value: number,
+    ) => {
+      check(array);
+      return add(array, index, value);
+    }) as typeof Atomics.add);
+    const outputs = [[new Float32Array(128)]];
+    expect(worklet.process([], outputs)).toBe(true);
+    vi.stubGlobal("currentFrame", 4294967424);
+    expect(worklet.process([], outputs)).toBe(true);
+    expect(bigint).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
     expect(ring.audiblePosition(4294967297)).toBe(Number.MAX_SAFE_INTEGER);
   });
 

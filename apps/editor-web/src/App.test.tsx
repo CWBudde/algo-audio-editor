@@ -52,7 +52,15 @@ vi.mock("@/audio/audio-engine", () => ({
 vi.mock("@/hooks/use-kernel", () => {
   const kernel = {
     status: "ready",
-    client: {},
+    client: {
+      call: vi.fn(async (method: string) =>
+        method === "selection.get"
+          ? { documentId: "doc-1", start: 0, end: 0, channelMask: 3 }
+          : method === "effects.list"
+            ? { effects: [] }
+            : { documentId: "doc-1", markers: [], regions: [] },
+      ),
+    },
     hello: { kernelVersion: "test", protocolVersion: PROTOCOL_VERSION, goVersion: "go1.test" },
   };
   return {
@@ -137,7 +145,31 @@ vi.mock("@/hooks/use-process", async (importOriginal) => {
     },
   };
 });
-vi.mock("@/components/waveform-view", () => ({ WaveformView: () => null }));
+vi.mock("@/components/waveform-view", () => ({
+  WaveformView: ({
+    selectionEditor,
+  }: {
+    selectionEditor: ReturnType<typeof import("@/hooks/use-selection").useSelection>;
+  }) => (
+    <>
+      <button
+        type="button"
+        onClick={() => selectionEditor.commit({ start: 100, end: 200, channelMask: 2 })}
+      >
+        Test selection
+      </button>
+      <button
+        type="button"
+        onClick={() => selectionEditor.preview({ start: 150, end: 250, channelMask: 2 })}
+      >
+        Test preview
+      </button>
+      <button type="button" onClick={() => selectionEditor.cancelPreview()}>
+        Test cancel preview
+      </button>
+    </>
+  ),
+}));
 vi.mock("@/components/app-menubar", () => ({
   AppMenubar: ({
     commands,
@@ -447,4 +479,33 @@ it("restores the actual cursor and stopped state when a seek fails", async () =>
   expect(getByTestId("play-position").dataset.frame).toBe("128");
   expect((getByTestId("stop") as HTMLButtonElement).disabled).toBe(true);
   expect(fake.error).toHaveBeenCalledWith("Seeking failed", { description: "seek rejected" });
+});
+
+it("uses the shared waveform selection for playback, edits and process commands and fences previews", async () => {
+  const ui = render(<App />);
+  await act(async () => {});
+  await act(async () => fireEvent.click(ui.getByRole("button", { name: "Test selection" })));
+  fireEvent.click(ui.getByRole("button", { name: "Amplify…" }));
+  expect(fake.processOpen).toHaveBeenLastCalledWith({ start: 100, end: 200, channelMask: 2 });
+  await act(async () => fireEvent.keyDown(document.body, { key: " ", code: "Space" }));
+  expect(fake.play).toHaveBeenLastCalledWith(expect.anything(), {
+    start: 100,
+    end: 200,
+    loop: false,
+  });
+  await act(async () => fireEvent.keyDown(document.body, { key: " ", code: "Space" }));
+  fireEvent.keyDown(document.body, { key: "Delete" });
+  expect(fake.edit).toHaveBeenLastCalledWith(
+    "delete",
+    { start: 100, end: 200, channelMask: 2 },
+    undefined,
+  );
+  fake.processOpen.mockClear();
+  fireEvent.click(ui.getByRole("button", { name: "Test preview" }));
+  expect((ui.getByRole("button", { name: "Amplify…" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(ui.getByRole("button", { name: "Amplify…" }));
+  expect(fake.processOpen).not.toHaveBeenCalled();
+  fireEvent.click(ui.getByRole("button", { name: "Test cancel preview" }));
+  fireEvent.click(ui.getByRole("button", { name: "Amplify…" }));
+  expect(fake.processOpen).toHaveBeenLastCalledWith({ start: 100, end: 200, channelMask: 2 });
 });

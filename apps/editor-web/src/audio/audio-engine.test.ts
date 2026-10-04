@@ -82,6 +82,7 @@ function context() {
   const construct = vi.fn();
   const nodes: {
     options: AudioWorkletNodeOptions;
+    port: { postMessage: ReturnType<typeof vi.fn> };
     connect: ReturnType<typeof vi.fn>;
     disconnect: ReturnType<typeof vi.fn>;
   }[] = [];
@@ -108,10 +109,16 @@ function context() {
   vi.stubGlobal(
     "AudioWorkletNode",
     class {
+      port = { postMessage: vi.fn() };
       connect = vi.fn();
       disconnect = vi.fn();
       constructor(_context: AudioContext, _processor: string, options: AudioWorkletNodeOptions) {
-        nodes.push({ options, connect: this.connect, disconnect: this.disconnect });
+        nodes.push({
+          options,
+          port: this.port,
+          connect: this.connect,
+          disconnect: this.disconnect,
+        });
       }
     },
   );
@@ -199,14 +206,16 @@ describe("AudioEngine document playback", () => {
     expect(engine.stats()?.bufferedFrames).toBe(0);
   });
 
-  it("stops without waiting for a late prime reply and never resumes that stale play", async () => {
+  it("queues stop behind a late prime reply and never resumes that stale play", async () => {
     const { ctx, worker, engine } = fixture();
     worker.hold = "stream.start";
     const playing = engine.play(info, params);
     const prime = await waiting(worker, "stream.start");
-    await engine.stop();
+    const stopping = engine.stop();
+    await Promise.resolve();
+    expect(worker.operations()).not.toContain("transport.stop");
     worker.reply(prime);
-    await playing;
+    await Promise.all([playing, stopping]);
     expect(ctx.resume).not.toHaveBeenCalled();
     expect(engine.position()).toBe(params.start);
   });
@@ -240,6 +249,7 @@ describe("AudioEngine document playback", () => {
     await Promise.all([stopping, playing]);
     expect(ctx.nodes.map((node) => node.options.outputChannelCount)).toEqual([[2], [6]]);
     expect(ctx.nodes[0].disconnect).toHaveBeenCalledOnce();
+    expect(ctx.nodes[0].port.postMessage).toHaveBeenCalledExactlyOnceWith("stop");
     expect(ctx.audioWorklet.addModule).toHaveBeenCalledOnce();
     expect(worker.ring?.channels).toBe(6);
     expect(engine.position()).toBe(25);

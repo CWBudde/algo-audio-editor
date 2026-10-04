@@ -53,6 +53,7 @@ import { useKernel } from "@/hooks/use-kernel";
 import { useMetadata } from "@/hooks/use-metadata";
 import { usePlaybackMeters } from "@/hooks/use-playback-meters";
 import { useProcess } from "@/hooks/use-process";
+import { useSelection } from "@/hooks/use-selection";
 import { DEFAULT_SPECTRAL_SETTINGS, type SpectralSettings } from "@/lib/analysis-settings";
 import {
   cancelExtractionWindow,
@@ -61,6 +62,16 @@ import {
 } from "@/lib/extraction-window";
 import { parseSelectionTime } from "@/lib/selection";
 import type { SpectralSelection } from "@/lib/spectral-selection";
+
+const EMPTY_DOCUMENT: import("@aae/protocol").DocumentInfoResult = {
+  documentId: "",
+  name: "",
+  channels: 1,
+  sampleRate: 48000,
+  frames: 0,
+  bitDepth: 32,
+  float: true,
+};
 
 const STATS_INTERVAL_MS = 200;
 
@@ -89,7 +100,6 @@ export default function App() {
   const currentEngine = useRef(engine);
   currentEngine.current = engine;
   const editedDocument = useRef<{ client: typeof client; id: string } | undefined>(undefined);
-  const [selected, setSelected] = useState<{ documentId: string; range: SelectionRange }>();
   const [editSnapshot, setEditSnapshot] = useState<{ client: typeof client; result: EditResult }>();
   const [pastePlan, setPastePlan] = useState<PastePlan>();
   const [desktopClosing, setDesktopClosing] = useState(false);
@@ -109,9 +119,6 @@ export default function App() {
     [],
   );
   const informationButton = useRef<HTMLButtonElement>(null);
-  // Preview readiness changes without changing coordinates on pointer-up.
-  // Refresh registry availability after the waveform updates its live handle.
-  const [, setCommandReady] = useState(true);
   const [silenceValue, setSilenceValue] = useState("48000");
   const acceptHistory = useRef<((history: HistoryListResult) => void) | undefined>(undefined);
   const acceptClipboard = useRef<((clipboard: ClipboardInfo) => void) | undefined>(undefined);
@@ -188,10 +195,9 @@ export default function App() {
       if (result.clipboard) acceptClipboard.current?.(result.clipboard);
       if (!result.changed) return;
       editedDocument.current = { client, id: result.document.documentId };
-      doc.replaceInfo(result.document, sourceDocumentId);
+      if (!doc.replaceInfo(result.document, sourceDocumentId)) return;
       setPosition(result.selection.start);
       setPlaying(false);
-      setSelected({ documentId: result.document.documentId, range: result.selection });
       setEditSnapshot({ client, result });
     },
     [client, doc.replaceInfo],
@@ -223,6 +229,7 @@ export default function App() {
     beforeEdit,
     onEdited,
     onError: (action, error) => reportError(action)(error),
+    refreshDocument: doc.refreshInfo,
   });
   acceptHistory.current = history.accept;
   const edit = useEdit({
@@ -235,6 +242,7 @@ export default function App() {
     onEdited,
     confirmConversion,
     onError: (action, error) => reportError(action)(error),
+    refreshDocument: doc.refreshInfo,
   });
   acceptClipboard.current = edit.acceptClipboard;
   const busy = doc.busy || edit.busy || history.busy;
@@ -296,6 +304,7 @@ export default function App() {
     },
     onEdited,
     onError: (action, error) => reportError(action)(error),
+    refreshDocument: doc.refreshInfo,
   });
   const processing = useProcess({
     onRecorded: automation.record,
@@ -348,34 +357,31 @@ export default function App() {
     },
     onEdited,
     onError: (action, error) => reportError(action)(error),
+    refreshDocument: doc.refreshInfo,
   });
   useEffect(() => {
     document.title = doc.info
       ? `${history.history?.dirty ? "* " : ""}${doc.info.name} — algo-audio-editor`
       : "algo-audio-editor";
   }, [doc.info, history.history?.dirty]);
-  const selection: SelectionRange | undefined = doc.info
-    ? selected?.documentId === doc.info.documentId
-      ? selected.range
-      : { start: 0, end: 0, channelMask: (1 << doc.info.channels) - 1 }
-    : undefined;
-  const onSelectionChange = useCallback(
-    (range: SelectionRange) => {
-      if (!documentId) return;
-      setSelected((previous) =>
-        previous?.documentId === documentId &&
-        previous.range.start === range.start &&
-        previous.range.end === range.end &&
-        previous.range.channelMask === range.channelMask
-          ? previous
-          : { documentId, range },
-      );
+  const selectionEditor = useSelection(
+    doc.info ? client : undefined,
+    doc.info ?? EMPTY_DOCUMENT,
+    editSnapshot &&
+      editSnapshot.client === client &&
+      editSnapshot.result.document.documentId === documentId
+      ? editSnapshot.result
+      : undefined,
+    {
+      busy,
+      withOperation: doc.withOperation,
+      onTimelineChanged: (result) => history.accept(result.history),
     },
-    [documentId],
   );
+  const selection = doc.info && !selectionEditor.previewing ? selectionEditor.selection : undefined;
   const runEdit = useCallback(
     (operation: EditOperation, frames?: number) => {
-      const range = waveformView.current ? waveformView.current.selectionState() : selection;
+      const range = selection;
       if (range && !busy) void edit.run(operation, range, frames);
     },
     [selection, busy, edit.run],
@@ -389,7 +395,7 @@ export default function App() {
   const play = useCallback(() => {
     if (!engine || !doc.info || busy || doc.info.frames === 0) return;
     const action = ++playbackAction.current;
-    const selected = waveformView.current?.selection();
+    const selected = selection;
     const range = selected && selected.end > selected.start ? selected : undefined;
     const start = range ? range.start : position < doc.info.frames ? position : 0;
     setPosition(start);
@@ -405,7 +411,7 @@ export default function App() {
       .finally(() => {
         if (action === playbackAction.current) playbackPending.current = false;
       });
-  }, [engine, doc.info, busy, position, loop]);
+  }, [engine, doc.info, busy, position, loop, selection]);
 
   const stop = useCallback(() => {
     if (!engine) return;
@@ -473,7 +479,7 @@ export default function App() {
       audioReady: Boolean(engine),
       busy,
       info: doc.info,
-      selection: waveformView.current ? waveformView.current.selectionState() : selection,
+      selection,
       clipboard: edit.clipboard,
       hasSpectralSelection: Boolean(currentSpectralSelection),
       spectralHealAvailable: Boolean(
@@ -482,7 +488,7 @@ export default function App() {
           currentSpectralSelection.mask.start >= 2 &&
           currentSpectralSelection.mask.end <= (doc.info?.frames ?? 0) - 2,
       ),
-      noiseProfileReady: profileCovers(waveformView.current?.selectionState() ?? selection),
+      noiseProfileReady: profileCovers(selection),
       canUndo: history.history?.canUndo ?? false,
       canRedo: history.history?.canRedo ?? false,
       playing,
@@ -510,14 +516,14 @@ export default function App() {
       "file.stop-recording": automation.stopRecording,
       "file.metadata": metadata.open,
       "process.capture-noise-profile": () => {
-        const range = waveformView.current?.selectionState() ?? selection;
+        const range = selection;
         if (range && doc.info) {
           setNoiseProfile({ documentId: doc.info.documentId, ...range });
           toast.success("Noise profile set from selection");
         }
       },
       "process.noise-reduce": () => {
-        const range = waveformView.current?.selectionState() ?? selection;
+        const range = selection;
         if (range && currentNoiseProfile)
           processing.open(range, "noise-reduce", { noiseProfile: currentNoiseProfile });
       },
@@ -543,7 +549,7 @@ export default function App() {
         (["statistics", "pitch", "clipping"] as const).map((kind) => [
           `analyze.${kind}`,
           () => {
-            const range = waveformView.current?.selectionState() ?? selection;
+            const range = selection;
             if (range) analysis.open(kind, range);
           },
         ]),
@@ -552,13 +558,13 @@ export default function App() {
         effects.descriptors.map((descriptor) => [
           `effects.${descriptor.id}`,
           () => {
-            const range = waveformView.current?.selectionState() ?? selection;
+            const range = selection;
             if (range) effects.open(range, descriptor.id);
           },
         ]),
       ),
       "effects.rack": () => {
-        const range = waveformView.current?.selectionState() ?? selection;
+        const range = selection;
         if (range) effects.open(range);
       },
       "file.open": async () => {
@@ -568,7 +574,7 @@ export default function App() {
         await doc.save();
       },
       "file.export": () => {
-        const range = waveformView.current?.selectionState() ?? selection;
+        const range = selection;
         if (range) exporting.open(range);
       },
       "edit.undo": async () => {
@@ -615,11 +621,11 @@ export default function App() {
       },
       "commands.palette": () => setPaletteOpen(!paletteOpen),
       "process.amplify": () => {
-        const range = waveformView.current ? waveformView.current.selectionState() : selection;
+        const range = selection;
         if (range) processing.open(range);
       },
       "process.normalize": () => {
-        const range = waveformView.current ? waveformView.current.selectionState() : selection;
+        const range = selection;
         if (range) processing.open(range, "normalize-peak");
       },
       ...Object.fromEntries(
@@ -641,7 +647,7 @@ export default function App() {
         ].map(([id, operation]) => [
           id,
           () => {
-            const range = waveformView.current ? waveformView.current.selectionState() : selection;
+            const range = selection;
             if (range) processing.open(range, operation as Parameters<typeof processing.open>[1]);
           },
         ]),
@@ -882,8 +888,7 @@ export default function App() {
               onSeek={seek}
               readPosition={readPosition}
               disabled={busy}
-              onSelectionChange={onSelectionChange}
-              onCommandStateChange={setCommandReady}
+              selectionEditor={selectionEditor}
               initialEdit={editSnapshot?.client === client ? editSnapshot.result : undefined}
               spectralView={spectralView}
               onSpectralSelectionChange={setSpectralSelection}

@@ -334,3 +334,22 @@ describe("useHistory", () => {
     expect(result.current.history).toBeUndefined();
   });
 });
+
+it.each(["undo", "redo", "jump"] as const)(
+  "refreshes document info after a stale %s mutation",
+  async (kind) => {
+    const refreshDocument = vi.fn().mockResolvedValue(undefined);
+    const s = mounted({ refreshDocument });
+    seed(s.result);
+    const pending = start(s.result, kind);
+    await flush();
+    s.rerender({ ...s.options, info: { ...info } });
+    const method = kind === "jump" ? "history.jump" : `edit.${kind}`;
+    await act(async () => {
+      s.worker.reply(s.worker.calls(method)[0], navigated);
+      await pending;
+    });
+    expect(refreshDocument).toHaveBeenCalledExactlyOnceWith(s.options.client);
+    expect(s.options.onEdited).not.toHaveBeenCalled();
+  },
+);

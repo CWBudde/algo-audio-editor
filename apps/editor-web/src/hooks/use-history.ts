@@ -9,6 +9,7 @@ export interface HistoryOptions {
   withOperation?(work: () => Promise<void>): Promise<void>;
   beforeEdit(): Promise<void>;
   onEdited(result: EditResult, sourceDocumentId: string): void;
+  refreshDocument?(client: KernelClient): Promise<void>;
   onError(action: string, error: unknown): void;
 }
 
@@ -138,7 +139,11 @@ export function useHistory(options: HistoryOptions) {
             : await client.call(kind === "undo" ? "edit.undo" : "edit.redo", {
                 documentId: sourceDocumentId,
               });
-        if (!active()) return;
+        if (!active()) {
+          if (mounted.current && latest.current.client === client)
+            await latest.current.refreshDocument?.(client);
+          return;
+        }
         publish(client, result.history);
         latest.current.onEdited(result, sourceDocumentId);
       };
