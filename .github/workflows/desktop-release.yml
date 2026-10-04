@@ -16,8 +16,56 @@ env:
   ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
 jobs:
+  # Nothing ships unless CI is green: a release tag must point at a commit on
+  # main, and CI must have passed for that exact commit. A manual dispatch on
+  # a branch skips the on-main check but still requires a green CI run.
+  verify:
+    name: Verify release gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Resolve commit
+        id: commit
+        run: echo "sha=$(git rev-parse "${GITHUB_SHA}^{commit}")" >> "$GITHUB_OUTPUT"
+      - name: Tag is on main
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME ($SHA) is not on main; refusing to release"
+            exit 1
+          fi
+      - name: CI passed for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          # A tag pushed right behind its commit races CI; wait for it.
+          pending=$(gh run list --workflow ci.yml --commit "$SHA" --json databaseId,status \
+            --jq '[.[] | select(.status != "completed")][0].databaseId // empty')
+          if [[ -n "$pending" ]]; then
+            echo "Waiting for CI run $pending on $SHA"
+            gh run watch "$pending" --interval 30 > /dev/null
+          fi
+          passed=$(gh run list --workflow ci.yml --commit "$SHA" --status success --json databaseId --jq length)
+          if [[ "$passed" -eq 0 ]]; then
+            echo "::error::No successful CI run for $SHA; refusing to release"
+            exit 1
+          fi
+          echo "CI passed for $SHA ($passed successful run(s))"
+
   build:
     name: Installer (${{ matrix.os }})
+    needs: verify
     strategy:
       fail-fast: false
       matrix:
@@ -25,6 +73,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # `git describe` stamps the tag, not a bare hash
       - uses: actions/setup-go@v7
         with:
           go-version-file: packages/kernel/go.mod

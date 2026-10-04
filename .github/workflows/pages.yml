@@ -1,7 +1,12 @@
 name: Deploy to GitHub Pages
 
+# Deploy only what CI has proven green: run after the CI workflow finishes on
+# a push to main, never straight off the push. `workflow_run` always executes
+# this file from the default branch, so edits here take effect once merged.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -16,6 +21,12 @@ concurrency:
 
 jobs:
   build:
+    # Manual dispatch is an explicit override; otherwise only a successful CI
+    # run for a push to main (not a pull request whose head branch is "main").
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
@@ -24,6 +35,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          # Build exactly the commit CI tested, not whatever main is now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0 # `git describe` stamps the kernel version
       - uses: actions/setup-go@v7
         with:
