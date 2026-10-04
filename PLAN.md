@@ -650,6 +650,131 @@
 
 ---
 
+## Phase R: Review Remediation (2026-10-04)
+
+**Source:** the full-repo review in [docs/REVIEW-2026-10-04.md](docs/REVIEW-2026-10-04.md) (overall 5.5/10, CI/CD 2/10). Findings, severities and `file:line` evidence live there; each item here is one actionable line. Do the sections in order: R.1 comes first because nothing else can be called verified while CI is red.
+
+### R.1 Make CI truthful (critical)
+
+- [ ] Fix `ci.yml:124` (`bunx --cwd` resolves to a GitHub package and 404s): run `cd apps/editor-web && bunx playwright install --with-deps chromium`. Format `e2e/lossy-export.spec.ts`, then get a green run on `main`
+- [ ] Gate `pages.yml` and `desktop-release.yml` on a green CI (`workflow_run` or a reusable workflow). The release workflow also needs a full-depth checkout and a check that the tag is on `main`
+- [ ] Run `just test-go-wasm` (the `cmd/kernel` bridge and golden tests under V8) in CI and in `just ci`. Make `just ci` really be "everything CI runs"
+- [ ] Move the `@timing` hardware gates into an opt-in Playwright project, out of the default `just e2e`
+- [ ] Pre-commit runs `biome check` (format and lint) across the whole repo, plus gofumpt/gci and golangci-lint on staged Go files
+- [ ] golangci:
+  - restore revive's default rules
+  - add errorlint and gosec
+  - lint `cmd/kernel` with `GOOS=js GOARCH=wasm`
+  - pin the action's version
+  - add `timeout-minutes`
+  - cache Bun and Playwright
+  - pin third-party actions by SHA
+- [ ] Make `scripts/release-guard.sh` fail closed on `go list` and network errors, and remove the library-only `gate`/`tag`/`gorelease` paths. Add a `toolchain` line to `go.mod`
+
+### R.2 Kernel robustness
+
+- [ ] `recover()` in `Engine.CallWithData`, turning a panic into an error response that names the method. Add a regression test with a panicking dispatch target
+- [ ] One memory-budget owner sized against the 4 GiB WASM limit and shared by:
+  - import (WAV included; today WAV has no decoded cap)
+  - history
+  - process candidates
+  - clipboard and paste-mix
+  - export
+
+  Lift the 512 MiB cap (about 23 minutes of stereo) on FLAC/AIFF/MP3 import.
+- [ ] Tolerant WAV reading:
+  - RIFF size larger than the file (truncated recordings)
+  - RIFF or data size of 0 or `0xFFFFFFFF`
+  - a missing final pad byte
+  - RF64/`ds64`
+- [ ] Fuzzing:
+  - WAV seeds with LIST/INFO, adtl, cue and bext chunks
+  - a fuzz target for export
+  - fuzz through `engine.New()` rather than `&Engine{}`
+
+### R.3 Kernel correctness
+
+- [ ] MP3: detect mono rather than always opening as stereo, and trim encoder delay and padding using the LAME/Xing header
+- [ ] 8-bit WAV: symmetric scaling so byte 128 decodes to 0 (fix upstream in `wav` if needed), and correct `wav_test.go:149`, which currently asserts the DC offset
+- [ ] One BS.1770 channel-weighting function used by statistics, meters and the Normalizer. Test: a 6-channel file normalized to −23 LUFS measures −23 LUFS
+- [ ] Noise profile: fix the zero-padding bias of the first frame (`restoration.go:214`)
+- [ ] Generating at the cursor on some channels must keep all channels in sync
+- [ ] Check for short reads on FLAC/AIFF export (`codecs.go:339`). Move the `e.history` nil check ahead of its use (`analysis.go:154`)
+
+### R.4 Rule 6: move DSP upstream
+
+- [ ] algo-dsp: a length-exact offline resampler stream. Replace the three local copies (`transport_resample.go`, `clipboard_convert.go`, `process/resample.go`) and the duplicated `rateGCD` helpers
+- [ ] algo-dsp `measure/loudness`: BS.1770 channel weighting. `restoration.NoiseProfile` should own its own STFT framing. Tag both, then bump here
+- [ ] Remove the float32→float64→float32 round trips around `vecmath.AddBlock` (`ops/operation.go:417`, `process/operation.go:379`)
+
+### R.5 Kernel structure and performance
+
+- [ ] Split `Engine` (30 fields) into subsystems: document, transport, history, jobs, analysis, effects. Replace the 160-line dispatch switch and the two busy allow-lists with one method registry table that holds the decoder, handler and busy policy for each method
+- [ ] Typed constants for operation, kind and state names instead of string literals
+- [ ] Consistent error wrapping: `%w` everywhere and a method prefix on all upstream errors (`restoration.go`, `wav_metadata.go`). Make `decode` reject unknown fields
+- [ ] Analysis and spectrogram steps limited by a time budget rather than 1024 frames or one FFT per call. Measure the round-trip count for a one-hour file
+- [ ] History byte accounting kept incrementally, without calling `countBytes()` on every push, prune or undo
+- [ ] Tests: mono MP3, multichannel LUFS round trip, one-hour FLAC import, behaviour at the memory budget
+
+### R.6 Frontend correctness
+
+- [ ] Worklet:
+  - stop orphaned processors on a channel-count change, via a port message that makes `process()` return `false`
+  - remove the BigInt allocations from `readPlanar` (rule 2)
+  - fix the seqlock comment, or make the read actually safe
+- [ ] Serialize `AudioEngine.play()` behind the same fence as `prepare`, `stop` and `seek`
+- [ ] Move selection session state out of mutable `useMemo` into a ref- or `useSyncExternalStore`-based store. Make it the single source of truth instead of App's `selected` plus imperative `selectionState()`
+- [ ] When an identity check drops the result of a kernel-mutating call (`edit.apply`, history jump, `process.commit`), refetch document info so the UI never keeps a stale `documentId`
+- [ ] Protocol TS: make `ProcessJobResult.candidate` nullable and allow `format: ""`. Add a Go↔TS parity test generated from `protocol.go` (method names and payload field names)
+- [ ] Define the bulk-data method list once, shared by `kernel-call.ts` and `stream-pump.ts`, and decode peaks only once (worker *or* main thread)
+
+### R.7 Frontend structure and performance
+
+- [ ] A shared `useKernelSession` helper (latest ref, mounted, epoch, token, `active()`) to replace the six hand-written copies. One job runner shared by `use-process` and `use-effects`
+- [ ] Split `App.tsx` into a controller/store plus layout. Split `WaveformView` into viewport, pointer interaction, rulers and markers/regions
+- [ ] Playback performance:
+  - move playback stats into the About dialog's own subscription, so there's no 5 Hz whole-tree `setStats`
+  - no per-frame `setState` in follow mode
+  - memoize `resolveCommands` and inline props
+- [ ] Keep the previous peaks snapshot drawn until the new one arrives, so pan, zoom and follow don't blank the waveform
+- [ ] Size:
+  - code-split dialogs and effects UI
+  - serve `kernel.wasm` with a content hash
+  - add `wasm-opt`
+  - set JS and WASM size budgets in CI
+- [ ] Move the wire-format parsing in `e2e/process-benchmark.spec.ts` into a probe module owned next to `messages.ts`
+
+### R.8 Accessibility
+
+- [ ] Keyboard cursor and selection on the waveform surface (arrow keys move the cursor, Shift extends the selection, Home/End jump)
+- [ ] Selection edge handles as `role="slider"` with `aria-valuenow`, Shift/PageUp acceleration and debounced `selection.set`/seek RPCs
+
+### R.9 Electron hardening
+
+- [ ] Fuses via `@electron/fuses` at package time: RunAsNode off, `NODE_OPTIONS` off, inspect args off, embedded ASAR integrity on
+- [ ] `session.setPermissionRequestHandler` and `setPermissionCheckHandler`: deny by default, and allow the microphone only for the app origin (needed before Phase 7)
+- [ ] Protocol handler and preload:
+  - wrap `decodeURIComponent` in the `try` (`main.ts:136`)
+  - type the preload with `satisfies DesktopBridge`
+  - an external-URL allowlist
+  - a `will-redirect` guard
+  - ignore `AAE_USER_DATA` in packaged builds
+- [ ] Unit tests for `files.ts` (capability ids, symlink and size rejection), `shortcuts.ts` and the window-state validation
+
+### R.10 Docs and process
+
+- [ ] Correct PLAN's verification claims:
+  - CI e2e in Phases 0.5 and 9
+  - the spectrogram-gate contradiction between Phases 5 and 8
+  - "ABI v10" in U.5
+  - the stale test counts
+  - reconcile phase status (Phase 3 open while 4/5 are COMPLETE)
+- [ ] Move timing logs and benchmark reports out of PLAN.md into `docs/benchmarks/`. Plan items state outcome, files and regression test in one or two lines
+- [ ] Update the AGENTS.md layout table (`audiobuf`, `ops`, `history`, `process`, `effects`, `buildinfo`, `docs/`). Bring CHANGELOG.md up to date
+- [ ] Work on branches with PRs and a required green CI. Keep commits small with bodies. Tag `v0.1.0` once CI is green, which also gives `check-unreleased` something to check. Add a CI badge and a screenshot to the README
+
+---
+
 ## Deferred / Later
 
 - VST3/CLAP plugin hosting (desktop only, via a native helper process)
