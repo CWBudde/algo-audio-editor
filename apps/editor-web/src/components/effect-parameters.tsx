@@ -1,5 +1,6 @@
 import type { EffectDescriptor, EffectParameterDescriptor } from "@aae/protocol";
 import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
+import { DynamicsGraph } from "@/components/dynamics-graph";
 import { EffectSlider } from "@/components/effect-slider";
 import { ParametricEQGraph } from "@/components/parametric-eq-graph";
 import type { KernelClient } from "@/kernel/client";
@@ -169,6 +170,17 @@ function EffectCurve({
     return (
       <div>
         <ParametricEQGraph {...{ descriptor, node, points, sampleRate, disabled, onChange }} />
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
+      </div>
+    );
+  if (descriptor.view === "dynamics")
+    return (
+      <div>
+        <DynamicsGraph {...{ descriptor, node, points, disabled }} />
         {error && (
           <p role="alert" className="text-xs text-destructive">
             {error}

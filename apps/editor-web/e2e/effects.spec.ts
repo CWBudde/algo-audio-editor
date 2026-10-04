@@ -339,6 +339,98 @@ test("parametric EQ has labeled axes, persistent draggable bands and keyboard co
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(await sourceState(page)).toEqual(before);
 });
+test("dynamics graphs expose kernel I/O samples, guides and keyboard readouts without changing audio", async ({
+  page,
+}, testInfo) => {
+  await load(page);
+  const before = await sourceState(page);
+  const effects = (await catalogue(page)).effects.filter((effect) => effect.view === "dynamics");
+  expect(effects.map((effect) => effect.id).sort()).toEqual([
+    "dyn-compressor",
+    "dyn-expander",
+    "dyn-gate",
+    "dyn-limiter",
+    "dyn-lookahead",
+  ]);
+  for (const descriptor of effects) {
+    const dialog = await openEffect(page, descriptor.id);
+    const graph = dialog.getByRole("img", {
+      name: `${descriptor.name} response curve`,
+      exact: true,
+    });
+    const path = graph.getByTestId("effect-response-path");
+    await expect(path).toHaveAttribute("d", /^M\S+/);
+    await expect(graph.getByText("Input (dB)")).toBeVisible();
+    await expect(graph.getByText("Output (dB)")).toBeVisible();
+    await expect(graph.getByTestId("dynamics-unity")).toBeVisible();
+    const threshold = descriptor.parameters.find((parameter) => parameter.id === "thresholdDB");
+    if (!threshold) throw new Error("Threshold parameter missing");
+    await expect(graph.getByTestId("dynamics-threshold")).toHaveAttribute(
+      "x1",
+      String(64 + ((threshold.default + 80) * 556) / 80),
+    );
+    const reader = dialog.getByRole("slider", { name: "Read input level", exact: true });
+    const readout = dialog.locator("output[aria-live=polite]");
+    await reader.focus();
+    await reader.press("End");
+    const output = await page.evaluate(async (effect) => {
+      const response = (await window.__aaeTest?.request("effects.response", {
+        effectId: effect.id,
+        params: Object.fromEntries(
+          effect.parameters.map((parameter) => [
+            parameter.id,
+            parameter.defaultString || parameter.default,
+          ]),
+        ),
+        sampleRate: 48000,
+        points: 256,
+        mode: "transfer",
+      })) as { count: number; data: ArrayBuffer };
+      return new DataView(response.data).getFloat64((response.count - 1) * 16 + 8, true);
+    }, descriptor);
+    const db = `${output > 0 ? "+" : ""}${output.toFixed(1)} dB`;
+    await expect(readout).toHaveText(`Input 0.0 dB → Output ${db} · Gain change ${db}`);
+    const initialReadout = await readout.textContent();
+    await reader.press("ArrowLeft");
+    await expect(readout).not.toHaveText(initialReadout ?? "");
+    await graph.scrollIntoViewIfNeeded();
+    const box = await graph.boundingBox();
+    if (!box) throw new Error("Dynamics geometry missing");
+    await page.mouse.move(box.x + (box.width * 342) / 640, box.y + (box.height * 100) / 320);
+    await expect
+      .poll(async () => Number(/Input ([\d.-]+)/.exec((await readout.textContent()) ?? "")?.[1]))
+      .toBeCloseTo(-40, 0);
+    const parameter = descriptor.parameters.find((parameter) => parameter.id === "thresholdDB");
+    if (!parameter) throw new Error("Threshold parameter missing");
+    const field = dialog.getByLabel(
+      `${parameter.label}${parameter.unit ? ` (${parameter.unit})` : ""}`,
+      { exact: true },
+    );
+    const oldPath = await path.getAttribute("d");
+    await field.fill("-10");
+    await expect(path).not.toHaveAttribute("d", oldPath ?? "");
+    await expect(graph.getByTestId("dynamics-threshold")).toHaveAttribute("x1", "550.5");
+    expect(await sourceState(page)).toEqual(before);
+    if (descriptor.id === "dyn-compressor") {
+      await testInfo.attach("dynamics-desktop", {
+        body: await graph.screenshot({ path: testInfo.outputPath("dynamics-desktop.png") }),
+        contentType: "image/png",
+      });
+      await page.setViewportSize({ width: 640, height: 720 });
+      await graph.scrollIntoViewIfNeeded();
+      expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+        true,
+      );
+      await testInfo.attach("dynamics-narrow", {
+        body: await graph.screenshot({ path: testInfo.outputPath("dynamics-narrow.png") }),
+        contentType: "image/png",
+      });
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(await sourceState(page)).toEqual(before);
+  }
+});
 test("Escape cancels an offline effects render without changing source or history", async ({
   page,
 }) => {
