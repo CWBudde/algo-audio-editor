@@ -19,6 +19,11 @@ import (
 
 const (
 	analysisBlockFrames = 1024
+	// pitchStepWork bounds the YIN work units of one analysis.step: a few
+	// milliseconds in WASM, instead of one bridge round trip per 4096 units.
+	pitchStepWork = 1 << 18
+	// pitchJobStepLimit is the largest budget pitch.YINJob.Step accepts.
+	pitchJobStepLimit   = 1 << 16
 	analysisOutputLimit = 16 << 20
 	analysisCacheBytes  = 8 << 20
 )
@@ -428,42 +433,49 @@ func (job *analysisJob) readWindow(channel int, center int64, input []float64) e
 	return nil
 }
 
+// stepPitch spends up to pitchStepWork YIN work units per analysis.step,
+// finishing as many frames as fit. A default-range frame needs more than the
+// budget, so a step still yields inside a frame.
 func (job *analysisJob) stepPitch() error {
-	if job.position >= job.params.End {
-		job.result.State = "ready"
-		job.result.DataBytes = len(job.data)
-		return nil
-	}
-	if !job.pitchStarted {
-		if err := job.readWindow(job.packed, job.position, job.planar[0]); err != nil {
+	for budget := pitchStepWork; budget > 0; {
+		if job.position >= job.params.End {
+			job.result.State = "ready"
+			job.result.DataBytes = len(job.data)
+			return nil
+		}
+		if !job.pitchStarted {
+			if err := job.readWindow(job.packed, job.position, job.planar[0]); err != nil {
+				return err
+			}
+			if err := job.pitchJob.Begin(job.planar[0]); err != nil {
+				return err
+			}
+			job.pitchStarted = true
+		}
+		work := min(budget, pitchJobStepLimit)
+		budget -= work
+		done, err := job.pitchJob.Step(work)
+		if err != nil {
 			return err
 		}
-		if err := job.pitchJob.Begin(job.planar[0]); err != nil {
+		if !done {
+			continue
+		}
+		estimate, err := job.pitchJob.Result()
+		if err != nil {
 			return err
 		}
-		job.pitchStarted = true
-	}
-	done, err := job.pitchJob.Step(4096)
-	if err != nil {
-		return err
-	}
-	if !done {
-		return nil
-	}
-	estimate, err := job.pitchJob.Result()
-	if err != nil {
-		return err
-	}
-	job.pitchStarted = false
-	for _, value := range []float64{float64(job.result.Channels[job.packed]), float64(job.position), estimate.FrequencyHz, estimate.Confidence} {
-		job.data = binary.LittleEndian.AppendUint64(job.data, math.Float64bits(value))
-	}
-	job.result.Records++
-	job.packed++
-	if job.packed == len(job.channels) {
-		job.packed = 0
-		job.position = min(job.params.End, job.position+int64(job.params.HopSize))
-		job.result.ProcessedFrames = job.position - job.params.Start
+		job.pitchStarted = false
+		for _, value := range []float64{float64(job.result.Channels[job.packed]), float64(job.position), estimate.FrequencyHz, estimate.Confidence} {
+			job.data = binary.LittleEndian.AppendUint64(job.data, math.Float64bits(value))
+		}
+		job.result.Records++
+		job.packed++
+		if job.packed == len(job.channels) {
+			job.packed = 0
+			job.position = min(job.params.End, job.position+int64(job.params.HopSize))
+			job.result.ProcessedFrames = job.position - job.params.Start
+		}
 	}
 	return nil
 }

@@ -226,6 +226,36 @@ func TestAnalysisPitchCooperativeTracks440HzAndCancel(t *testing.T) {
 	}
 }
 
+// One second of default-range pitch analysis (60-1600 Hz, ~640k YIN units per
+// frame) must not cost one bridge round trip per 4096 units: that made the
+// analysis take seconds in WASM under load. Steps stay cooperative inside a
+// frame (see the test above) but carry a much larger work budget.
+func TestAnalysisPitchStepBudgetBoundsRoundTrips(t *testing.T) {
+	input := make([]float32, 48000)
+	for i := range input {
+		input[i] = float32(.4 * math.Sin(2*math.Pi*440*float64(i)/48000))
+	}
+	e, _ := openEditorFixture(t, input, 1)
+	r, err := e.startAnalysis(analysisParams(e, "pitch", 0, 48000, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps := 0
+	for ; steps < 20000 && r.State != "ready"; steps++ {
+		value, err := e.dispatchAnalysis(protocol.MethodAnalysisStep, []byte(mustJSON(t, protocol.AnalysisJobParams{DocumentID: r.DocumentID, JobID: r.JobID})))
+		if err != nil {
+			t.Fatal(err)
+		}
+		r = value.(protocol.AnalysisJobResult)
+	}
+	if r.State != "ready" || r.Records != 60 {
+		t.Fatal("pitch did not finish", r)
+	}
+	if steps > 200 {
+		t.Fatalf("pitch needed %d analysis.step round trips for one second", steps)
+	}
+}
+
 func TestAnalysisSpectrogramAllHopsProgressCacheAndTilePartition(t *testing.T) {
 	input := make([]float32, 8192)
 	input[768] = 1 // Far from the single pixel centre.
