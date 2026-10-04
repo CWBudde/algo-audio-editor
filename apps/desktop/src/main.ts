@@ -77,6 +77,7 @@ const WEB_ROOT = app.isPackaged
   ? path.join(process.resourcesPath, "web")
   : path.resolve(app.getAppPath(), "../editor-web/dist");
 const PRELOAD = path.join(app.getAppPath(), "dist", "preload.js");
+const APP_ICON = path.join(WEB_ROOT, "app-icon.png");
 
 /**
  * Production CSP. 'wasm-unsafe-eval' is what WebAssembly compilation needs;
@@ -103,6 +104,7 @@ const MIME: Record<string, string> = {
   ".wasm": "application/wasm",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".ico": "image/x-icon",
   ".woff2": "font/woff2",
 };
 
@@ -163,6 +165,7 @@ async function makeWindow() {
     minHeight: 500,
     backgroundColor: "#0a0a0a",
     title: "algo-audio-editor",
+    icon: APP_ICON,
     webPreferences: {
       preload: PRELOAD,
       contextIsolation: true,
@@ -219,6 +222,7 @@ function secureWindow(win: BrowserWindow) {
           minWidth: 800,
           minHeight: 500,
           backgroundColor: "#0a0a0a",
+          icon: APP_ICON,
           webPreferences: {
             preload: PRELOAD,
             contextIsolation: true,
@@ -241,6 +245,7 @@ if (singleInstance) {
   app
     .whenReady()
     .then(async () => {
+      if (!app.isPackaged) app.dock?.setIcon(APP_ICON);
       registerAppProtocol();
       registerEffectPresets(DEV_URL ?? APP_URL);
       files = registerFiles(DEV_URL ?? APP_URL);

@@ -22,6 +22,7 @@ fileAssociations:
     mimeType: audio/wav
     role: Editor
 linux:
+  icon: build/icons
   executableName: algo-audio-editor
   category: AudioVideo
   syncDesktopName: true
@@ -29,6 +30,7 @@ linux:
     - AppImage
     - deb
 mac:
+  icon: build/icon.icns
   category: public.app-category.music
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
@@ -38,6 +40,7 @@ mac:
     - dmg
     - zip
 win:
+  icon: build/icon.ico
   target:
     - nsis
 nsis:

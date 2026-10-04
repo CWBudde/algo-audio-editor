@@ -43,7 +43,22 @@ windows get the same native services and independent close protection.
 
 FLAC, AIFF, MP3 and `.aaep` associations remain deferred until the Phase 6
 import/project implementations exist. Projects and crash recovery remain Phase 6;
-the close guard does not provide autosave. Custom installer icons remain pending.
+the close guard does not provide autosave.
+
+## App icons
+
+The original artwork is `assets/appicon.png`. Checked-in derivatives include
+Windows `build/icon.ico` (16–256 pixels), macOS `build/icon.icns` (16–1024 pixels)
+and Linux `build/icons/` (16–512 pixels), all under `apps/desktop/` and selected
+explicitly in `electron-builder.yml`. Main and extracted windows use the shared
+512-pixel web icon; macOS development launches also set the Dock icon.
+
+The web app includes a multi-size favicon, 32- and 512-pixel PNG icons and a
+180-pixel Apple touch icon. Their HTML links use `%BASE_URL%` for sub-path hosting.
+To replace the artwork, update the source and run `just icons` with ImageMagick
+installed (`magick` or `convert`). `scripts/generate-icons.mjs` resizes without
+cropping and writes the platform containers. Normal builds and CI use the
+checked-in files and do not require ImageMagick.
 
 ## Local packaging
 

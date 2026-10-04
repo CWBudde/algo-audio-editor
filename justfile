@@ -26,6 +26,10 @@ wasm-build:
 
 # ── Development ──────────────────────────────────────────────────────────────
 
+# Regenerate checked-in desktop/web icons (requires ImageMagick).
+icons:
+    node scripts/generate-icons.mjs
+
 # Start the Vite dev server (rebuilds the kernel first)
 dev: wasm-build
     bun run --cwd {{web}} dev
