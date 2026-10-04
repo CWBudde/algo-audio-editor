@@ -216,33 +216,50 @@ func (e *Engine) openFLAC(p protocol.DocumentOpenParams, input []byte) (protocol
 }
 
 func (e *Engine) openMP3(p protocol.DocumentOpenParams, input []byte) (protocol.DocumentInfoResult, error) {
+	blocks, rate, err := decodeMP3(input)
+	if err != nil {
+		return protocol.DocumentInfoResult{}, err
+	}
+	return e.installPCM(p, blocks, rate, 16, "mp3")
+}
+
+// decodeMP3 decodes the whole stream into blocks. go-mp3 indexes its tables
+// with values read from the stream and panics on some malformed frames (found
+// by FuzzWAVOpen); report those as bad input instead of crashing the kernel.
+// The recover covers only the third-party decode, never document installation.
+func decodeMP3(input []byte) (blocks [][]*audiobuf.Block, rate int, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			blocks, rate, err = nil, 0, fmt.Errorf("doc.open: malformed MP3: %v", recovered)
+		}
+	}()
 	// Hide Seek to avoid go-mp3's eager frame index scan; decoding stays bounded.
 	d, err := mp3.NewDecoder(bytes.NewBuffer(input))
 	if err != nil {
-		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: MP3: %w", err)
+		return nil, 0, fmt.Errorf("doc.open: MP3: %w", err)
 	}
-	rate := d.SampleRate()
+	rate = d.SampleRate()
 	if err = validateDecodedFormat(rate, 2, 16, 0); err != nil {
-		return protocol.DocumentInfoResult{}, err
+		return nil, 0, err
 	}
-	blocks := make([][]*audiobuf.Block, 2)
+	blocks = make([][]*audiobuf.Block, 2)
 	raw := make([]byte, audiobuf.BlockFrames*4)
 	pcm := [][]int32{make([]int32, audiobuf.BlockFrames), make([]int32, audiobuf.BlockFrames)}
 	var total int64
 	for {
 		n, err := io.ReadFull(d, raw)
 		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-			return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: MP3 PCM: %w", err)
+			return nil, 0, fmt.Errorf("doc.open: MP3 PCM: %w", err)
 		}
 		if n == 0 {
 			break
 		}
 		if n%4 != 0 {
-			return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: partial MP3 frame")
+			return nil, 0, fmt.Errorf("doc.open: partial MP3 frame")
 		}
 		count := n / 4
 		if validation := validateDecodedFormat(rate, 2, 16, total+int64(count)); validation != nil {
-			return protocol.DocumentInfoResult{}, validation
+			return nil, 0, validation
 		}
 		for ch := range 2 {
 			pcm[ch] = pcm[ch][:count]
@@ -251,14 +268,14 @@ func (e *Engine) openMP3(p protocol.DocumentOpenParams, input []byte) (protocol.
 			}
 		}
 		if err = appendPCM(blocks, pcm, 16); err != nil {
-			return protocol.DocumentInfoResult{}, err
+			return nil, 0, err
 		}
 		total += int64(count)
 		if count < audiobuf.BlockFrames {
 			break
 		}
 	}
-	return e.installPCM(p, blocks, rate, 16, "mp3")
+	return blocks, rate, nil
 }
 
 func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.DocumentExportInfo, error) {

@@ -97,9 +97,13 @@ fuzz-codecs duration="10s":
 test-web:
     bun run --cwd {{web}} test
 
-# Browser end-to-end tests against the production build
+# Browser end-to-end tests against the production build (no hardware timing gates)
 e2e: build
     bun run --cwd {{web}} e2e
+
+# Opt-in hardware timing gates (`@timing`): run on the target laptop, not on shared CI.
+e2e-timing: build
+    AAE_TIMING=1 bun run --cwd {{web}} e2e
 
 # Electron end-to-end tests (needs a display, or xvfb-run on CI)
 e2e-desktop: build desktop-build
@@ -184,7 +188,12 @@ check-unreleased:
 
 # ── Aggregate ────────────────────────────────────────────────────────────────
 
-ci: check-formatted lint test-go-race test-web check-tidy build
+# Fast local gate: formatting, lint, unit tests and the production build.
+check: check-formatted lint test-go-race test-web check-tidy build
+
+# Electron e2e needs a display; headless, run `xvfb-run --auto-servernum just ci`.
+# Everything the CI workflow (.github/workflows/ci.yml) runs, in one recipe.
+ci: check-formatted lint test-go-race test-go-wasm fuzz-wav fuzz-codecs test-web check-tidy e2e e2e-desktop e2e-desktop-packaged
 
 clean:
     rm -rf {{web}}/dist {{desktop}}/dist {{web}}/public/kernel.wasm {{web}}/public/wasm_exec.js

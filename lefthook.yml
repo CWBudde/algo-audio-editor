@@ -1,15 +1,55 @@
+# Pre-commit mirrors the checks CI runs, scoped to staged files where the tool
+# allows it. Nothing here rewrites files: a failing format check means
+# "run `just fmt` and re-stage".
 pre-commit:
   parallel: true
   jobs:
+    # Format + lint + import order for every TS/JSON file in the repo, the same
+    # rules `biome ci apps packages/protocol` enforces in CI. biome.json's
+    # files.includes skips the generated shadcn components; the flags keep
+    # biome quiet when every staged file is ignored. Use the workspace-pinned
+    # binary (see treefmt.toml).
     - name: biome
-      root: apps/editor-web
       glob: "*.{ts,tsx,json}"
-      run: bun run lint
+      run: node_modules/.bin/biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
 
-    - name: typecheck
-      root: apps/editor-web
-      glob: "*.{ts,tsx}"
-      run: bun run typecheck
+    # packages/protocol is consumed by editor-web via a path alias, so a
+    # protocol change has to typecheck there.
+    - name: typecheck-web
+      glob:
+        - "apps/editor-web/**/*.{ts,tsx}"
+        - "packages/protocol/**/*.ts"
+      run: bun run --cwd apps/editor-web typecheck
+
+    - name: typecheck-desktop
+      glob: "apps/desktop/**/*.ts"
+      run: bun run --cwd apps/desktop typecheck
+
+    # With root set, {staged_files} is relative to packages/kernel.
+    - name: gofumpt
+      root: packages/kernel
+      glob: "*.go"
+      run: |
+        unformatted="$(gofumpt -l {staged_files})" || exit 1
+        if [ -n "$unformatted" ]; then
+          printf 'gofumpt: not formatted (run `just fmt`):\n%s\n' "$unformatted"
+          exit 1
+        fi
+
+    - name: gci
+      root: packages/kernel
+      glob: "*.go"
+      run: |
+        unsorted="$(gci list {staged_files})" || exit 1
+        if [ -n "$unsorted" ]; then
+          printf 'gci: imports not ordered (run `just fmt`):\n%s\n' "$unsorted"
+          exit 1
+        fi
+
+    - name: golangci-lint
+      root: packages/kernel
+      glob: "*.go"
+      run: golangci-lint run ./...
 
     - name: go-vet
       root: packages/kernel

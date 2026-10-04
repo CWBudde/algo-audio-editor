@@ -3,19 +3,36 @@ import { playbackWAV } from "./playback-fixture.js";
 import { capturePlayback } from "./playback-probe.ts";
 import { revealControl } from "./ui-disclosures.ts";
 
-async function open(page: Page, frames: number, sampleRate = 48000, channels = 2) {
+async function open(
+  page: Page,
+  frames: number,
+  sampleRate: number | "output" = 48000,
+  channels = 2,
+) {
   await page.goto("/");
   await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
+  // "output" matches the device rate so playback is not resampled: headless
+  // CI runners without an audio device run the AudioContext at 44.1 kHz.
+  const rate =
+    sampleRate === "output"
+      ? await page.evaluate(async () => {
+          const context = new AudioContext();
+          const outputRate = context.sampleRate;
+          await context.close();
+          return outputRate;
+        })
+      : sampleRate;
   await page.getByTestId("audio-file-input").setInputFiles({
     name: "transport.wav",
     mimeType: "audio/wav",
-    buffer: playbackWAV(frames, sampleRate, channels),
+    buffer: playbackWAV(frames, rate, channels),
   });
   await expect(page.getByTestId("document-name")).toHaveText("transport.wav");
 }
 
 test("short files drain exactly once without EOF underruns and can replay", async ({ page }) => {
-  await open(page, 31);
+  // "frames played" counts output frames; an unresampled file keeps it exact.
+  await open(page, 31, "output");
   await page.getByTestId("play").click();
   await expect(page.getByTestId("play")).toBeEnabled();
   await expect(page.getByTestId("play-position")).toHaveAttribute("data-frame", "31");

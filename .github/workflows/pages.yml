@@ -1,7 +1,12 @@
 name: Deploy to GitHub Pages
 
+# Deploy only what CI has proven green: run after the CI workflow finishes on
+# a push to main, never straight off the push. `workflow_run` always executes
+# this file from the default branch, so edits here take effect once merged.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -9,6 +14,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read # manual dispatch looks up the commit's CI runs
 
 concurrency:
   group: pages
@@ -16,14 +22,34 @@ concurrency:
 
 jobs:
   build:
+    # Only a successful CI run for a push to main (not a pull request whose
+    # head branch is "main"). A manual dispatch redeploys, but the commit must
+    # still have a successful CI run; the first step checks that.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       # Pages serves the site from /<repo>/.
       VITE_BASE: /${{ github.event.repository.name }}/
     steps:
+      - name: CI passed for the dispatched commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          passed=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --status success --json databaseId --jq length)
+          if [[ "$passed" -eq 0 ]]; then
+            echo "::error::No successful CI run for $GITHUB_SHA; refusing to deploy"
+            exit 1
+          fi
       - uses: actions/checkout@v7
         with:
+          # Build exactly the commit CI tested, not whatever main is now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0 # `git describe` stamps the kernel version
       - uses: actions/setup-go@v7
         with:

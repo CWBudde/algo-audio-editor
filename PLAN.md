@@ -127,7 +127,7 @@
   - [x] passes against both `vite preview` and `vite dev`
 - [x] Playwright (Electron), `apps/desktop/e2e/smoke.spec.ts`: page loads over `app://`, isolated, preload bridge present, tone plays, no console errors (catches CSP and preload failures)
 - [x] `.github/workflows/`:
-  - [x] `ci.yml`: kernel vet/test -race/tidy/golangci, web biome/typecheck/vitest, treefmt, browser + Electron e2e under xvfb
+  - [x] `ci.yml`: kernel vet/test -race/tidy/golangci, web biome/typecheck/vitest, treefmt, browser + Electron e2e under xvfb. Correction (2026-10-04): the Playwright install step 404'd on every run, so e2e never actually ran in CI until PR #1
   - [x] `pages.yml`: Pages deploy
   - [x] `dep-drift.yml`: weekly sibling drift check
 
@@ -492,7 +492,7 @@
 - [x] `electron-builder.yml` adds FLAC, AIFF/AIFC and MP3 associations after Phase 6.1 import support. `OPEN_EXTENSIONS` is shared by launch/second-instance filtering and queued OS opens; native chooser grants accept renamed files and Save permits WAV/FLAC/AIFF. Desktop codec regressions launch each format and verify actual native disk output (MP3 saves as WAV). Cross-platform installed association acceptance remains below.
 - [ ] Add `.aaep` association after Phase 6.4 project support. Browser/project recent-file persistence also remains Phase 6.
 - [x] `window-state.ts` persists normal bounds/maximized state, validates restored geometry against connected displays and flushes pending writes before quit. Per-window close protection offers Save/Discard/Cancel; active operations/previews must finish or cancel. Save closes only after successful disk write and saved-state acknowledgement. Electron regressions cover failed/cancelled save retention, successful save-before-close and relaunch bounds; extracted-channel windows receive independent protection.
-- [x] `electron-builder.yml` packages the main/preload bundles, production updater dependencies and `editor-web/dist` into `resources/web`, with AppImage/deb, NSIS and dmg/zip targets. `just desktop-package` never publishes; `just desktop-package-dir` and `just e2e-desktop-packaged` verify the Linux packaged runtime. Both Linux installer formats build locally. The packaged smoke test checks ASAR preload, production web/WASM resources, cross-origin isolation and no renderer Node access; CI runs it under Xvfb. `scripts/build-wasm.mjs` preserves build metadata while handling native Windows paths.
+- [x] `electron-builder.yml` packages the main/preload bundles, production updater dependencies and `editor-web/dist` into `resources/web`, with AppImage/deb, NSIS and dmg/zip targets. `just desktop-package` never publishes; `just desktop-package-dir` and `just e2e-desktop-packaged` verify the Linux packaged runtime. Both Linux installer formats build locally. The packaged smoke test checks ASAR preload, production web/WASM resources, cross-origin isolation and no renderer Node access; CI runs it under Xvfb (first actually run in CI on 2026-10-04, PR #1). `scripts/build-wasm.mjs` preserves build metadata while handling native Windows paths.
 - [x] `updates.ts` provides packaged-only GitHub update checks from the builder's fixed feed, confirmed downloads and Restart/Later. Restart uses the normal guarded quit flow; installation waits until every window closes and persistence flushes. The deterministic `updates.spec.ts` stubs only the update feed/installer and verifies cancelled dirty close prevents installation, followed by successful save before install. `docs/desktop.md` documents signing/notarization credentials and platform limits.
 - [x] `desktop-release.yml` prepares a tag-triggered three-OS installer matrix, tag version injection, signing-credential checks and forced signing for tagged Windows/macOS builds. Only a complete successful platform set reaches the GitHub release upload; manual workflow runs produce reviewable artifacts without publishing. Installer/update manifests, blockmaps and the macOS updater zip are included.
 - [x] The supplied app icon is preserved in `assets/appicon.png`. `just icons` / `scripts/generate-icons.mjs` generate checked-in multi-size Windows ICO, macOS ICNS, Linux PNGs and web favicon/touch icons. `electron-builder.yml` selects each platform's installer icon, and primary/extracted windows use the shared app icon (including the development macOS Dock). Web links retain `%BASE_URL%` for sub-path hosting. Validation decodes every generated size, checks reproducible regeneration and sub-path output, builds Linux AppImage/deb, verifies installed deb icon bytes, and passes the packaged smoke plus native/renderer icon loading checks. Windows/macOS installer verification remains part of the platform acceptance below.
@@ -647,6 +647,142 @@
 ### License audit
 
 - [ ] Before the first public release: audit all Go and npm dependency licenses (MIT/BSD/Apache only for bundled code), and generate the third-party notices for the About dialog and installers
+
+---
+
+## Phase R: Review Remediation (2026-10-04)
+
+**Source:** the full-repo review in [docs/REVIEW-2026-10-04.md](docs/REVIEW-2026-10-04.md) (overall 5.5/10, CI/CD 2/10). Findings, severities and `file:line` evidence live there; each item here is one actionable line. Do the sections in order: R.1 comes first because nothing else can be called verified while CI is red.
+
+### R.1 Make CI truthful (critical)
+
+- [ ] Fix `ci.yml:124` (`bunx --cwd` resolves to a GitHub package and 404s): run `cd apps/editor-web && bunx playwright install --with-deps chromium`. Format `e2e/lossy-export.spec.ts`, then get a green run on `main` (2026-10-04) — partial: the install step now runs from `apps/editor-web`, and the spec is formatted. The first real CI e2e run exposed `transport.spec.ts` assuming a 48 kHz output: headless runners use 44.1 kHz, so it now opens its file at the output rate. Under parallel load the YIN pitch e2e timed out: `stepPitch` did 9,422 bridge round trips per second of audio, now 151 with a 2^18-unit budget (`TestAnalysisPitchStepBudgetBoundsRoundTrips`). The fuzz smoke found a go-mp3 panic: `decodeMP3` now recovers it, with the crasher kept as a `FuzzWAVOpen` seed. PR #1 is fully green at `a2bc0b5` (CI run 37213322065): kernel, web, formatting, and 134 browser + 16 Electron + 1 packaged e2e. Remains: a green run on `main` after merge
+- [ ] Gate `pages.yml` and `desktop-release.yml` on a green CI (`workflow_run` or a reusable workflow). The release workflow also needs a full-depth checkout and a check that the tag is on `main` (2026-10-04) — partial:
+  - `pages.yml` runs on `workflow_run` after a successful CI push run on `main` and checks out `head_sha`. A manual dispatch refuses to deploy unless `ci.yml` succeeded for the dispatched commit.
+  - `desktop-release.yml` has a `verify` job: the tag must be an ancestor of `origin/main`. It then polls `gh run list --workflow ci.yml --commit <sha>` until a run succeeds; it refuses if every run finished without success or after 50 minutes, so a CI run that isn't registered yet no longer fails the release. Builds use full-depth checkouts.
+  - `actionlint` is clean.
+  - Remains: `workflow_run` only takes effect from the default branch, so confirm the first post-merge Pages deploy follows CI.
+- [x] Run `just test-go-wasm` (the `cmd/kernel` bridge and golden tests under V8) in CI and in `just ci`. Make `just ci` really be "everything CI runs" (2026-10-04) — The CI kernel job now runs `just test-go-wasm` (the log shows `ok …/cmd/kernel` under Go 1.26.8). `just ci` now runs format, lint, race tests, WASM tests, both fuzz smokes, Vitest, tidy, and browser, Electron and packaged e2e. The previous fast set is kept as `just check`. AGENTS.md is updated to match
+- [x] Move the `@timing` hardware gates into an opt-in Playwright project, out of the default `just e2e` (2026-10-04) — `playwright.config.ts` defines `chromium-timing` only when `AAE_TIMING=1`, via the new `just e2e-timing`. `playwright test --list` shows 0 `@timing` tests by default and 7 with `AAE_TIMING=1`
+- [x] Pre-commit runs `biome check` (format and lint) across the whole repo, plus gofumpt/gci and golangci-lint on staged Go files (2026-10-04) — `lefthook.yml` runs:
+  - `biome check` from the repo root on staged TS/TSX/JSON
+  - web and desktop typecheck
+  - non-rewriting `gofumpt -l` and `gci list` checks
+  - `golangci-lint` and native plus js/wasm `go vet`
+
+  `lefthook run pre-commit --all-files` passes, and a misformatted `apps/desktop` probe file exits 1
+- [ ] golangci:
+  - restore revive's default rules
+  - add errorlint and gosec
+  - lint `cmd/kernel` with `GOOS=js GOARCH=wasm`
+  - pin the action's version
+  - add `timeout-minutes`
+  - cache Bun and Playwright
+  - pin third-party actions by SHA
+- [x] Make `scripts/release-guard.sh` fail closed on `go list` and network errors, and remove the library-only `gate`/`tag`/`gorelease` paths. Add a `toolchain` line to `go.mod` (2026-10-04) — Every verdict-relevant `go`/`git` call goes through `capture`, which prints stderr and exits 3, and no `|| STATUS=$?` masking remains. Only `deps` and `unreleased` are left; with no tags yet, `unreleased` warns. `just check-deps` passes, and an unreachable `GOPROXY` exits 3. `go.mod` gains `toolchain go1.26.8`, which CI's setup-go picks up
+- [ ] Pre-existing flake: `internal/effects/stream_test.go:181` (`AllocsPerRun`, "prepared auto-wah render+reset allocate 1") failed in 1 of 6 local `-race` runs. Find the stray allocation or make the measurement robust before it reddens CI
+
+### R.2 Kernel robustness
+
+- [ ] `recover()` in `Engine.CallWithData`, turning a panic into an error response that names the method. Add a regression test with a panicking dispatch target (2026-10-04) — partial: only the third-party go-mp3 decode recovers (`decodeMP3`, seed `testdata/fuzz/FuzzWAVOpen/50d796d81172b44e`). The top-level recover is still open
+- [ ] One memory-budget owner sized against the 4 GiB WASM limit and shared by:
+  - import (WAV included; today WAV has no decoded cap)
+  - history
+  - process candidates
+  - clipboard and paste-mix
+  - export
+
+  Lift the 512 MiB cap (about 23 minutes of stereo) on FLAC/AIFF/MP3 import.
+- [ ] Tolerant WAV reading:
+  - RIFF size larger than the file (truncated recordings)
+  - RIFF or data size of 0 or `0xFFFFFFFF`
+  - a missing final pad byte
+  - RF64/`ds64`
+- [ ] Fuzzing:
+  - WAV seeds with LIST/INFO, adtl, cue and bext chunks
+  - a fuzz target for export
+  - fuzz through `engine.New()` rather than `&Engine{}`
+
+### R.3 Kernel correctness
+
+- [ ] MP3: detect mono rather than always opening as stereo, and trim encoder delay and padding using the LAME/Xing header
+- [ ] 8-bit WAV: symmetric scaling so byte 128 decodes to 0 (fix upstream in `wav` if needed), and correct `wav_test.go:149`, which currently asserts the DC offset
+- [ ] One BS.1770 channel-weighting function used by statistics, meters and the Normalizer. Test: a 6-channel file normalized to −23 LUFS measures −23 LUFS
+- [ ] Noise profile: fix the zero-padding bias of the first frame (`restoration.go:214`)
+- [ ] Generating at the cursor on some channels must keep all channels in sync
+- [ ] Check for short reads on FLAC/AIFF export (`codecs.go:339`). Move the `e.history` nil check ahead of its use (`analysis.go:154`)
+
+### R.4 Rule 6: move DSP upstream
+
+- [ ] algo-dsp: a length-exact offline resampler stream. Replace the three local copies (`transport_resample.go`, `clipboard_convert.go`, `process/resample.go`) and the duplicated `rateGCD` helpers
+- [ ] algo-dsp `measure/loudness`: BS.1770 channel weighting. `restoration.NoiseProfile` should own its own STFT framing. Tag both, then bump here
+- [ ] Remove the float32→float64→float32 round trips around `vecmath.AddBlock` (`ops/operation.go:417`, `process/operation.go:379`)
+
+### R.5 Kernel structure and performance
+
+- [ ] Split `Engine` (30 fields) into subsystems: document, transport, history, jobs, analysis, effects. Replace the 160-line dispatch switch and the two busy allow-lists with one method registry table that holds the decoder, handler and busy policy for each method
+- [ ] Typed constants for operation, kind and state names instead of string literals
+- [ ] Consistent error wrapping: `%w` everywhere and a method prefix on all upstream errors (`restoration.go`, `wav_metadata.go`). Make `decode` reject unknown fields
+- [ ] Analysis and spectrogram steps limited by a time budget rather than 1024 frames or one FFT per call. Measure the round-trip count for a one-hour file (2026-10-04) — partial: pitch steps now spend 2^18 YIN units per call (151 instead of 9,422 round trips per second of audio). Statistics, clipping and spectrum steps are unchanged
+- [ ] History byte accounting kept incrementally, without calling `countBytes()` on every push, prune or undo
+- [ ] Tests: mono MP3, multichannel LUFS round trip, one-hour FLAC import, behaviour at the memory budget
+
+### R.6 Frontend correctness
+
+- [ ] Worklet:
+  - stop orphaned processors on a channel-count change, via a port message that makes `process()` return `false`
+  - remove the BigInt allocations from `readPlanar` (rule 2)
+  - fix the seqlock comment, or make the read actually safe
+- [ ] Serialize `AudioEngine.play()` behind the same fence as `prepare`, `stop` and `seek`
+- [ ] Move selection session state out of mutable `useMemo` into a ref- or `useSyncExternalStore`-based store. Make it the single source of truth instead of App's `selected` plus imperative `selectionState()`
+- [ ] When an identity check drops the result of a kernel-mutating call (`edit.apply`, history jump, `process.commit`), refetch document info so the UI never keeps a stale `documentId`
+- [ ] Protocol TS: make `ProcessJobResult.candidate` nullable and allow `format: ""`. Add a Go↔TS parity test generated from `protocol.go` (method names and payload field names)
+- [ ] Define the bulk-data method list once, shared by `kernel-call.ts` and `stream-pump.ts`, and decode peaks only once (worker *or* main thread)
+
+### R.7 Frontend structure and performance
+
+- [ ] A shared `useKernelSession` helper (latest ref, mounted, epoch, token, `active()`) to replace the six hand-written copies. One job runner shared by `use-process` and `use-effects`
+- [ ] Split `App.tsx` into a controller/store plus layout. Split `WaveformView` into viewport, pointer interaction, rulers and markers/regions
+- [ ] Playback performance:
+  - move playback stats into the About dialog's own subscription, so there's no 5 Hz whole-tree `setStats`
+  - no per-frame `setState` in follow mode
+  - memoize `resolveCommands` and inline props
+- [ ] Keep the previous peaks snapshot drawn until the new one arrives, so pan, zoom and follow don't blank the waveform
+- [ ] Size:
+  - code-split dialogs and effects UI
+  - serve `kernel.wasm` with a content hash
+  - add `wasm-opt`
+  - set JS and WASM size budgets in CI
+- [ ] Move the wire-format parsing in `e2e/process-benchmark.spec.ts` into a probe module owned next to `messages.ts`
+
+### R.8 Accessibility
+
+- [ ] Keyboard cursor and selection on the waveform surface (arrow keys move the cursor, Shift extends the selection, Home/End jump)
+- [ ] Selection edge handles as `role="slider"` with `aria-valuenow`, Shift/PageUp acceleration and debounced `selection.set`/seek RPCs
+
+### R.9 Electron hardening
+
+- [ ] Fuses via `@electron/fuses` at package time: RunAsNode off, `NODE_OPTIONS` off, inspect args off, embedded ASAR integrity on
+- [ ] `session.setPermissionRequestHandler` and `setPermissionCheckHandler`: deny by default, and allow the microphone only for the app origin (needed before Phase 7)
+- [ ] Protocol handler and preload:
+  - wrap `decodeURIComponent` in the `try` (`main.ts:136`)
+  - type the preload with `satisfies DesktopBridge`
+  - an external-URL allowlist
+  - a `will-redirect` guard
+  - ignore `AAE_USER_DATA` in packaged builds
+- [ ] Unit tests for `files.ts` (capability ids, symlink and size rejection), `shortcuts.ts` and the window-state validation
+
+### R.10 Docs and process
+
+- [ ] Correct PLAN's verification claims (2026-10-04 — partial: the CI e2e claims in Phases 0.5 and 9 are corrected):
+  - CI e2e in Phases 0.5 and 9
+  - the spectrogram-gate contradiction between Phases 5 and 8
+  - "ABI v10" in U.5
+  - the stale test counts
+  - reconcile phase status (Phase 3 open while 4/5 are COMPLETE)
+- [ ] Move timing logs and benchmark reports out of PLAN.md into `docs/benchmarks/`. Plan items state outcome, files and regression test in one or two lines
+- [ ] Update the AGENTS.md layout table (`audiobuf`, `ops`, `history`, `process`, `effects`, `buildinfo`, `docs/`). Bring CHANGELOG.md up to date
+- [ ] Work on branches with PRs and a required green CI. Keep commits small with bodies. Tag `v0.1.0` once CI is green, which also gives `check-unreleased` something to check. Add a CI badge and a screenshot to the README
 
 ---
 

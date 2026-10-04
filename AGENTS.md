@@ -37,11 +37,14 @@ just dev            # build kernel.wasm, start Vite on :5173
 just desktop-dev    # production build in the Electron shell
 just desktop-hot    # Electron against the running `just dev` server
 just test           # Go tests + Vitest
+just test-go-wasm   # kernel tests under js/wasm in Node (bridge + golden vectors)
 just e2e            # Playwright against the production build
+just e2e-timing     # opt-in @timing hardware gates; target laptop only, not CI
 just e2e-desktop    # Playwright driving Electron (needs a display)
 just lint           # golangci-lint, go vet (js/wasm), biome, typecheck
 just fmt            # treefmt: gofumpt, gci, biome, shfmt
-just ci             # everything CI runs, locally
+just check          # fast local gate: format, lint, unit tests, build
+just ci             # everything CI runs, incl. WASM tests, fuzz smoke and all e2e
 ```
 
 Vitest must run one-shot (`vitest run`); watch mode is blocked by a local hook.
