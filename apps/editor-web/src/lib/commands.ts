@@ -10,6 +10,7 @@ export type CommandId =
   | "file.export"
   | "file.metadata"
   | "file.automation"
+  | "file.batch"
   | "file.record-macro"
   | "file.stop-recording"
   | "edit.undo"
@@ -142,6 +143,7 @@ export const COMMAND_MENUS: readonly { label: string; items: readonly (CommandId
       "file.metadata",
       "-",
       "file.automation",
+      "file.batch",
       "file.record-macro",
       "file.stop-recording",
     ],
@@ -335,6 +337,12 @@ function pasteAvailable(c: CommandContext, mode: "insert" | "replace" | "mix"): 
 const mod = (key: string, shift = false): Shortcut => ({ key, mod: true, shift });
 const definitions: readonly Definition[] = [
   { id: "file.automation", label: "Macros and automation…", menu: "File", enabled: available },
+  {
+    id: "file.batch",
+    label: "Batch processing…",
+    menu: "File",
+    enabled: (c) => available(c) && !c.recordingMacro,
+  },
   {
     id: "file.record-macro",
     label: "Record new macro",

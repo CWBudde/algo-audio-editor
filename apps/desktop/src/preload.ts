@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld("aaeDesktop", {
   writeFile: (id: string, data: ArrayBuffer) => ipcRenderer.invoke("files.write", id, data),
   didOpenFile: (id: string) => ipcRenderer.invoke("files.opened", id),
   releaseFile: (id: string) => ipcRenderer.invoke("files.release", id),
+  pickBatchDirectory: () => ipcRenderer.invoke("files.batch-directory"),
+  writeBatchFile: (id: string, name: string, data: ArrayBuffer) =>
+    ipcRenderer.invoke("files.batch-write", id, name, data),
+  releaseBatchDirectory: (id: string) => ipcRenderer.invoke("files.batch-release", id),
   takeOpenFiles: () => ipcRenderer.invoke("files.take"),
   onOpenFiles: (callback: () => void) => subscribe("files.pending", callback),
   setMenu: (items: unknown) => ipcRenderer.invoke("desktop.menu", items),

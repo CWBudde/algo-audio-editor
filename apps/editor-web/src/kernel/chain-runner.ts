@@ -27,6 +27,7 @@ export async function runOperationChain(
     signal?: AbortSignal;
     onEdited(result: EditResult, sourceDocumentId: string): void;
     onProgress?(progress: ChainProgress): void;
+    failureContext?: string;
   },
 ): Promise<number> {
   const chain = parseOperationChain(JSON.stringify(input));
@@ -97,7 +98,7 @@ export async function runOperationChain(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Macro stopped after ${completed} of ${chain.operations.length} operations: ${message}. Completed changes remain in history; use Undo to revert them.`,
+      `Macro stopped after ${completed} of ${chain.operations.length} operations: ${message}. ${options.failureContext ?? "Completed changes remain in history; use Undo to revert them."}`,
     );
   }
 }

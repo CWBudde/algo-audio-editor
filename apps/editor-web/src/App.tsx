@@ -17,6 +17,7 @@ import { AnalysisControls } from "@/components/analysis-controls";
 import { AnalysisDialog } from "@/components/analysis-dialog";
 import { AppMenubar } from "@/components/app-menubar";
 import { AutomationDialog } from "@/components/automation-dialog";
+import { BatchDialog } from "@/components/batch-dialog";
 import { CommandPalette } from "@/components/command-palette";
 import { EditToolbar, PasteConversionDialog } from "@/components/edit-toolbar";
 import { EffectsDialog } from "@/components/effects-dialog";
@@ -39,6 +40,7 @@ import { WaveformPlaceholder } from "@/components/waveform-placeholder";
 import { WaveformView, type WaveformViewHandle } from "@/components/waveform-view";
 import { useAnalysisDialog } from "@/hooks/use-analysis-dialog";
 import { useAutomation } from "@/hooks/use-automation";
+import { useBatch } from "@/hooks/use-batch";
 import { useCommands } from "@/hooks/use-commands";
 import { useDesktop } from "@/hooks/use-desktop";
 import { useDocument } from "@/hooks/use-document";
@@ -212,6 +214,7 @@ export default function App() {
     beforeEdit,
     onEdited,
   });
+  const batch = useBatch(automation.chain);
   const history = useHistory({
     client,
     info: doc.info,
@@ -489,6 +492,7 @@ export default function App() {
         desktopClosing ||
           pastePlan ||
           automation.open ||
+          batch.open ||
           processing.view ||
           effects.view ||
           exporting.view ||
@@ -501,6 +505,7 @@ export default function App() {
     onError: (_id, error) => reportError("Command failed")(error),
     actions: {
       "file.automation": automation.show,
+      "file.batch": batch.show,
       "file.record-macro": automation.startRecording,
       "file.stop-recording": automation.stopRecording,
       "file.metadata": metadata.open,
@@ -655,6 +660,7 @@ export default function App() {
       busy ||
       Boolean(
         automation.open ||
+          batch.open ||
           processing.view ||
           effects.view ||
           exporting.view ||
@@ -667,6 +673,7 @@ export default function App() {
       !desktopClosing &&
       !busy &&
       !automation.open &&
+      !batch.open &&
       !processing.view &&
       !effects.view &&
       !exporting.view &&
@@ -933,6 +940,7 @@ export default function App() {
       </div>
       <Toaster theme="dark" />
       <AutomationDialog automation={automation} canReplay={Boolean(client && doc.info && !busy)} />
+      <BatchDialog batch={batch} />
       <AnalysisDialog
         view={analysis.view}
         onCancel={analysis.cancel}

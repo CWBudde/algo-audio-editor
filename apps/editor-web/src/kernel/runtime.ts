@@ -19,23 +19,34 @@ function publicUrl(file: string): string {
  * kernel. A failed boot clears the cache so a retry starts from scratch.
  */
 export function startKernel(): Promise<KernelRuntime> {
-  runtime ??= (async () => {
-    const worker = new Worker(new URL("./kernel.worker.ts", import.meta.url), {
-      type: "module",
-      name: "aae-kernel",
-    });
-    const client = new KernelClient(worker);
-    try {
-      const hello = await client.boot(
-        publicUrl(import.meta.env.VITE_KERNEL_FILE),
-        publicUrl(import.meta.env.VITE_GO_RUNTIME_FILE),
-      );
-      return { client, hello };
-    } catch (err) {
-      client.terminate();
-      runtime = undefined;
-      throw err;
-    }
-  })();
+  runtime ??= startIsolatedKernel().catch((error) => {
+    runtime = undefined;
+    throw error;
+  });
   return runtime;
+}
+
+/** A separate Go engine and worker; its owner must terminate it after use. */
+export async function startIsolatedKernel(signal?: AbortSignal): Promise<KernelRuntime> {
+  if (signal?.aborted) throw new DOMException("Batch cancelled", "AbortError");
+  const worker = new Worker(new URL("./kernel.worker.ts", import.meta.url), {
+    type: "module",
+    name: "aae-kernel",
+  });
+  const client = new KernelClient(worker);
+  const abort = () => client.terminate();
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const hello = await client.boot(
+      publicUrl(import.meta.env.VITE_KERNEL_FILE),
+      publicUrl(import.meta.env.VITE_GO_RUNTIME_FILE),
+    );
+    if (signal?.aborted) throw new DOMException("Batch cancelled", "AbortError");
+    return { client, hello };
+  } catch (error) {
+    client.terminate();
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", abort);
+  }
 }

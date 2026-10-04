@@ -112,7 +112,7 @@ test-web:
     bun run --cwd {{web}} test
 
 # Browser end-to-end tests against the production build (no hardware timing gates)
-e2e: build
+e2e: build native-build
     bun run --cwd {{web}} e2e
 
 # Actual headerless Pages subpath and cold service-worker boot.

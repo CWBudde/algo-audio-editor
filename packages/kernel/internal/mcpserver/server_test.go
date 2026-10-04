@@ -251,7 +251,7 @@ func TestSessionIsolationResourcesDryRunAndFailureRecovery(t *testing.T) {
 		t.Fatal("read-only server wrote a file", err)
 	}
 	resources, err := client.ListResources(ctx, nil)
-	if err != nil || len(resources.Resources) != 2 {
+	if err != nil || len(resources.Resources) != 6 {
 		t.Fatal("summary resources missing", resources, err)
 	}
 	resource, err := client.ReadResource(ctx, &mcp.ReadResourceParams{URI: summaryURI(one)})
@@ -279,7 +279,7 @@ func TestGoldenToolDiscoveryAndProtocolSchemas(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"apply_chain", "apply_effect", "apply_operation", "close_document", "detect_clipping", "document_info", "export_document", "get_statistics", "history", "list_documents", "list_effects", "list_operations", "open_document", "redo", "save_document", "select_range", "undo"}
+	want := []string{"apply_chain", "apply_effect", "apply_operation", "close_document", "detect_clipping", "document_info", "export_document", "get_statistics", "history", "list_documents", "list_effects", "list_operations", "open_document", "redo", "save_document", "select_range", "select_seconds", "undo"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatal("tool surface changed; update the reference deliberately", names)
 	}

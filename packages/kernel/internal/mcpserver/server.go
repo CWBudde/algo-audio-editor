@@ -76,9 +76,10 @@ type exportArgs struct {
 func New(policy *automation.FilePolicy) *mcp.Server {
 	s := &Session{policy: policy, documents: make(map[string]*document)}
 	s.server = mcp.NewServer(&mcp.Implementation{Name: "algo-audio-editor", Version: buildinfo.Version}, &mcp.ServerOptions{
-		Instructions: "Native audio editor. Open local files, inspect document_info/get_statistics and list_operations/list_effects before editing. Ranges use sample frames with exclusive end and a channel bit mask. Mutations use kernel undo history. Filesystem writes require --allow-write and never overwrite unless explicitly requested. Chains commit each step; failures report the completed prefix.",
+		Instructions: "Native audio editor. Open local files, inspect document_info/get_statistics and list_operations/list_effects before editing. Ranges use sample frames with exclusive end and a channel bit mask; select_seconds converts seconds to frames. Document summaries link waveform PNG and binary peak resources. Mutations use kernel undo history. Filesystem writes require --allow-write and never overwrite unless explicitly requested. Chains commit each step; failures report the completed prefix.",
 	})
 	s.registerTools()
+	s.registerInspectionTools()
 	s.registerPrompts()
 	return s.server
 }
@@ -125,7 +126,7 @@ func (s *Session) summary(d *document) (any, error) {
 	}
 	info := d.info
 	info.DocumentID = d.id
-	return map[string]any{"document": info, "durationSeconds": float64(info.Frames) / float64(info.SampleRate), "metadata": external(d, metadata), "summaryURI": summaryURI(d.id)}, nil
+	return map[string]any{"document": info, "durationSeconds": float64(info.Frames) / float64(info.SampleRate), "metadata": external(d, metadata), "summaryURI": summaryURI(d.id), "waveformURI": waveformURI(d.id), "peaksURI": peaksURI(d.id)}, nil
 }
 
 // external substitutes routing ids in control results while leaving all audio
@@ -191,6 +192,7 @@ func (s *Session) registerTools() {
 			d.id = fmt.Sprintf("document-%d", s.sequence)
 			s.documents[d.id] = d
 			s.addSummaryResource(d)
+			s.addInspectionResources(d)
 			return s.summary(d)
 		})
 	addTool(s, "close_document", "Release a session document and its history. Unsaved edits are discarded; export first if needed.", false,
@@ -199,7 +201,8 @@ func (s *Session) registerTools() {
 				return nil, err
 			}
 			delete(s.documents, input.DocumentID)
-			s.server.RemoveResources(summaryURI(input.DocumentID))
+			s.server.RemoveResources(summaryURI(input.DocumentID), waveformURI(input.DocumentID), peaksURI(input.DocumentID))
+			s.server.RemoveResourceTemplates(waveformTemplate(input.DocumentID), peaksTemplate(input.DocumentID))
 			return map[string]any{"closed": input.DocumentID}, nil
 		})
 	addTool(s, "list_documents", "List open documents in deterministic id order.", true,

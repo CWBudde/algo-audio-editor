@@ -24,6 +24,9 @@ export interface DesktopBridge {
   writeFile(id: string, data: ArrayBuffer): Promise<void>;
   didOpenFile(id: string): Promise<void>;
   releaseFile(id: string): Promise<void>;
+  pickBatchDirectory?(): Promise<NativeFile | null>;
+  writeBatchFile?(id: string, name: string, data: ArrayBuffer): Promise<void>;
+  releaseBatchDirectory?(id: string): Promise<void>;
   takeOpenFiles(): Promise<NativeFile[]>;
   onOpenFiles(callback: () => void): () => void;
   setMenu(items: NativeMenuItem[]): Promise<void>;

@@ -463,6 +463,32 @@
     }
   },
   {
+    "name": "select_seconds",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "channelMask": {
+          "description": "nonzero channel bit mask, bit 0 selects channel 0",
+          "type": "integer"
+        },
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        },
+        "endSeconds": {
+          "description": "exclusive end, at least startSeconds; rounded to nearest frame and clamped to the document end",
+          "type": "number"
+        },
+        "startSeconds": {
+          "description": "nonnegative seconds; rounded to nearest frame and clamped to the document end",
+          "type": "number"
+        }
+      },
+      "required": ["documentId", "startSeconds", "endSeconds", "channelMask"],
+      "type": "object"
+    }
+  },
+  {
     "name": "undo",
     "inputSchema": {
       "additionalProperties": false,

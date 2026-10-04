@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, realpath, rename, unlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, open, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { app, type BrowserWindow, dialog, ipcMain } from "electron";
 import type { NativeFile } from "../../editor-web/src/platform";
@@ -27,8 +27,17 @@ interface Grant {
   mode: "read" | "write";
   used: boolean;
 }
+interface DirectoryGrant {
+  owner: number;
+  directory: string;
+  dev: number;
+  ino: number;
+}
 export function registerFiles(applicationURL: string) {
   const grants = new Map<string, Grant>();
+  const directories = new Map<string, DirectoryGrant>();
+  const generations = new Map<number, number>();
+  let pendingFolders = 0;
   const pending = new Map<number, NativeFile[]>();
   const grant = (win: BrowserWindow, file: string, mode: Grant["mode"]): NativeFile => {
     if (grants.size >= 256) throw new Error("Too many pending file requests");
@@ -42,6 +51,80 @@ export function registerFiles(applicationURL: string) {
       throw new Error("File access is not authorized");
     return value;
   };
+  const directoryCapability = (owner: number, id: unknown) => {
+    const value = typeof id === "string" ? directories.get(id) : undefined;
+    if (!value || value.owner !== owner) throw new Error("Batch folder access is not authorized");
+    return value;
+  };
+  ipcMain.handle("files.batch-directory", async (event) => {
+    const win = trustedWindow(event, applicationURL);
+    if (directories.size + pendingFolders >= 8) throw new Error("Too many pending batch folders");
+    const owner = win.webContents.id;
+    const generation = generations.get(owner) ?? 0;
+    pendingFolders++;
+    try {
+      const result = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
+      if (result.canceled || !result.filePaths[0]) return null;
+      const directory = await realpath(result.filePaths[0]);
+      const stat = await lstat(directory);
+      if (!stat.isDirectory()) throw new Error("Batch destination is not a folder");
+      if (win.isDestroyed() || generations.get(owner) !== generation)
+        throw new Error("Batch folder request expired");
+      const id = randomUUID();
+      directories.set(id, { owner, directory, dev: stat.dev, ino: stat.ino });
+      return { id, name: path.basename(directory) };
+    } finally {
+      pendingFolders--;
+    }
+  });
+  ipcMain.handle("files.batch-write", async (event, id: unknown, name: unknown, data: unknown) => {
+    const win = trustedWindow(event, applicationURL);
+    const value = directoryCapability(win.webContents.id, id);
+    if (
+      typeof name !== "string" ||
+      !name.length ||
+      Buffer.byteLength(name) > 255 ||
+      /[\\/<>:"|?*]/.test(name) ||
+      Array.from(name).some((character) => character.charCodeAt(0) < 32) ||
+      /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name) ||
+      name.endsWith(".") ||
+      name.endsWith(" ") ||
+      !["wav", "flac", "aiff"].includes(path.extname(name).slice(1).toLowerCase()) ||
+      !(data instanceof ArrayBuffer) ||
+      data.byteLength > MAX_BYTES
+    )
+      throw new Error("Invalid batch file output");
+    const checkDirectory = async () => {
+      const stat = await lstat(value.directory);
+      if (!stat.isDirectory() || stat.dev !== value.dev || stat.ino !== value.ino)
+        throw new Error("Batch folder changed; choose it again");
+      if (directories.get(id as string) !== value)
+        throw new Error("Batch folder access is not authorized");
+    };
+    await checkDirectory();
+    const destination = path.join(value.directory, name);
+    const temporary = path.join(value.directory, `.aae-batch-${randomUUID()}.tmp`);
+    try {
+      const handle = await open(temporary, "wx", 0o600);
+      try {
+        await handle.writeFile(new Uint8Array(data));
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await checkDirectory();
+      // Publishing a hard link atomically refuses all existing destinations,
+      // including symlinks. A folder grant never authorizes overwriting files.
+      await link(temporary, destination);
+    } finally {
+      await unlink(temporary).catch(() => {});
+    }
+  });
+  ipcMain.handle("files.batch-release", (event, id: unknown) => {
+    const win = trustedWindow(event, applicationURL);
+    directoryCapability(win.webContents.id, id);
+    directories.delete(id as string);
+  });
   ipcMain.handle("files.open", async (event) => {
     const win = trustedWindow(event, applicationURL);
     const result = await dialog.showOpenDialog(win, {
@@ -150,9 +233,12 @@ export function registerFiles(applicationURL: string) {
   });
   const attach = (win: BrowserWindow) => {
     const owner = win.webContents.id;
+    generations.set(owner, 0);
     const clear = () => {
+      generations.set(owner, (generations.get(owner) ?? 0) + 1);
       pending.delete(owner);
       for (const [id, value] of grants) if (value.owner === owner) grants.delete(id);
+      for (const [id, value] of directories) if (value.owner === owner) directories.delete(id);
     };
     win.webContents.on("did-start-navigation", (_event, _url, _inPlace, mainFrame) => {
       if (mainFrame) clear();

@@ -5,7 +5,7 @@ the same kernel and recorded operation chains as a single-file or batch CLI. Bot
 without Electron, a browser, WASM or an audio device. DSP and codecs remain in
 the engine and its tagged upstream dependencies.
 
-This is the first Phase 12/14 increment. The server uses the
+The server and editor share Phase 12's automation model. The server uses the
 [official Go MCP SDK](https://github.com/modelcontextprotocol/go-sdk) v1.8.0.
 Its session is independent of any running editor window. Linux native execution
 is tested; Claude Code/Desktop configuration examples below follow their
@@ -90,6 +90,7 @@ to MCP. Startup errors and diagnostics go to stderr.
 | `list_documents` | No parameters; lists up to eight documents in ID order |
 | `document_info` | `documentId`; current dimensions, source encoding and metadata |
 | `select_range` | `documentId`, `range: {start, end, channelMask}` in sample frames |
+| `select_seconds` | `documentId`, `startSeconds`, `endSeconds`, `channelMask`; nearest-frame rounding and clamping to the document end |
 | `get_statistics` | `documentId`, optional `range`; peak, RMS, DC, crest factor, zero crossings, clipped samples and integrated LUFS |
 | `detect_clipping` | `documentId`, `threshold`, optional `range`; counts clipped regions without adding markers |
 | `list_operations` | No parameters; protocol version and JSON schemas generated from Go edit/process/effect payloads |
@@ -110,7 +111,11 @@ Frame ranges have an exclusive end. `channelMask` bit 0 selects channel 0;
 stereo all-channel selection is `3`. A collapsed range is a cursor: processing
 and statistics resolve it to the whole document with that channel mask, as in
 the UI. Structural edits such as `crop` need an explicit nonempty range.
-Selections themselves are not history entries. Audio-changing operations use
+`select_seconds` accepts finite, nonnegative seconds with an exclusive end at
+least the start. Times round to the nearest frame and clamp to the document
+end; a collapsed result is a cursor. Channel masks use the same kernel
+validation as frame selection. Selections themselves are not history entries.
+Audio-changing operations use
 the engine's normal undo history and its retention limits.
 
 Native import supports WAV, FLAC, AIFF/AIFC and MP3; export supports WAV, FLAC
@@ -206,7 +211,24 @@ does not remove previously recorded requests. Noise profiles, channel extraction
 and loaded convolution IRs stop recording with an explanation while retaining
 the preceding chain; editor import also rejects these session-bound operations.
 The chain remains in memory until the page closes; export JSON to retain it.
-The UI batch file-list/output dialog remains pending.
+File → **Batch processing…** accepts multiple files, imports a chain or copies
+the current macro, and chooses a suffix and WAV/FLAC/AIFF encoding. An empty
+chain performs format conversion. Every input runs in a fresh WASM worker, so
+clipboard, jobs and history are isolated and the editor's open document is
+preserved. Inputs run sequentially with per-file progress; failed files produce
+no output and later files continue. Cancellation retains completed outputs and
+skips remaining files. A save already in progress finishes before cancellation
+takes effect.
+
+Choose an output folder in supported browsers or the desktop app. Existing
+output files are refused; the desktop writes through a renderer-scoped folder
+grant with atomic, no-overwrite publication. Browser folder writes check names
+before the batch and each save. Other browsers can use Downloads; allow multiple
+downloads when the browser requests it. Names are portable leaf filenames and
+duplicate output names fail preflight. WAV supports PCM or floating point;
+FLAC/AIFF use PCM. Output dither is disabled. Encoded inputs are capped at
+128 MiB per file. Partial selections in chains retain their sample coordinates,
+so use whole-document steps for operations that must adapt to each file.
 
 Each changing step creates its own history entry, subject to the kernel's
 history limits. A failing chain returns an MCP tool error with `result.applied`,
@@ -227,12 +249,32 @@ Structural-edit and whole-chain dry runs are not implemented.
 
 Each open document exposes `aae://documents/<id>/summary` as an
 `application/json` resource. Reads reflect the current document and closed
-documents lose their resources. Waveform PNG/peak resources are pending.
+documents lose their resources. Each document also exposes a waveform PNG at
+`aae://documents/<id>/waveform.png` and binary kernel peaks at
+`aae://documents/<id>/peaks`. Both read the current document, including edits,
+without changing selection or history.
+
+Resource templates accept `channel`, `start`, and `end` (frame coordinates).
+Waveforms also accept `width` (64–2048) and `height` (64–512); defaults are
+channel 0, the full document and 1024×256 pixels. The image shows kernel min/max
+and RMS summaries, visually clipped to ±1. Peaks accept `buckets` (1–2048,
+default 1024); kernel pyramid resolution determines the actual count. Unknown,
+repeated and invalid query fields fail. Binary resource payloads avoid JSON
+sample arrays and the adapter limits peak records to 16 MiB. PNG rendering
+accepts at most 32,768 source peak records; request a narrower frame viewport
+if a document exceeds that bound.
+
+The peak MIME type is `application/vnd.algo-audio-editor.peaks`. Its 48-byte
+little-endian header contains `AAEP` magic, uint32 version 1, sample rate,
+channel, count and reserved zero, then uint64 frames per bucket, start and end.
+The remaining bytes are the unchanged `peaks.get` layout: interleaved float32
+min/max/RMS triples, uint32 frame counts, then float64 bucket start positions.
+All three arrays have the advertised count. This resource format is separate
+from the kernel ABI.
 
 The server offers `mastering_check`, `podcast_cleanup` and `batch_convert`
 prompts. They guide inspection, schema discovery and explicit output choices;
-they do not automatically execute operations. The batch file-list/output dialog
-and the 100-file UI acceptance remain Phase 12 work. HTTP transport and editing
+they do not automatically execute operations. HTTP transport and editing
 the running Electron session remain Phase 14 work.
 
 `just test-go` exercises actual MCP client/server messages in memory and a
@@ -249,6 +291,13 @@ and replays/undoes it. On Linux, the compiled CLI produces byte-identical float
 WAV from the browser-recorded/exported gain/reverse macro. `batch_test.go`
 processes 100 files through normalization to −16 LUFS, both edge fades and
 44.1 kHz/16-bit FLAC; every file matches the independent UI-method oracle.
+The production browser batch regression processes 100 distinct files through
+the same mastering chain and compares every FLAC export byte-for-byte with the
+compiled CLI. It also verifies corrupt-file continuation, cancellation, worker
+cleanup, unchanged editor state and real download delivery. Desktop regressions
+cover the native batch menu, exact processed samples on disk and scoped folder
+grants. SDK tests exercise seconds selection, waveform PNGs and binary peaks,
+including current edits, channel/range validation and resource removal.
 Interactive Claude host acceptance remains pending.
 
 Review schema changes before deliberately updating the golden with

@@ -63,7 +63,10 @@ enabled; editor projects and crash recovery remain Phase 6 work.
 They share the kernel's processing and undo history, with explicit output
 directory permissions. File → **Record new macro** records applied operations;
 File → **Macros and automation…** imports/exports the JSON and replays it with
-progress and Undo support. The CLI accepts repeated `--input` files with
+progress and Undo support. File → **Batch processing…** applies a chain to a
+file list with per-file progress and WAV/FLAC/AIFF output, using a chosen folder
+or browser downloads. Each file runs in its own kernel worker. The CLI accepts
+repeated `--input` files with
 `--output-dir`, per-file JSON results and optional `--fail-fast`. See
 [native automation and MCP setup](docs/mcp.md).
 
