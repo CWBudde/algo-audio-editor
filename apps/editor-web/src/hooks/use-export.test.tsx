@@ -75,7 +75,9 @@ it("opens without a chooser or lock, and keeps the lock through writing a copy w
   act(() => {
     pending = f.result.current.submit();
   });
-  expect(chooseSaveTarget).toHaveBeenCalledWith("song.WAV");
+  expect(chooseSaveTarget).toHaveBeenCalledWith("song.WAV", [
+    { description: "WAV audio", accept: { "audio/wav": [".wav"] } },
+  ]);
   expect(f.locked()).toBe(true);
   await act(async () => Promise.resolve());
   expect(f.result.current.view?.phase).toBe("exporting");
@@ -110,7 +112,9 @@ it("exports the selected time and channel snapshot with matching filename and qu
     }),
   );
   await act(async () => f.result.current.submit());
-  expect(chooseSaveTarget).toHaveBeenCalledWith("song-selection.wav");
+  expect(chooseSaveTarget).toHaveBeenCalledWith("song-selection.wav", [
+    { description: "WAV audio", accept: { "audio/wav": [".wav"] } },
+  ]);
   expect(f.call).toHaveBeenNthCalledWith(1, "selection.get", { documentId: "doc-1" });
   expect(f.call).toHaveBeenNthCalledWith(
     2,

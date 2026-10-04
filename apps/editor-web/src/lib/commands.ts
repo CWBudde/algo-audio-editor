@@ -390,7 +390,7 @@ const definitions: readonly Definition[] = [
   },
   {
     id: "file.export",
-    label: "Export WAV…",
+    label: "Export audio…",
     menu: "File",
     enabled: documentAvailable,
     shortcuts: [mod("e", true)],

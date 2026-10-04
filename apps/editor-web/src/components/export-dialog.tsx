@@ -2,9 +2,8 @@ import { useId, useLayoutEffect, useRef } from "react";
 import type { ExportView } from "@/hooks/use-export";
 import {
   type ExportSettings,
+  exportDepths,
   exportParams,
-  FLOAT_DEPTHS,
-  PCM_DEPTHS,
   validExportSelection,
 } from "@/lib/export-settings";
 
@@ -61,7 +60,7 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
         Export audio
       </h2>
       <p id={`${id}-help`} className="mt-1 text-sm text-muted-foreground">
-        Choose the range and WAV encoding for the exported copy.
+        Choose the range and encoding for the exported copy.
       </p>
       {view && settings && (
         <form
@@ -107,15 +106,33 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
           <select
             id={`${id}-format`}
             className={fieldClass}
-            value={settings.encoding}
+            value={
+              settings.format === "flac" || settings.format === "aiff"
+                ? settings.format
+                : settings.encoding
+            }
             disabled={working}
             onChange={(event) =>
-              onSettingsChange({ encoding: event.target.value === "float" ? "float" : "pcm" })
+              onSettingsChange({
+                format:
+                  event.target.value === "flac" || event.target.value === "aiff"
+                    ? event.target.value
+                    : "wav",
+                encoding: event.target.value === "float" ? "float" : "pcm",
+              })
             }
           >
             <option value="pcm">WAV PCM</option>
             <option value="float">WAV float</option>
+            <option value="flac">FLAC</option>
+            <option value="aiff">AIFF PCM</option>
           </select>
+          {settings.format && settings.format !== "wav" && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Use WAV to preserve markers and regions. FLAC and AIFF metadata mapping is not yet
+              available.
+            </p>
+          )}
           <label className="mt-3 block text-sm" htmlFor={`${id}-depth`}>
             Bit depth
           </label>
@@ -126,7 +143,7 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
             disabled={working}
             onChange={(event) => onSettingsChange({ bitDepth: Number(event.target.value) })}
           >
-            {(settings.encoding === "float" ? FLOAT_DEPTHS : PCM_DEPTHS).map((depth) => (
+            {exportDepths(settings).map((depth) => (
               <option key={depth} value={depth}>
                 {depth}-bit
               </option>

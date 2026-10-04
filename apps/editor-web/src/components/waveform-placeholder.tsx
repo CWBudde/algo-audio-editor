@@ -29,7 +29,7 @@ export function WaveformPlaceholder({ info }: { info?: DocumentInfoResult }) {
         <FileAudio className="size-10 text-muted-foreground" />
         <p className="font-medium">No document open</p>
         <p className="text-sm text-muted-foreground">
-          Open a WAV file or drop it here to view its waveform and play it.
+          Open an audio file or drop it here to view its waveform and play it.
         </p>
       </div>
     </div>

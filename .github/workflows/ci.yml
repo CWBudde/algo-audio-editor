@@ -38,6 +38,8 @@ jobs:
         run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
       - name: WAV decoder fuzz smoke
         run: go test -run '^$' -fuzz '^FuzzWAVOpen$' -fuzztime=10s -parallel=2 ./internal/engine
+      - name: Additional codec fuzz smoke
+        run: go test -run '^$' -fuzz '^FuzzCodecOpen$' -fuzztime=10s -parallel=2 ./internal/engine
       - name: Coverage summary
         run: |
           {

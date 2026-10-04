@@ -59,7 +59,7 @@ test("palette and menu edit the real kernel, while export keeps the working docu
     RIGHT.map((n, i) => (i >= 2 && i < 6 ? 0 : n)),
   ]);
   await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
-  opened = await palette(page, "export wav");
+  opened = await palette(page, "export audio");
   const downloading = page.waitForEvent("download");
   await opened.search.press("Enter");
   await page

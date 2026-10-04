@@ -761,7 +761,7 @@ export default function App() {
         <input
           ref={fileInput}
           type="file"
-          accept=".wav,audio/wav,audio/x-wav"
+          accept=".wav,.flac,.aif,.aiff,.aifc,.mp3,.ogg,.opus,.m4a,.aac,audio/*"
           className="hidden"
           data-testid="audio-file-input"
           onChange={(event) => {

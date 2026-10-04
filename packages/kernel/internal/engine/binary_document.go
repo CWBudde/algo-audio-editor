@@ -53,8 +53,15 @@ func (e *Engine) exportCandidate(p protocol.ProcessJobParams) (protocol.BinaryDo
 }
 
 func (e *Engine) importBinaryDocument(p protocol.BinaryDocumentParams, data []byte) (protocol.DocumentInfoResult, error) {
-	const method = protocol.MethodDocumentImportBinary
-	if e.document.Channels() != 0 {
+	return e.importBinaryDocumentMode(p, data, false)
+}
+
+func (e *Engine) importBinaryDocumentMode(p protocol.BinaryDocumentParams, data []byte, replace bool) (protocol.DocumentInfoResult, error) {
+	method := protocol.MethodDocumentImportBinary
+	if replace {
+		method = protocol.MethodDocumentOpenPCM
+	}
+	if !replace && e.document.Channels() != 0 {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("%s: destination must be an empty editor", method)
 	}
 	if p.SampleRate < MinSampleRate || p.SampleRate > MaxSampleRate || p.Channels < 1 || p.Channels > MaxChannels || p.Frames < 0 || p.Frames > maxProcessOutputBytes/4/int64(p.Channels) || int64(len(data)) != p.Frames*4*int64(p.Channels) {
@@ -104,11 +111,16 @@ func (e *Engine) importBinaryDocument(p protocol.BinaryDocumentParams, data []by
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("%s: history: %w", method, err)
 	}
-	staged.MarkUnsaved()
+	if !replace {
+		staged.MarkUnsaved()
+	}
 	e.document, e.editor, e.history = document, editor, staged
 	e.documentSequence++
 	e.sourceBitDepth, e.sourceFloat = 32, true
+	e.sourceFormat = "wav"
 	e.transport, e.source = nil, sourceStopped
+	e.impulseResponses = nil
+	e.impulseBytes = 0
 	e.resetMeters()
 	e.analysisJob = nil
 	e.analysisCache = nil

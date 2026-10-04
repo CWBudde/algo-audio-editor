@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 15
+const Version = 16
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -24,11 +24,12 @@ const (
 	MethodDocumentMemory = "doc.memory"
 	// MethodPeaksGet returns peak metadata with data retrieved via takeData.
 	MethodPeaksGet = "peaks.get"
-	// MethodDocumentOpen imports WAV bytes supplied separately from the JSON payload.
-	MethodDocumentOpen = "doc.open"
+	// MethodDocumentOpen imports detected audio bytes supplied separately from the JSON payload.
+	MethodDocumentOpen    = "doc.open"
+	MethodDocumentOpenPCM = "doc.openPCM"
 	// MethodDocumentInfo returns the active document's format and dimensions.
 	MethodDocumentInfo = "doc.info"
-	// MethodDocumentExport encodes WAV bytes retrieved via takeData.
+	// MethodDocumentExport encodes audio bytes retrieved via takeData.
 	MethodDocumentExport = "doc.export"
 	// MethodTransportPlay starts document playback over a frame range.
 	MethodTransportPlay = "transport.play"
@@ -154,6 +155,7 @@ type DocumentOpenParams struct {
 
 // DocumentInfoResult describes the active document and its source encoding.
 type DocumentInfoResult struct {
+	Format     string `json:"format"`
 	DocumentID string `json:"documentId"`
 	Name       string `json:"name"`
 	SampleRate int    `json:"sampleRate"`
@@ -447,7 +449,7 @@ type PastePlan struct {
 	ClipboardVersion   string `json:"clipboardVersion"`
 }
 
-// DocumentExportParams selects the output encoding; Format must be "wav".
+// DocumentExportParams selects the output encoding; Format is "wav", "flac" or "aiff".
 // Missing Scope, Dither and NoiseShaping preserve whole-document/no-quality
 // export. Selection uses the current authoritative range/channel mask. Seed
 // optionally makes independent source-channel dither streams reproducible.

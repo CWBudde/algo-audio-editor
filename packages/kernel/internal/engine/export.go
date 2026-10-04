@@ -84,7 +84,7 @@ func (e *Engine) exportSource(p protocol.DocumentExportParams) (audiobuf.Documen
 			return audiobuf.Document{}, nil, err
 		}
 	}
-	if p.Format != "wav" || (p.Float && p.BitDepth != 32 && p.BitDepth != 64) || (!p.Float && p.BitDepth != 8 && p.BitDepth != 16 && p.BitDepth != 24 && p.BitDepth != 32) {
+	if (p.Format != "wav" && p.Format != "flac" && p.Format != "aiff") || (p.Format != "wav" && p.Float) || (p.Format == "flac" && p.BitDepth == 32) || (p.Float && p.BitDepth != 32 && p.BitDepth != 64) || (!p.Float && p.BitDepth != 8 && p.BitDepth != 16 && p.BitDepth != 24 && p.BitDepth != 32) {
 		return audiobuf.Document{}, nil, fmt.Errorf("doc.export: unsupported format %q/%d bits/float=%t", p.Format, p.BitDepth, p.Float)
 	}
 	kind, err := exportDither(p.Dither)

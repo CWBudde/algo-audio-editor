@@ -8,7 +8,19 @@ import { trustedWindow } from "./ipc";
 
 // Each capability authorizes one exact user-selected path, for one renderer.
 const MAX_BYTES = 1024 * 1024 * 1024;
-const SAVE_EXTENSIONS = new Set(["wav", "csv", "txt"]);
+export const OPEN_EXTENSIONS = new Set([
+  "wav",
+  "flac",
+  "aif",
+  "aiff",
+  "aifc",
+  "mp3",
+  "ogg",
+  "opus",
+  "m4a",
+  "aac",
+]);
+const SAVE_EXTENSIONS = new Set(["wav", "flac", "aiff", "csv", "txt"]);
 interface Grant {
   owner: number;
   file: string;
@@ -34,11 +46,13 @@ export function registerFiles(applicationURL: string) {
     const win = trustedWindow(event, applicationURL);
     const result = await dialog.showOpenDialog(win, {
       properties: ["openFile"],
-      filters: [{ name: "WAV audio", extensions: ["wav"] }],
+      filters: [
+        { name: "Audio files", extensions: [...OPEN_EXTENSIONS] },
+        { name: "All files", extensions: ["*"] },
+      ],
     });
     if (result.canceled || !result.filePaths[0]) return null;
     const file = await realpath(result.filePaths[0]);
-    if (path.extname(file).toLowerCase() !== ".wav") throw new Error("Only WAV audio is supported");
     return grant(win, file, "read");
   });
   ipcMain.handle("files.save", async (event, name: unknown, extensions: unknown) => {
@@ -146,10 +160,11 @@ export function registerFiles(applicationURL: string) {
     win.on("closed", clear);
   };
   const enqueue = async (win: BrowserWindow, input: string) => {
-    if (path.extname(input).toLowerCase() !== ".wav")
-      throw new Error("Only WAV audio is supported");
+    if (!OPEN_EXTENSIONS.has(path.extname(input).slice(1).toLowerCase()))
+      throw new Error("Unsupported audio extension");
     const file = await realpath(input);
-    if (path.extname(file).toLowerCase() !== ".wav") throw new Error("Only WAV audio is supported");
+    if (!OPEN_EXTENSIONS.has(path.extname(file).slice(1).toLowerCase()))
+      throw new Error("Unsupported audio extension");
     if (win.isDestroyed()) return;
     const item = grant(win, file, "read");
     pending.set(win.webContents.id, [...(pending.get(win.webContents.id) ?? []), item]);

@@ -4,6 +4,8 @@ import type { KernelClient } from "@/kernel/client";
 import {
   defaultExportSettings,
   type ExportSettings,
+  exportFileTypes,
+  exportName,
   exportParams,
   updateExportSettings,
 } from "@/lib/export-settings";
@@ -116,10 +118,7 @@ export function useExport(options: ExportOptions) {
     if (!s || s.closing || s.pending || !owns(s)) return;
     const params = exportParams(s.info, s.selection, s.settings);
     if (!params) return;
-    const name =
-      params.scope === "selection"
-        ? `${s.info.name.replace(/\.[^./]*$/, "") || "Untitled"}-selection.wav`
-        : s.info.name;
+    const name = exportName(s.info.name, params.format, params.scope === "selection");
     update(s, { phase: "exporting", error: undefined });
     s.pending = (async () => {
       let written = false;
@@ -127,7 +126,7 @@ export function useExport(options: ExportOptions) {
         await latest.current.withOperation(async () => {
           // The document fence is acquired synchronously, so the chooser runs
           // under the Export button gesture before the first workflow await.
-          const destination = await chooseSaveTarget(name);
+          const destination = await chooseSaveTarget(name, exportFileTypes(params.format));
           if (!destination) return;
           try {
             if (s.closing || !owns(s)) return;

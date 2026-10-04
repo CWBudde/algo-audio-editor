@@ -1,6 +1,13 @@
 import type { DocumentInfoResult, HistoryListResult, TimelineExportParams } from "@aae/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KernelClient } from "@/kernel/client";
+import { openAudioDocument } from "@/lib/audio-codecs";
+import {
+  defaultExportSettings,
+  exportFileTypes,
+  exportName,
+  exportParams,
+} from "@/lib/export-settings";
 import {
   chooseAudioFile,
   chooseSaveTarget,
@@ -8,7 +15,6 @@ import {
   isFileDialogCancelled,
   readNativeFile,
 } from "@/lib/file-access";
-
 import { desktopBridge, type NativeFile } from "@/platform";
 
 interface DocumentOptions {
@@ -74,6 +80,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     async (target: KernelClient, active: () => boolean, file: File) => {
       let success = false;
       try {
+        if (file.size > 1024 * 1024 * 1024) throw new Error("File exceeds the 1 GiB import limit.");
         const current = currentInfo.current;
         if (current && desktopBridge()) {
           const history = await target.call("history.list", { documentId: current.documentId });
@@ -88,8 +95,8 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
         if (!active()) return;
         if (stopped.status === "rejected") throw stopped.reason;
         if (reading.status === "rejected") throw reading.reason;
-        const info = await target.openDocument(file.name, reading.value);
-        if (active()) {
+        const info = await openAudioDocument(target, file.name, reading.value, active);
+        if (info && active()) {
           currentInfo.current = info;
           setSnapshot({ client: target, info });
           success = true;
@@ -159,17 +166,23 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     if (!info || latest.current.client !== client) return;
     let savedSuccessfully = false;
     const work = run("Could not save audio", async (target, active) => {
-      const destination = await chooseSaveTarget(info.name);
+      const settings = defaultExportSettings(info);
+      const params = exportParams(
+        info,
+        { start: 0, end: info.frames, channelMask: 2 ** info.channels - 1 },
+        settings,
+      );
+      if (!params) throw new Error("Unsupported save format");
+      const destination = await chooseSaveTarget(
+        exportName(info.name, params.format),
+        exportFileTypes(params.format),
+      );
       if (!destination) return;
       try {
         if (!active()) return;
         const history = await target.call("history.list", { documentId: info.documentId });
         if (!active()) return;
-        const result = await target.call("doc.export", {
-          format: "wav",
-          bitDepth: info.bitDepth,
-          float: info.float,
-        });
+        const result = await target.call("doc.export", params);
         if (!active()) return;
         await destination.write(result);
         if (!active()) return;

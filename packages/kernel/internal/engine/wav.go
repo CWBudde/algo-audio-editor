@@ -120,7 +120,7 @@ func (l *wavLayout) inspectFormat(data []byte) error {
 	return nil
 }
 
-func (e *Engine) openDocument(p protocol.DocumentOpenParams, input []byte) (protocol.DocumentInfoResult, error) {
+func (e *Engine) openWAVDocument(p protocol.DocumentOpenParams, input []byte) (protocol.DocumentInfoResult, error) {
 	if e.documentSequence == math.MaxUint64 {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: document identity sequence exhausted")
 	}
@@ -186,26 +186,7 @@ func (e *Engine) openDocument(p protocol.DocumentOpenParams, input []byte) (prot
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: create document: %w", err)
 	}
-	editor := editorState{
-		documentID: fmt.Sprintf("doc-%d", e.documentSequence+1),
-		selection:  protocol.SelectionRange{ChannelMask: (1 << layout.channels) - 1},
-	}
-	stagedHistory, err := newDocumentHistory(document, editor)
-	if err != nil {
-		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: initialize history: %w", err)
-	}
-	e.document, e.sourceBitDepth, e.sourceFloat = document, layout.bitDepth, layout.float
-	e.transport = nil
-	e.source = sourceStopped
-	e.documentSequence++
-	e.editor, e.history = editor, stagedHistory
-	e.impulseResponses = nil
-	e.impulseBytes = 0
-	e.resetMeters()
-	e.analysisJob = nil
-	e.analysisCache = nil
-	e.cancelledAnalysis = nil
-	return e.documentInfo()
+	return e.installDocument(document, layout.bitDepth, layout.float, "wav")
 }
 
 func (l wavLayout) reader(input []byte) *wavReadSeeker {
@@ -232,13 +213,13 @@ func (e *Engine) documentInfo() (protocol.DocumentInfoResult, error) {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.info: no document is open")
 	}
 	return protocol.DocumentInfoResult{
-		DocumentID: e.editor.documentID,
-		Name:       e.document.Metadata().Name, SampleRate: e.document.SampleRate(),
+		DocumentID: e.editor.documentID, Format: e.sourceFormat,
+		Name: e.document.Metadata().Name, SampleRate: e.document.SampleRate(),
 		Channels: e.document.Channels(), Frames: e.document.Frames(), BitDepth: e.sourceBitDepth, Float: e.sourceFloat,
 	}, nil
 }
 
-func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.DocumentExportInfo, error) {
+func (e *Engine) exportWAVDocument(p protocol.DocumentExportParams) (protocol.DocumentExportInfo, error) {
 	document, indices, err := e.exportSource(p)
 	if err != nil {
 		return protocol.DocumentExportInfo{}, err
@@ -325,6 +306,10 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 		name += "-selection.wav"
 	}
 	if !strings.HasSuffix(strings.ToLower(name), ".wav") {
+		name = strings.TrimSuffix(name, filepath.Ext(name))
+		if name == "" {
+			name = "Untitled"
+		}
 		name += ".wav"
 	}
 	return protocol.DocumentExportInfo{Name: name, MimeType: "audio/wav", DataBytes: len(writer.data)}, nil

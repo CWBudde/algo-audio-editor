@@ -40,6 +40,7 @@ type Engine struct {
 	bulkData                     []byte
 	sourceBitDepth               int
 	sourceFloat                  bool
+	sourceFormat                 string
 	source                       renderSource
 	transport                    *documentTransport
 	documentSequence             uint64
@@ -150,12 +151,12 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 		protocol.MethodEffectsPreviewUpdate, protocol.MethodEffectsPreviewStop, protocol.MethodEffectsPreviewMeters,
 		protocol.MethodEffectsApply, protocol.MethodEffectsIRLoad, protocol.MethodEffectsIRRemove:
 		return e.dispatchEffects(method, payload, input)
-	case protocol.MethodDocumentImportBinary:
+	case protocol.MethodDocumentImportBinary, protocol.MethodDocumentOpenPCM:
 		var p protocol.BinaryDocumentParams
 		if err := decode(method, payload, &p); err != nil {
 			return nil, err
 		}
-		return e.importBinaryDocument(p, input)
+		return e.importBinaryDocumentMode(p, input, method == protocol.MethodDocumentOpenPCM)
 	case protocol.MethodProcessExportCandidate:
 		var p protocol.ProcessJobParams
 		if err := decode(method, payload, &p); err != nil {

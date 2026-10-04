@@ -21,6 +21,19 @@ fileAssociations:
     description: Waveform audio
     mimeType: audio/wav
     role: Editor
+  - ext: flac
+    name: FLAC audio
+    role: Editor
+    mimeType: audio/flac
+  - ext: [aif, aiff, aifc]
+    name: AIFF audio
+    role: Editor
+    mimeType: audio/aiff
+  - ext: mp3
+    name: MP3 audio
+    role: Editor
+    mimeType: audio/mpeg
+
 linux:
   icon: build/icons
   executableName: algo-audio-editor

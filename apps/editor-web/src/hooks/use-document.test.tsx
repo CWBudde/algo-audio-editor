@@ -88,7 +88,13 @@ class DocumentWorker implements WorkerLike {
   }
 }
 
-function file(name = info.name, read = () => Promise.resolve(new ArrayBuffer(4))) {
+function wavBytes(size: number) {
+  const bytes = new ArrayBuffer(size);
+  new Uint8Array(bytes).set([82, 73, 70, 70]);
+  return bytes;
+}
+
+function file(name = info.name, read = () => Promise.resolve(wavBytes(4))) {
   const result = new File(["wave"], name);
   Object.defineProperty(result, "arrayBuffer", {
     value: vi.fn(read),
@@ -207,7 +213,7 @@ describe("useDocument", () => {
       await editing;
     });
     expect(result.current.busy).toBe(true);
-    await act(async () => reading.resolve(new ArrayBuffer(4)));
+    await act(async () => reading.resolve(wavBytes(4)));
     expect(result.current.info?.name).toBe("new.wav");
     expect(result.current.busy).toBe(false);
   });
@@ -244,7 +250,7 @@ describe("useDocument", () => {
     expect(callbacks.beforeOpen).toHaveBeenCalledOnce();
     expect(result.current.busy).toBe(true);
     expect(opened(worker)).toHaveLength(0);
-    const bytes = new ArrayBuffer(8);
+    const bytes = wavBytes(8);
     await act(async () => reading.resolve(bytes));
     expect(opened(worker)).toHaveLength(0);
     expect(result.current.busy).toBe(true);
@@ -268,7 +274,7 @@ describe("useDocument", () => {
     expect(callbacks.beforeOpen).toHaveBeenCalledOnce();
     expect(ignored.arrayBuffer).not.toHaveBeenCalled();
     expect(opened(worker)).toHaveLength(0);
-    await act(async () => reading.resolve(new ArrayBuffer(4)));
+    await act(async () => reading.resolve(wavBytes(4)));
     expect(result.current.info?.name).toBe("reading.wav");
     expect(result.current.busy).toBe(false);
   });
@@ -364,7 +370,7 @@ describe("useDocument", () => {
     const ignored = file("ignored.wav");
     act(() => result.current.openFile(ignored));
     expect(ignored.arrayBuffer).not.toHaveBeenCalled();
-    await act(async () => newReading.resolve(new ArrayBuffer(4)));
+    await act(async () => newReading.resolve(wavBytes(4)));
     expect(result.current.info?.name).toBe("new.wav");
     expect(result.current.busy).toBe(false);
   });
@@ -380,7 +386,7 @@ describe("useDocument", () => {
     await act(async () => result.current.openFile(file("cancelled.wav", () => reading.promise)));
     await act(async () => stopping.reject(new DOMException("Cancelled", "AbortError")));
     expect(result.current.busy).toBe(true);
-    await act(async () => reading.resolve(new ArrayBuffer(4)));
+    await act(async () => reading.resolve(wavBytes(4)));
     expect(opened(worker)).toHaveLength(0);
     expect(result.current.busy).toBe(false);
     expect(callbacks.reportError).not.toHaveBeenCalled();
@@ -428,7 +434,9 @@ describe("useDocument", () => {
     const { result } = renderHook(() => useDocument(client, options()));
     await act(async () => result.current.openFile(file()));
     await act(async () => result.current.save());
-    expect(chooseSaveTarget).toHaveBeenCalledWith(info.name);
+    expect(chooseSaveTarget).toHaveBeenCalledWith(info.name, [
+      { description: "WAV audio", accept: { "audio/wav": [".wav"] } },
+    ]);
     expect(
       worker.sent.find((request) => request.op === "call" && request.method === "doc.export"),
     ).toMatchObject({ params: { format: "wav", bitDepth: 24, float: false } });
@@ -648,7 +656,7 @@ describe("useDocument", () => {
     );
     expect(callbacks.onSaved).not.toHaveBeenCalled();
     expect(result.current.busy).toBe(true);
-    await act(async () => reading.resolve(new ArrayBuffer(4)));
+    await act(async () => reading.resolve(wavBytes(4)));
     expect(result.current.info?.name).toBe("new.wav");
     expect(result.current.busy).toBe(false);
   });

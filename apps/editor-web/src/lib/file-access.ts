@@ -1,4 +1,5 @@
 import type { ExportResult } from "@aae/protocol";
+import { AUDIO_TYPES } from "@/lib/audio-codecs";
 import { desktopBridge, type NativeFile } from "@/platform";
 
 const nativeFiles = new WeakMap<File, NativeFile>();
@@ -7,7 +8,7 @@ export async function readNativeFile(selected: NativeFile): Promise<File> {
   if (!bridge) throw new Error("Desktop file access unavailable");
   try {
     const data = await bridge.readFile(selected.id);
-    const file = new File([data], selected.name, { type: "audio/wav" });
+    const file = new File([data], selected.name);
     nativeFiles.set(file, selected);
     return file;
   } catch (error) {
@@ -72,7 +73,7 @@ export async function chooseAudioFile(fallback: () => void): Promise<File | unde
     return undefined;
   }
   try {
-    const [handle] = await window.showOpenFilePicker({ multiple: false, types: WAV_TYPES });
+    const [handle] = await window.showOpenFilePicker({ multiple: false, types: AUDIO_TYPES });
     return handle?.getFile();
   } catch (error) {
     if (isFileDialogCancelled(error)) return undefined;

@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -79,6 +79,7 @@ export interface DocumentOpenParams {
 }
 
 export interface DocumentInfoResult {
+  format?: "wav" | "flac" | "aiff" | "mp3";
   documentId: string;
   name: string;
   sampleRate: number;
@@ -415,7 +416,7 @@ export type ExportDither = "none" | "rectangular" | "triangular" | "gaussian" | 
 export type ExportNoiseShaping = "none" | "efb" | "2sc" | "9fc" | "sbm" | "sharp";
 
 export interface DocumentExportParams {
-  format: "wav";
+  format: "wav" | "flac" | "aiff";
   bitDepth: number;
   float: boolean;
   scope?: ExportScope;
@@ -686,6 +687,7 @@ export interface KernelMethods {
   "process.cancel": { params: ProcessJobParams; result: ProcessJobResult };
   "process.commit": { params: ProcessJobParams; result: EditResult };
   "process.exportCandidate": { params: ProcessJobParams; result: BinaryDocumentResult };
+  "doc.openPCM": { params: BinaryDocumentParams; result: DocumentInfoResult };
   "doc.importBinary": { params: BinaryDocumentParams; result: DocumentInfoResult };
 }
 

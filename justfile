@@ -90,6 +90,10 @@ test-ebu-wasm fixtures:
 fuzz-wav duration="10s":
     cd {{kernel}} && go test -run '^$' -fuzz '^FuzzWAVOpen$' -fuzztime='{{duration}}' -parallel=2 ./internal/engine
 
+# Exercise malformed FLAC/AIFF/MP3 inputs through the Go import path.
+fuzz-codecs duration="10s":
+    cd {{kernel}} && go test -run '^$' -fuzz '^FuzzCodecOpen$' -fuzztime='{{duration}}' -parallel=2 ./internal/engine
+
 test-web:
     bun run --cwd {{web}} test
 

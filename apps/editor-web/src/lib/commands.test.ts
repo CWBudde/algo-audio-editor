@@ -105,7 +105,7 @@ describe("central command registry", () => {
           });
       }
     expect(resolved.find((command) => command.id === "file.export")).toMatchObject({
-      label: "Export WAV…",
+      label: "Export audio…",
       shortcutLabel: "Ctrl+Shift+E",
       ariaShortcut: "Control+Shift+E",
     });

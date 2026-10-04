@@ -13,7 +13,7 @@ import { app, BrowserWindow, dialog, protocol, shell } from "electron";
 
 import { registerDesktop } from "./desktop";
 import { registerEffectPresets } from "./effect-presets";
-import { registerFiles } from "./files";
+import { OPEN_EXTENSIONS, registerFiles } from "./files";
 import { registerUpdates } from "./updates";
 import { loadWindowState, persistWindowState } from "./window-state";
 
@@ -30,7 +30,10 @@ if (!singleInstance) app.quit();
 const initialFiles: string[] = [];
 const argumentFiles = (argv: string[]) =>
   argv
-    .filter((arg) => !arg.startsWith("-") && path.extname(arg).toLowerCase() === ".wav")
+    .filter(
+      (arg) =>
+        !arg.startsWith("-") && OPEN_EXTENSIONS.has(path.extname(arg).slice(1).toLowerCase()),
+    )
     .map((file) => path.resolve(file));
 initialFiles.push(...argumentFiles(process.argv.slice(app.isPackaged ? 1 : 2)));
 let desktop: ReturnType<typeof registerDesktop>;
@@ -60,7 +63,10 @@ async function openFiles(inputs: string[]) {
 }
 app.on("second-instance", (_event, argv, workingDirectory) => {
   const inputs = argv
-    .filter((arg) => !arg.startsWith("-") && path.extname(arg).toLowerCase() === ".wav")
+    .filter(
+      (arg) =>
+        !arg.startsWith("-") && OPEN_EXTENSIONS.has(path.extname(arg).slice(1).toLowerCase()),
+    )
     .map((file) => path.resolve(workingDirectory, file));
   if (desktopReady) void openFiles(inputs);
   else initialFiles.push(...inputs);

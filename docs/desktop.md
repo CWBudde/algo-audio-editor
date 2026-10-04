@@ -19,7 +19,7 @@ native Quit/Window shortcuts; macOS ignores `registerAccelerator: false`.
 Open and Save use native dialogs. The main process grants an opaque capability
 for one exact path to one renderer; the renderer cannot request arbitrary paths.
 `files.ts` validates the sender's main frame and origin for every IPC request.
-Open supports WAV. Save permits WAV and marker sidecars (`csv`, `txt`). Reads and
+Open supports WAV, FLAC, AIFF/AIFC and MP3 through the Go codecs; Ogg/Opus and AAC/M4A use available browser codecs. The chooser also permits renamed files; the importer detects their container bytes. Save permits WAV, FLAC, AIFF and marker sidecars (`csv`, `txt`). Reads and
 writes have a 1 GiB file limit, independently of the kernel's memory budget.
 A read is bounded by its checked regular-file size. Saving writes a sibling
 exclusive temporary file, flushes it, and atomically renames it over the selected
@@ -27,7 +27,7 @@ regular-file destination. Failed writes leave the previous file intact. The
 kernel save point is acknowledged only after that write succeeds. Export keeps
 the source dirty state, as in the browser.
 
-WAV launch arguments, macOS open-file events, and second-instance arguments use
+Audio launch arguments, macOS open-file events, and second-instance arguments use
 the existing window. OS requests wait while a modal or document operation is
 active. Successfully imported native files are added to Windows/macOS recent documents
 through Electron's API. Linux has no equivalent Electron recent-document list;
@@ -41,8 +41,7 @@ acknowledgement; cancelled or failed saves keep the window open. Active document
 operations and previews must finish or cancel before closing. Extracted-channel
 windows get the same native services and independent close protection.
 
-FLAC, AIFF, MP3 and `.aaep` associations remain deferred until the Phase 6
-import/project implementations exist. Projects and crash recovery remain Phase 6;
+Installers advertise WAV, FLAC, AIFF/AIFC and MP3 associations. `.aaep` associations wait for project support. Browser-dependent codec formats are available through Open without advertising installer associations. Projects and crash recovery remain Phase 6;
 the close guard does not provide autosave.
 
 ## App icons

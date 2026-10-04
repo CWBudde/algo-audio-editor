@@ -112,6 +112,12 @@ export class KernelClient {
   }
 
   /** Exact float32 samples move to this window's kernel without codec conversion. */
+  openPCMDocument(params: BinaryDocumentParams, bytes: ArrayBuffer): Promise<DocumentInfoResult> {
+    return this.request({ op: "call", method: "doc.openPCM", params, data: bytes }, 60_000, [
+      bytes,
+    ]) as Promise<DocumentInfoResult>;
+  }
+
   importBinaryDocument(
     params: BinaryDocumentParams,
     bytes: ArrayBuffer,
