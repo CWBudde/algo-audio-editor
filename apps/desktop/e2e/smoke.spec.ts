@@ -1,7 +1,9 @@
 import path from "node:path";
-import { _electron as electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { runCommand } from "../../editor-web/e2e/command-fixture";
 import { playbackWAV } from "../../editor-web/e2e/playback-fixture.js";
 import { revealControl } from "../../editor-web/e2e/ui-disclosures.js";
+import { closeEditor, launchEditor } from "./launch.js";
 
 /** Independent EBU3341 stereo 1 kHz calibration fixture, not frontend DSP. */
 function loudnessWAV(): Buffer {
@@ -31,7 +33,7 @@ function loudnessWAV(): Buffer {
 }
 
 test("loads the editor over app:// with cross-origin isolation", async () => {
-  const app = await electron.launch({
+  const app = await launchEditor({
     args: [path.join(__dirname, ".."), "--autoplay-policy=no-user-gesture-required"],
   });
   try {
@@ -46,8 +48,7 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
 
     expect(page.url()).toBe("app://editor/index.html");
     await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
-    await page.getByRole("menuitem", { name: "Help", exact: true }).click();
-    await page.getByRole("menuitem", { name: "About", exact: true }).click();
+    await runCommand(page, "help.about", "Help");
     await expect(page.getByRole("dialog")).toBeVisible();
     await expect(page.getByTestId("cross-origin-isolated")).toHaveText("yes");
     await expect(page.getByTestId("platform")).toContainText("Electron");
@@ -160,8 +161,7 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await expect(palette).not.toBeVisible();
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-start-frame", "0");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-end-frame", "16");
-    await page.getByRole("menuitem", { name: "Process", exact: true }).click();
-    await page.locator('[role="menuitem"][data-command-id="process.amplify"]').click();
+    await runCommand(page, "process.amplify", "Process");
     const amplify = page.getByRole("dialog", { name: "Amplify", exact: true });
     await amplify.getByLabel("Gain (dB)").fill("-6");
     await amplify.getByRole("button", { name: "Preview", exact: true }).click();
@@ -193,8 +193,7 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     const sourceWaveforms = await waveforms();
     expect(sourceWaveforms.every(Boolean)).toBe(true);
     const openNormalize = async () => {
-      await page.getByRole("menuitem", { name: "Process", exact: true }).click();
-      await page.locator('[role="menuitem"][data-command-id="process.normalize"]').click();
+      await runCommand(page, "process.normalize", "Process");
       const dialog = page.getByRole("dialog", { name: "Normalize", exact: true });
       await expect(dialog).toBeVisible();
       return dialog;
@@ -289,6 +288,6 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await expect(page.getByTestId("underruns")).toHaveText("0");
     expect(errors).toEqual([]);
   } finally {
-    await app.close();
+    await closeEditor(app);
   }
 });

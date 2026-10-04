@@ -1,11 +1,12 @@
 import path from "node:path";
-import { _electron as electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { captureKernelWorker } from "../../editor-web/e2e/kernel-probe.js";
 import { spectralClickRepair, stretchInShell } from "../../editor-web/e2e/restoration-fixture.js";
+import { closeEditor, launchEditor } from "./launch.js";
 
 test("Electron spectral repair and duration editing use the actual kernel and undo", async () => {
   test.setTimeout(60000);
-  const app = await electron.launch({
+  const app = await launchEditor({
     args: [path.join(__dirname, ".."), "--autoplay-policy=no-user-gesture-required"],
   });
   try {
@@ -17,6 +18,6 @@ test("Electron spectral repair and duration editing use the actual kernel and un
     await stretchInShell(page);
     await expect(page.getByRole("alert")).toHaveCount(0);
   } finally {
-    await app.close();
+    await closeEditor(app);
   }
 });

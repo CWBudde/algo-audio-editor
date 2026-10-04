@@ -1,5 +1,6 @@
 import type { ProcessOperation } from "@aae/protocol";
 import { expect, type Page } from "@playwright/test";
+import { runCommand } from "./command-fixture.js";
 import { info, load, samples, select } from "./edit-fixture.ts";
 
 export function restorationTone(frames = 12000, hz = 440, amplitude = 0.4) {
@@ -8,8 +9,7 @@ export function restorationTone(frames = 12000, hz = 440, amplitude = 0.4) {
   );
 }
 export async function restorationCommand(page: Page, id: string, menu = "Restore") {
-  await page.getByRole("menuitem", { name: menu, exact: true }).click();
-  await page.locator(`[role="menuitem"][data-command-id="${id}"]`).click();
+  await runCommand(page, id, menu);
 }
 export async function applyRestoration(
   page: Page,

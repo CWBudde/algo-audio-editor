@@ -5,16 +5,30 @@
   "description": "Electron shell for algo-audio-editor",
   "main": "dist/main.js",
   "scripts": {
-    "build": "bun build src/main.ts src/preload.ts --target=node --format=cjs --external electron --outdir dist",
+    "build": "bun build src/main.ts src/preload.ts --target=node --format=cjs --external electron --external electron-updater --outdir dist",
     "start": "electron .",
     "typecheck": "tsc --noEmit",
     "e2e": "playwright test",
-    "install-electron": "install-electron"
+    "install-electron": "install-electron",
+    "package": "electron-builder --config electron-builder.yml --publish never"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@types/node": "^24",
     "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
     "typescript": "~6.0.2"
-  }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "author": {
+    "name": "Christian-W. Budde",
+    "email": "christian@pcjv.de"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cwbudde/algo-audio-editor.git"
+  },
+  "desktopName": "algo-audio-editor.desktop"
 }

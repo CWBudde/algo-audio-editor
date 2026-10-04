@@ -9,16 +9,67 @@
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { app, BrowserWindow, protocol, shell } from "electron";
+import { app, BrowserWindow, dialog, protocol, shell } from "electron";
 
+import { registerDesktop } from "./desktop";
 import { registerEffectPresets } from "./effect-presets";
+import { registerFiles } from "./files";
+import { registerUpdates } from "./updates";
+import { loadWindowState, persistWindowState } from "./window-state";
 
 const SCHEME = "app";
 const HOST = "editor";
 const APP_URL = `${SCHEME}://${HOST}/index.html`;
 
 /** Set to the Vite dev server URL to develop against hot reload instead of dist. */
-const DEV_URL = process.env.AAE_DEV_URL;
+const DEV_URL = app.isPackaged ? undefined : process.env.AAE_DEV_URL;
+// An optional separate profile also isolates packaged-runtime tests.
+if (process.env.AAE_USER_DATA) app.setPath("userData", process.env.AAE_USER_DATA);
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) app.quit();
+const initialFiles: string[] = [];
+const argumentFiles = (argv: string[]) =>
+  argv
+    .filter((arg) => !arg.startsWith("-") && path.extname(arg).toLowerCase() === ".wav")
+    .map((file) => path.resolve(file));
+initialFiles.push(...argumentFiles(process.argv.slice(app.isPackaged ? 1 : 2)));
+let desktop: ReturnType<typeof registerDesktop>;
+let files: ReturnType<typeof registerFiles>;
+let primaryWindow: BrowserWindow | undefined;
+let desktopReady = false;
+let quitRequested = false;
+const persistence = new Set<() => Promise<void>>();
+let persistenceFlushed = false;
+async function openFiles(inputs: string[]) {
+  if (!primaryWindow || primaryWindow.isDestroyed()) await createWindow();
+  const win = primaryWindow;
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.focus();
+  for (const input of inputs) {
+    try {
+      await files.enqueue(win, input);
+    } catch (error) {
+      void dialog.showMessageBox(win, {
+        type: "error",
+        message: "Could not open audio",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+app.on("second-instance", (_event, argv, workingDirectory) => {
+  const inputs = argv
+    .filter((arg) => !arg.startsWith("-") && path.extname(arg).toLowerCase() === ".wav")
+    .map((file) => path.resolve(workingDirectory, file));
+  if (desktopReady) void openFiles(inputs);
+  else initialFiles.push(...inputs);
+});
+app.on("open-file", (event, file) => {
+  event.preventDefault();
+  if (desktopReady) void openFiles([file]);
+  else initialFiles.push(file);
+});
 
 // Paths are derived from app.getAppPath() (this package's root), never from
 // __dirname: the bundler inlines __dirname as the *source* directory.
@@ -96,10 +147,18 @@ function registerAppProtocol() {
   });
 }
 
+let openingWindow: Promise<BrowserWindow> | undefined;
 function createWindow() {
+  openingWindow ??= makeWindow().finally(() => {
+    openingWindow = undefined;
+  });
+  return openingWindow;
+}
+
+async function makeWindow() {
+  const state = await loadWindowState();
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    ...state,
     minWidth: 800,
     minHeight: 500,
     backgroundColor: "#0a0a0a",
@@ -114,8 +173,28 @@ function createWindow() {
 
   // The editor is a single page: keep navigation inside the app and send any
   // external link to the system browser.
+  primaryWindow = win;
+  attachWindow(win, true);
+  if (state.maximized) win.maximize();
   secureWindow(win);
-  void win.loadURL(DEV_URL ?? APP_URL);
+  await win
+    .loadURL(DEV_URL ?? APP_URL)
+    .catch((error: Error & { code?: string; errno?: number }) => {
+      if (error.code !== "ERR_ABORTED" && error.errno !== -3) throw error;
+    });
+  return win;
+}
+
+function attachWindow(win: BrowserWindow, persist = false) {
+  files.attach(win);
+  desktop(win);
+  if (persist) {
+    const flush = persistWindowState(win);
+    persistence.add(flush);
+    win.on("closed", () => {
+      void flush().finally(() => persistence.delete(flush));
+    });
+  }
 }
 
 function secureWindow(win: BrowserWindow) {
@@ -152,19 +231,48 @@ function secureWindow(win: BrowserWindow) {
     if (url.startsWith("https:")) void shell.openExternal(url);
     return { action: "deny" };
   });
-  win.webContents.on("did-create-window", (child) => secureWindow(child));
+  win.webContents.on("did-create-window", (child) => {
+    attachWindow(child);
+    secureWindow(child);
+  });
 }
 
-app.whenReady().then(() => {
-  registerAppProtocol();
-  registerEffectPresets(DEV_URL ?? APP_URL);
-  createWindow();
+if (singleInstance) {
+  app
+    .whenReady()
+    .then(async () => {
+      registerAppProtocol();
+      registerEffectPresets(DEV_URL ?? APP_URL);
+      files = registerFiles(DEV_URL ?? APP_URL);
+      desktop = registerDesktop(DEV_URL ?? APP_URL, () => {
+        void checkUpdates();
+      });
+      const checkUpdates = registerUpdates();
+      await createWindow();
+      desktopReady = true;
+      await openFiles(initialFiles.splice(0));
+      app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+      });
+    })
+    .catch((error) => {
+      console.error("Could not start desktop editor", error);
+      app.quit();
+    });
+}
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+app.on("before-quit", () => {
+  quitRequested = true;
 });
 
+app.on("will-quit", (event) => {
+  if (persistenceFlushed) return;
+  event.preventDefault();
+  void Promise.all([...persistence].map((flush) => flush())).finally(() => {
+    persistenceFlushed = true;
+    app.quit();
+  });
+});
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (quitRequested || process.platform !== "darwin") app.quit();
 });

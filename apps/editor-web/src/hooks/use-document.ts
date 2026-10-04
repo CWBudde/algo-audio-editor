@@ -1,7 +1,15 @@
 import type { DocumentInfoResult, HistoryListResult, TimelineExportParams } from "@aae/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KernelClient } from "@/kernel/client";
-import { chooseAudioFile, chooseSaveTarget, isFileDialogCancelled } from "@/lib/file-access";
+import {
+  chooseAudioFile,
+  chooseSaveTarget,
+  finishNativeOpen,
+  isFileDialogCancelled,
+  readNativeFile,
+} from "@/lib/file-access";
+
+import { desktopBridge, type NativeFile } from "@/platform";
 
 interface DocumentOptions {
   beforeOpen(): Promise<void>;
@@ -49,7 +57,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
       setPending({ client: target, busy: true });
       const active = () =>
         mounted.current && latest.current.client === target && operation.current === token;
-      void work(target, active)
+      return work(target, active)
         .catch((error: unknown) => {
           if (active() && !isFileDialogCancelled(error))
             latest.current.options.reportError(action, error);
@@ -64,35 +72,59 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
 
   const importFile = useCallback(
     async (target: KernelClient, active: () => boolean, file: File) => {
-      const stopping = latest.current.options.beforeOpen();
-      // Reading does not mutate the document and can overlap playback shutdown.
-      // Settle both before releasing the operation lock, even if either fails.
-      const [stopped, reading] = await Promise.allSettled([
-        stopping,
-        Promise.resolve().then(() => file.arrayBuffer()),
-      ]);
-      if (!active()) return;
-      if (stopped.status === "rejected") throw stopped.reason;
-      if (reading.status === "rejected") throw reading.reason;
-      const info = await target.openDocument(file.name, reading.value);
-      if (active()) setSnapshot({ client: target, info });
+      let success = false;
+      try {
+        const current = currentInfo.current;
+        if (current && desktopBridge()) {
+          const history = await target.call("history.list", { documentId: current.documentId });
+          if (!active()) return;
+          if (history.dirty && !(await desktopBridge()?.confirmReplace(current.name))) return;
+        }
+        const stopping = latest.current.options.beforeOpen();
+        const [stopped, reading] = await Promise.allSettled([
+          stopping,
+          Promise.resolve().then(() => file.arrayBuffer()),
+        ]);
+        if (!active()) return;
+        if (stopped.status === "rejected") throw stopped.reason;
+        if (reading.status === "rejected") throw reading.reason;
+        const info = await target.openDocument(file.name, reading.value);
+        if (active()) {
+          currentInfo.current = info;
+          setSnapshot({ client: target, info });
+          success = true;
+        }
+      } finally {
+        await finishNativeOpen(file, success);
+      }
     },
     [],
   );
 
   const openFile = useCallback(
     (file: File) => {
-      run("Could not open audio", (target, active) => importFile(target, active, file));
+      void run("Could not open audio", (target, active) => importFile(target, active, file));
     },
     [importFile, run],
   );
 
+  const openNativeFile = useCallback(
+    (selected: NativeFile) =>
+      run("Could not open audio", async (target, active) => {
+        const file = await readNativeFile(selected);
+        if (active()) await importFile(target, active, file);
+        else await finishNativeOpen(file, false);
+      }),
+    [importFile, run],
+  );
+
   const open = useCallback(() => {
-    run("Could not open audio", async (target, active) => {
+    void run("Could not open audio", async (target, active) => {
       const file = await chooseAudioFile(() => {
         if (active()) latest.current.options.fallbackOpen();
       });
       if (file && active()) await importFile(target, active, file);
+      else if (file) await finishNativeOpen(file, false);
     });
   }, [importFile, run]);
 
@@ -123,30 +155,44 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     currentInfo.current = next;
     setSnapshot({ client: target, info: next });
   }, []);
-  const save = useCallback(() => {
+  const saveAndWait = useCallback(() => {
     if (!info || latest.current.client !== client) return;
-    run("Could not save audio", async (target, active) => {
+    let savedSuccessfully = false;
+    const work = run("Could not save audio", async (target, active) => {
       const destination = await chooseSaveTarget(info.name);
-      if (!destination || !active()) return;
-      const history = await target.call("history.list", { documentId: info.documentId });
-      if (!active()) return;
-      const result = await target.call("doc.export", {
-        format: "wav",
-        bitDepth: info.bitDepth,
-        float: info.float,
-      });
-      if (!active()) return;
-      await destination.write(result);
-      if (!active()) return;
-      // Exporting does not save: only acknowledge the exact state after a
-      // successful destination write, still under the shared operation lock.
-      const saved = await target.call("doc.mark-saved", {
-        documentId: info.documentId,
-        stateId: history.currentStateId,
-      });
-      if (active()) latest.current.options.onSaved?.(saved);
+      if (!destination) return;
+      try {
+        if (!active()) return;
+        const history = await target.call("history.list", { documentId: info.documentId });
+        if (!active()) return;
+        const result = await target.call("doc.export", {
+          format: "wav",
+          bitDepth: info.bitDepth,
+          float: info.float,
+        });
+        if (!active()) return;
+        await destination.write(result);
+        if (!active()) return;
+        // Exporting does not save: only acknowledge the exact state after a
+        // successful destination write, still under the shared operation lock.
+        const saved = await target.call("doc.mark-saved", {
+          documentId: info.documentId,
+          stateId: history.currentStateId,
+        });
+        if (active()) {
+          latest.current.options.onSaved?.(saved);
+          savedSuccessfully = !saved.dirty;
+        }
+      } finally {
+        await destination.dispose?.();
+      }
     });
+    return work?.then(() => savedSuccessfully);
   }, [client, info, run]);
+
+  const save = useCallback(() => {
+    void saveAndWait();
+  }, [saveAndWait]);
 
   const exportTimeline = useCallback(
     (format: TimelineExportParams["format"]) => {
@@ -163,12 +209,17 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
             },
           ],
         );
-        if (!destination || !active()) return;
-        const result = await target.call("timeline.export", {
-          documentId: info.documentId,
-          format,
-        });
-        if (active()) await destination.write(result);
+        if (!destination) return;
+        try {
+          if (!active()) return;
+          const result = await target.call("timeline.export", {
+            documentId: info.documentId,
+            format,
+          });
+          if (active()) await destination.write(result);
+        } finally {
+          await destination.dispose?.();
+        }
         // A sidecar export never acknowledges the document's save point.
       });
     },
@@ -180,7 +231,9 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     busy: pending?.client === client && pending?.busy === true,
     open,
     openFile,
+    openNativeFile,
     save,
+    saveAndWait,
     exportTimeline,
     withOperation,
     replaceInfo,

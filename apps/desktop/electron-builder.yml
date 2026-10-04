@@ -1,0 +1,47 @@
+appId: com.cwbudde.algo-audio-editor
+productName: Algo Audio Editor
+artifactName: Algo-Audio-Editor-${version}-${os}-${arch}.${ext}
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+extraResources:
+  - from: ../editor-web/dist
+    to: web
+asar: true
+npmRebuild: false
+publish:
+  provider: github
+  owner: cwbudde
+  repo: algo-audio-editor
+fileAssociations:
+  - ext: wav
+    name: WAV audio
+    description: Waveform audio
+    mimeType: audio/wav
+    role: Editor
+linux:
+  executableName: algo-audio-editor
+  category: AudioVideo
+  syncDesktopName: true
+  target:
+    - AppImage
+    - deb
+mac:
+  category: public.app-category.music
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+  target:
+    - dmg
+    - zip
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false

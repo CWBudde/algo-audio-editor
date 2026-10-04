@@ -6,9 +6,6 @@ kernel := "packages/kernel"
 web := "apps/editor-web"
 desktop := "apps/desktop"
 
-# The -X path must equal the buildinfo package's import path, or the linker
-# silently ignores it and the kernel reports "dev".
-buildinfo := "github.com/cwbudde/algo-audio-editor/packages/kernel/internal/buildinfo"
 
 default:
     @just --list
@@ -25,15 +22,7 @@ install:
 
 # Build kernel.wasm and copy the matching wasm_exec.js into the web app
 wasm-build:
-    mkdir -p {{web}}/public
-    GOOS=js GOARCH=wasm go build -C {{kernel}} -trimpath \
-        -ldflags="-s -w -X {{buildinfo}}.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev) -X {{buildinfo}}.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        -o ../../{{web}}/public/kernel.wasm ./cmd/kernel
-    root=$(go env GOROOT); \
-    for f in "$root/lib/wasm/wasm_exec.js" "$root/misc/wasm/wasm_exec.js"; do \
-        if [ -f "$f" ]; then cp "$f" {{web}}/public/wasm_exec.js; exit 0; fi; \
-    done; \
-    echo "wasm_exec.js not found under $root" >&2; exit 1
+    node scripts/build-wasm.mjs
 
 # ── Development ──────────────────────────────────────────────────────────────
 
@@ -59,6 +48,14 @@ desktop-hot: desktop-build
 
 desktop-build:
     bun run --cwd {{desktop}} build
+
+# Build a local installer for the host OS; never publish from this recipe.
+desktop-package: build desktop-build
+    bun run --cwd {{desktop}} package
+
+# Assemble an unpacked app for packaged-runtime verification.
+desktop-package-dir: build desktop-build
+    bun run --cwd {{desktop}} package --dir
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -99,6 +96,10 @@ e2e: build
 # Electron end-to-end tests (needs a display, or xvfb-run on CI)
 e2e-desktop: build desktop-build
     bun run --cwd {{desktop}} e2e
+
+# Linux packaged-runtime smoke, including ASAR preload and bundled web/WASM.
+e2e-desktop-packaged: desktop-package-dir
+    AAE_PACKAGED_EXECUTABLE="$(pwd)/{{desktop}}/release/linux-unpacked/algo-audio-editor" bun run --cwd {{desktop}} e2e e2e/packaged.spec.ts
 
 bench:
     cd {{kernel}} && go test -run '^$' -bench . -benchmem ./...

@@ -1,5 +1,6 @@
 import type { ExportResult } from "@aae/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { desktopFixture } from "./desktop-test-fixture";
 import { chooseAudioFile, chooseSaveTarget } from "./file-access";
 
 const exported: ExportResult = {
@@ -10,6 +11,7 @@ const exported: ExportResult = {
 };
 
 afterEach(() => {
+  delete window.aaeDesktop;
   delete window.showOpenFilePicker;
   delete window.showSaveFilePicker;
   vi.restoreAllMocks();
@@ -133,4 +135,57 @@ describe("audio file dialogs", () => {
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:export");
     },
   );
+});
+
+describe("desktop files", () => {
+  it("uses native dialogs and capabilities ahead of browser pickers", async () => {
+    const bridge = desktopFixture();
+    window.aaeDesktop = bridge;
+    vi.mocked(bridge.openFile).mockResolvedValue({ id: "cap", name: "native.wav" });
+    vi.mocked(bridge.readFile).mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    window.showOpenFilePicker = vi.fn();
+    const fallback = vi.fn();
+    const file = await chooseAudioFile(fallback);
+    expect(file?.name).toBe("native.wav");
+    expect(file?.size).toBe(3);
+    expect(bridge.readFile).toHaveBeenCalledWith("cap");
+    expect(window.showOpenFilePicker).not.toHaveBeenCalled();
+    expect(fallback).not.toHaveBeenCalled();
+    const { finishNativeOpen } = await import("./file-access");
+    if (!file) throw new Error("Missing native file");
+    await finishNativeOpen(file, true);
+    expect(bridge.didOpenFile).toHaveBeenCalledWith("cap");
+  });
+  it("ends cancelled native dialogs without browser fallback or writes", async () => {
+    const bridge = desktopFixture();
+    window.aaeDesktop = bridge;
+    const fallback = vi.fn();
+    expect(await chooseAudioFile(fallback)).toBeUndefined();
+    expect(await chooseSaveTarget("test.wav")).toBeUndefined();
+    expect(fallback).not.toHaveBeenCalled();
+    expect(bridge.writeFile).not.toHaveBeenCalled();
+  });
+  it("awaits the exact native write and releases unused save capabilities", async () => {
+    const bridge = desktopFixture();
+    window.aaeDesktop = bridge;
+    vi.mocked(bridge.saveFile).mockResolvedValue({ id: "write", name: "test.wav" });
+    const target = await chooseSaveTarget("test.wav");
+    expect(bridge.saveFile).toHaveBeenCalledWith("test.wav", ["wav"]);
+    await target?.write(exported);
+    expect(bridge.writeFile).toHaveBeenCalledWith("write", exported.data);
+    await target?.dispose?.();
+    expect(bridge.releaseFile).toHaveBeenCalledWith("write");
+  });
+  it("releases failed native reads and propagates disk errors", async () => {
+    const bridge = desktopFixture();
+    window.aaeDesktop = bridge;
+    vi.mocked(bridge.openFile).mockResolvedValue({ id: "read", name: "test.wav" });
+    vi.mocked(bridge.readFile).mockRejectedValue(new Error("denied"));
+    await expect(chooseAudioFile(vi.fn())).rejects.toThrow("denied");
+    expect(bridge.releaseFile).toHaveBeenCalledWith("read");
+    vi.mocked(bridge.saveFile).mockResolvedValue({ id: "write", name: "test.wav" });
+    vi.mocked(bridge.writeFile).mockRejectedValue(new Error("disk full"));
+    const target = await chooseSaveTarget("test.wav");
+    await expect(target?.write(exported)).rejects.toThrow("disk full");
+  });
 });

@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { desktopFixture } from "./desktop-test-fixture";
 import {
   loadEffectPresets,
   parseEffectPresets,
@@ -69,6 +70,7 @@ it("routes desktop storage through the narrow bridge and rejects resource path t
   const loadIR = vi.fn().mockResolvedValue(new ArrayBuffer(8));
   const saveIR = vi.fn().mockResolvedValue(undefined);
   window.aaeDesktop = {
+    ...desktopFixture(),
     platform: "linux",
     versions: { electron: "test", chrome: "test", node: "test" },
     loadEffectPresets: load,

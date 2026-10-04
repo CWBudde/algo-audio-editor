@@ -128,21 +128,28 @@ export function useExport(options: ExportOptions) {
           // The document fence is acquired synchronously, so the chooser runs
           // under the Export button gesture before the first workflow await.
           const destination = await chooseSaveTarget(name);
-          if (!destination || s.closing || !owns(s)) return;
-          if (params.scope === "selection") {
-            const current = await s.client.call("selection.get", { documentId: s.info.documentId });
+          if (!destination) return;
+          try {
             if (s.closing || !owns(s)) return;
-            if (
-              current.start !== s.selection.start ||
-              current.end !== s.selection.end ||
-              current.channelMask !== s.selection.channelMask
-            )
-              throw new Error("The selection changed. Close Export and choose the range again.");
+            if (params.scope === "selection") {
+              const current = await s.client.call("selection.get", {
+                documentId: s.info.documentId,
+              });
+              if (s.closing || !owns(s)) return;
+              if (
+                current.start !== s.selection.start ||
+                current.end !== s.selection.end ||
+                current.channelMask !== s.selection.channelMask
+              )
+                throw new Error("The selection changed. Close Export and choose the range again.");
+            }
+            const result = await s.client.call("doc.export", params);
+            if (s.closing || !owns(s)) return;
+            await destination.write(result);
+            written = true;
+          } finally {
+            await destination.dispose?.();
           }
-          const result = await s.client.call("doc.export", params);
-          if (s.closing || !owns(s)) return;
-          await destination.write(result);
-          written = true;
         });
         if (!s.closing && owns(s)) {
           if (written) finish(s);

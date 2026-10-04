@@ -36,6 +36,7 @@ import { WaveformPlaceholder } from "@/components/waveform-placeholder";
 import { WaveformView, type WaveformViewHandle } from "@/components/waveform-view";
 import { useAnalysisDialog } from "@/hooks/use-analysis-dialog";
 import { useCommands } from "@/hooks/use-commands";
+import { useDesktop } from "@/hooks/use-desktop";
 import { useDocument } from "@/hooks/use-document";
 import { useDocumentMemory } from "@/hooks/use-document-memory";
 import { useEdit } from "@/hooks/use-edit";
@@ -84,6 +85,7 @@ export default function App() {
   const [selected, setSelected] = useState<{ documentId: string; range: SelectionRange }>();
   const [editSnapshot, setEditSnapshot] = useState<{ client: typeof client; result: EditResult }>();
   const [pastePlan, setPastePlan] = useState<PastePlan>();
+  const [desktopClosing, setDesktopClosing] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [informationOpen, setInformationOpen] = useState(false);
   const [metersOpen, setMetersOpen] = useState(false);
@@ -456,7 +458,8 @@ export default function App() {
       silenceFrames: parseSelectionTime(silenceValue, 1, "samples"),
       effects: effects.descriptors,
       modalOpen: Boolean(
-        pastePlan ||
+        desktopClosing ||
+          pastePlan ||
           processing.view ||
           effects.view ||
           exporting.view ||
@@ -519,8 +522,12 @@ export default function App() {
         const range = waveformView.current?.selectionState() ?? selection;
         if (range) effects.open(range);
       },
-      "file.open": doc.open,
-      "file.save": doc.save,
+      "file.open": async () => {
+        await doc.open();
+      },
+      "file.save": async () => {
+        await doc.save();
+      },
       "file.export": () => {
         const range = waveformView.current?.selectionState() ?? selection;
         if (range) exporting.open(range);
@@ -604,6 +611,31 @@ export default function App() {
     },
   });
 
+  const desktop = useDesktop({
+    commands,
+    execute,
+    dirty: Boolean(
+      doc.info && (history.history?.documentId !== doc.info.documentId || history.history.dirty),
+    ),
+    busy:
+      busy ||
+      Boolean(processing.view || effects.view || exporting.view || analysis.view || pastePlan),
+    canOpen:
+      Boolean(client) &&
+      !desktopClosing &&
+      !busy &&
+      !processing.view &&
+      !effects.view &&
+      !exporting.view &&
+      !analysis.view &&
+      !pastePlan,
+    onClosingChange: setDesktopClosing,
+    name: doc.info?.name,
+    save: doc.saveAndWait,
+    openFile: doc.openNativeFile,
+    onError: reportError("Desktop operation failed"),
+  });
+
   useEffect(() => {
     if (!engine || !playing) return;
     const timer = setInterval(() => setStats(engine.stats()), STATS_INTERVAL_MS);
@@ -639,7 +671,7 @@ export default function App() {
           <span className="hidden shrink-0 px-1 text-sm font-semibold tracking-tight md:inline">
             algo-audio-editor
           </span>
-          <AppMenubar commands={commands} onExecute={execute} />
+          {!desktop.native && <AppMenubar commands={commands} onExecute={execute} />}
         </header>
         {kernel.status === "error" && (
           <p

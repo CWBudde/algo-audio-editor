@@ -1,4 +1,28 @@
 import type { ExportResult } from "@aae/protocol";
+import { desktopBridge, type NativeFile } from "@/platform";
+
+const nativeFiles = new WeakMap<File, NativeFile>();
+export async function readNativeFile(selected: NativeFile): Promise<File> {
+  const bridge = desktopBridge();
+  if (!bridge) throw new Error("Desktop file access unavailable");
+  try {
+    const data = await bridge.readFile(selected.id);
+    const file = new File([data], selected.name, { type: "audio/wav" });
+    nativeFiles.set(file, selected);
+    return file;
+  } catch (error) {
+    await bridge.releaseFile(selected.id).catch(() => {});
+    throw error;
+  }
+}
+export async function finishNativeOpen(file: File, success: boolean) {
+  const selected = nativeFiles.get(file);
+  if (!selected) return;
+  nativeFiles.delete(file);
+  const bridge = desktopBridge();
+  if (success) await bridge?.didOpenFile(selected.id);
+  else await bridge?.releaseFile(selected.id);
+}
 
 interface WritableFile {
   write(data: Blob): Promise<void>;
@@ -38,6 +62,11 @@ function hasErrorName(error: unknown, name: string): boolean {
 
 /** Cancellation ends the action; missing or unsupported pickers use the input. */
 export async function chooseAudioFile(fallback: () => void): Promise<File | undefined> {
+  const bridge = desktopBridge();
+  if (bridge) {
+    const selected = await bridge.openFile();
+    return selected ? readNativeFile(selected) : undefined;
+  }
   if (!window.showOpenFilePicker) {
     fallback();
     return undefined;
@@ -57,6 +86,7 @@ export async function chooseAudioFile(fallback: () => void): Promise<File | unde
 
 export interface SaveTarget {
   write(result: ExportResult): Promise<void>;
+  dispose?(): Promise<void>;
 }
 
 /** Ask during the user gesture, before waiting for the kernel to export. */
@@ -64,6 +94,28 @@ export async function chooseSaveTarget(
   name: string,
   types: AudioPickerOptions["types"] = WAV_TYPES,
 ): Promise<SaveTarget | undefined> {
+  const bridge = desktopBridge();
+  if (bridge) {
+    const extensions = [
+      ...new Set(
+        types.flatMap((type) =>
+          Object.values(type.accept)
+            .flat()
+            .map((ext) => ext.replace(/^\./, "")),
+        ),
+      ),
+    ];
+    const selected = await bridge.saveFile(name, extensions);
+    if (!selected) return undefined;
+    return {
+      async write(result) {
+        await bridge.writeFile(selected.id, result.data);
+      },
+      async dispose() {
+        await bridge.releaseFile(selected.id).catch(() => {});
+      },
+    };
+  }
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({ suggestedName: name, types });

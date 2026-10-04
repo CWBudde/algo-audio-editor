@@ -1,15 +1,16 @@
 import path from "node:path";
-import { _electron as electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
   analysisCommand,
   pitchAndSpectrum,
   statisticsAndClipping,
 } from "../../editor-web/e2e/analysis-fixture.js";
 import { captureKernelWorker } from "../../editor-web/e2e/kernel-probe.js";
+import { closeEditor, launchEditor } from "./launch.js";
 
 test("Electron analysis uses the actual kernel for selected statistics, clipping history, pitch and progressive spectrogram", async () => {
   test.setTimeout(60000);
-  const app = await electron.launch({
+  const app = await launchEditor({
     args: [path.join(__dirname, ".."), "--autoplay-policy=no-user-gesture-required"],
   });
   try {
@@ -26,6 +27,6 @@ test("Electron analysis uses the actual kernel for selected statistics, clipping
       .toBeGreaterThan(0);
     await expect(page.getByRole("alert")).toHaveCount(0);
   } finally {
-    await app.close();
+    await closeEditor(app);
   }
 });

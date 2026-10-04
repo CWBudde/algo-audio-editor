@@ -3,6 +3,7 @@
 import type { DocumentInfoResult } from "@aae/protocol";
 import { type Download, expect, type Page } from "@playwright/test";
 import type { HistoryListResult, TimelineResult } from "../../../packages/protocol/src/index.js";
+import { runCommand } from "./command-fixture.js";
 
 export async function sourceState(page: Page) {
   return page.evaluate(async () => {
@@ -39,8 +40,7 @@ export async function sourceState(page: Page) {
 }
 
 export async function openExport(page: Page) {
-  await page.getByRole("menuitem", { name: "File", exact: true }).click();
-  await page.locator('[role="menuitem"][data-command-id="file.export"]').click();
+  await runCommand(page, "file.export", "File");
   const dialog = page.getByRole("dialog", { name: "Export audio" });
   await expect(dialog).toBeVisible();
   return dialog;

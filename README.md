@@ -31,15 +31,20 @@ AudioWorklet "playback"  ◀──── SharedArrayBuffer ring buffer
 
 ## Getting started
 
-Requirements: Go ≥ 1.25, [Bun](https://bun.sh) ≥ 1.3, [just](https://just.systems),
+Requirements: Go ≥ 1.25, [Bun](https://bun.sh) ≥ 1.4.2, Node.js ≥ 24, [just](https://just.systems),
 and for formatting `treefmt`, `gofumpt`, `gci` and `shfmt`.
 
 ```bash
-just install       # dependencies, Electron binary, git hooks
-just dev           # http://localhost:5173
-just desktop-dev   # the same app in Electron
-just ci            # everything CI checks
+just install          # dependencies, Electron binary, git hooks
+just dev              # http://localhost:5173
+just desktop-dev      # the same app in Electron
+just ci               # everything CI checks
+just desktop-package  # local installers, no publishing
 ```
+
+Desktop menus, file dialogs, close protection and packaging are described in
+[docs/desktop.md](docs/desktop.md). WAV associations are enabled; additional
+formats await Phase 6.
 
 Browser tests start their own production preview. If port 4173 is occupied,
 choose a separate port: `AAE_E2E_PORT=44873 just e2e` (also supported by

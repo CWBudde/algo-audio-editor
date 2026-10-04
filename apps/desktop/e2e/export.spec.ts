@@ -1,84 +1,49 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  type ElectronApplication,
-  _electron as electron,
-  expect,
-  type Page,
-  test,
-} from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { LEFT, load, RIGHT, samples, select } from "../../editor-web/e2e/edit-fixture.js";
 import { openExport, parseWAV, sourceState } from "../../editor-web/e2e/export-fixture.js";
 import { captureKernelWorker } from "../../editor-web/e2e/kernel-probe.js";
 import { revealControl } from "../../editor-web/e2e/ui-disclosures.js";
+import { closeEditor, launchEditor } from "./launch.js";
 
-interface CompletedDownload {
-  name: string;
-  path: string;
-  state: string;
-}
-
-async function observeDownloads(app: ElectronApplication, directory: string) {
-  await app.evaluate(({ BrowserWindow }, prefix) => {
-    const scope = globalThis as unknown as { __aaeExportDownloads: CompletedDownload[] };
-    scope.__aaeExportDownloads = [];
-    BrowserWindow.getAllWindows()[0].webContents.session.on("will-download", (_event, item) => {
-      const record = {
-        name: item.getFilename(),
-        path: `${prefix}${item.getFilename()}`,
-        state: "progressing",
-      };
-      scope.__aaeExportDownloads.push(record);
-      // Electron's download destination dialog is outside the renderer. Route
-      // the real DownloadItem to disk and observe its completed write.
-      item.setSavePath(record.path);
-      item.once("done", (_event, state) => {
-        record.state = state;
-      });
-    });
-  }, `${directory}${path.sep}`);
+async function observeExports(app: ElectronApplication, directory: string) {
+  await app.evaluate(({ dialog }, directory) => {
+    const scope = globalThis as unknown as { __aaeExports: string[] };
+    scope.__aaeExports = [];
+    dialog.showSaveDialog = (async (...args: unknown[]) => {
+      const options = args.at(-1) as { defaultPath: string };
+      const destination = `${directory}/${options.defaultPath}`;
+      scope.__aaeExports.push(destination);
+      return { canceled: false, filePath: destination };
+    }) as typeof dialog.showSaveDialog;
+  }, directory);
 }
 async function exportToDisk(app: ElectronApplication, page: Page) {
   const index = await app.evaluate(
-    () =>
-      (globalThis as unknown as { __aaeExportDownloads: CompletedDownload[] }).__aaeExportDownloads
-        .length,
+    () => (globalThis as unknown as { __aaeExports: string[] }).__aaeExports.length,
   );
   const dialog = page.getByRole("dialog", { name: "Export audio" });
   await dialog.getByRole("button", { name: "Export", exact: true }).click();
-  await expect
-    .poll(() =>
-      app.evaluate(
-        (_electron, index) =>
-          (globalThis as unknown as { __aaeExportDownloads: CompletedDownload[] })
-            .__aaeExportDownloads[index]?.state,
-        index,
-      ),
-    )
-    .toBe("completed");
-  const record = await app.evaluate(
-    (_electron, index) =>
-      (globalThis as unknown as { __aaeExportDownloads: CompletedDownload[] }).__aaeExportDownloads[
-        index
-      ],
+  await expect(dialog).not.toBeVisible();
+  const destination = await app.evaluate(
+    (_electron, index) => (globalThis as unknown as { __aaeExports: string[] }).__aaeExports[index],
     index,
   );
-  await expect(dialog).not.toBeVisible();
-  return { name: record.name, bytes: await readFile(record.path) };
+  return { name: path.basename(destination), bytes: await readFile(destination) };
 }
 
 test("desktop Export dialog writes selected channel WAV and quality encodings without saving its source", async () => {
   test.setTimeout(60_000);
   const directory = await mkdtemp(path.join(tmpdir(), "aae-export-"));
-  const app = await electron.launch({
+  const app = await launchEditor({
     args: [path.join(__dirname, ".."), "--autoplay-policy=no-user-gesture-required"],
   });
   try {
     const page = await app.firstWindow();
     await captureKernelWorker(page);
-    await page.addInitScript(() => Object.assign(window, { showSaveFilePicker: undefined }));
-    await observeDownloads(app, directory);
+    await observeExports(app, directory);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.reload();
@@ -139,7 +104,7 @@ test("desktop Export dialog writes selected channel WAV and quality encodings wi
     expect(await sourceState(page)).toEqual(quietBefore);
     expect(errors).toEqual([]);
   } finally {
-    await app.close();
+    await closeEditor(app);
     await rm(directory, { recursive: true, force: true });
   }
 });

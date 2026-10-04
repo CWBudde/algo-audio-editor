@@ -1,12 +1,13 @@
 /// <reference lib="dom" />
+
 import type { AnalysisJobResult, TimelineResult } from "@aae/protocol";
 import { expect, type Page } from "@playwright/test";
+import { runCommand } from "./command-fixture.js";
 import { info, load, select } from "./edit-fixture.ts";
 import { sourceState } from "./export-fixture.ts";
 import { revealControl } from "./ui-disclosures.ts";
 export async function analysisCommand(page: Page, id: string, menu = "Analyze") {
-  await page.getByRole("menuitem", { name: menu, exact: true }).click();
-  await page.locator(`[role=menuitem][data-command-id="${id}"]`).click();
+  await runCommand(page, id, menu);
 }
 export function sine(frames: number, hz = 440) {
   return Array.from({ length: frames }, (_, frame) =>

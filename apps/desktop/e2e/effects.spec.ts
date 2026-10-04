@@ -1,17 +1,18 @@
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { _electron as electron, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { fixture, LEFT, load, RIGHT, samples, select } from "../../editor-web/e2e/edit-fixture.js";
 import { showEffectMenuItem } from "../../editor-web/e2e/effect-menu.js";
 import { sourceState } from "../../editor-web/e2e/export-fixture.js";
 import { captureKernelWorker } from "../../editor-web/e2e/kernel-probe.js";
 import type { DesktopBridge } from "../../editor-web/src/platform.js";
+import { closeEditor, launchEditor } from "./launch.js";
 
 test("Electron effects rack preview, one-step apply and durable IR presets use the secure userData bridge", async () => {
   test.setTimeout(60_000);
   const directory = await mkdtemp(path.join(tmpdir(), "aae-effect-presets-"));
-  const app = await electron.launch({
+  const app = await launchEditor({
     args: [path.join(__dirname, ".."), "--autoplay-policy=no-user-gesture-required"],
   });
   try {
@@ -110,7 +111,7 @@ test("Electron effects rack preview, one-step apply and durable IR presets use t
       ),
     ).toHaveLength(1);
   } finally {
-    await app.close();
+    await closeEditor(app);
     await rm(directory, { recursive: true, force: true });
   }
 });

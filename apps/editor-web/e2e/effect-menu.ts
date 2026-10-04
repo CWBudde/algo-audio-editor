@@ -1,8 +1,11 @@
 import type { EffectDescriptor } from "@aae/protocol";
 import type { Page } from "@playwright/test";
 import { effectMenuCategory } from "../src/lib/effect-menu.js";
+import { commandItem } from "./command-fixture.js";
 
 export async function showEffectMenuItem(page: Page, id: string) {
+  if (await page.evaluate(() => Boolean((window as Window & { aaeDesktop?: unknown }).aaeDesktop)))
+    return commandItem(page, `effects.${id}`, "Effects");
   await page.getByRole("menuitem", { name: "Effects", exact: true }).click();
   if (id !== "rack") {
     const descriptor = await page.evaluate(async (effectId) => {

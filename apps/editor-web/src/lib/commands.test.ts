@@ -9,6 +9,7 @@ import {
   matchCommandShortcut,
   resolveCommands,
 } from "./commands";
+import { desktopFixture } from "./desktop-test-fixture";
 
 const info: DocumentInfoResult = {
   documentId: "doc-1",
@@ -320,7 +321,7 @@ describe("central command registry", () => {
   it("detects Electron platform first, then browser Mac platforms", () => {
     vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
     expect(detectShortcutPlatform()).toBe("mac");
-    window.aaeDesktop = { platform: "linux", versions: { electron: "", chrome: "", node: "" } };
+    window.aaeDesktop = desktopFixture();
     expect(detectShortcutPlatform()).toBe("other");
     window.aaeDesktop.platform = "darwin";
     expect(detectShortcutPlatform()).toBe("mac");

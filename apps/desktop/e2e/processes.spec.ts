@@ -1,8 +1,10 @@
 import path from "node:path";
-import { _electron as electron, expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import type { HistoryListResult } from "../../../packages/protocol/src/index.js";
+import { runCommand } from "../../editor-web/e2e/command-fixture";
 import { info, LEFT, load, RIGHT, samples, select } from "../../editor-web/e2e/edit-fixture.js";
 import { captureKernelWorker } from "../../editor-web/e2e/kernel-probe.js";
+import { closeEditor, launchEditor } from "./launch.js";
 
 async function history(page: Page) {
   const document = await info(page);
@@ -14,14 +16,13 @@ async function history(page: Page) {
 }
 
 async function process(page: Page, command: string) {
-  await page.getByRole("menuitem", { name: "Process", exact: true }).click();
-  await page.locator(`[role="menuitem"][data-command-id="process.${command}"]`).click();
+  await runCommand(page, `process.${command}`, "Process");
   return page.locator("dialog[open]");
 }
 
 test("Phase 3.2 processors preserve exact samples, history and isolated extraction windows in Electron", async () => {
   test.setTimeout(60_000);
-  const app = await electron.launch({
+  const app = await launchEditor({
     args: [path.join(__dirname, ".."), "--autoplay-policy=no-user-gesture-required"],
   });
   try {
@@ -104,6 +105,6 @@ test("Phase 3.2 processors preserve exact samples, history and isolated extracti
     await child.close();
     expect(errors).toEqual([]);
   } finally {
-    await app.close();
+    await closeEditor(app);
   }
 });
