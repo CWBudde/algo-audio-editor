@@ -108,6 +108,10 @@ fuzz-wav duration="10s":
 fuzz-codecs duration="10s":
     cd {{kernel}} && go test -run '^$' -fuzz '^FuzzCodecOpen$' -fuzztime='{{duration}}' -parallel=2 ./internal/engine
 
+# Exercise container export/quantization with malformed options and sample bits.
+fuzz-export duration="10s":
+    cd {{kernel}} && go test -run '^$' -fuzz '^FuzzDocumentExport$' -fuzztime='{{duration}}' -parallel=2 ./internal/engine
+
 test-web:
     bun run --cwd {{web}} test
 
@@ -217,7 +221,7 @@ check: check-formatted lint test-go-race test-web check-tidy build
 
 # Electron e2e needs a display; headless, run `xvfb-run --auto-servernum just ci`.
 # Everything CI runs (.github/workflows/ci.yml and the test-*.yml it calls), in one recipe.
-ci: check-formatted lint test-go-race test-go-wasm fuzz-wav fuzz-codecs test-web check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
+ci: check-formatted lint test-go-race test-go-wasm fuzz-wav fuzz-codecs fuzz-export test-web check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
 
 clean:
     rm -rf {{kernel}}/bin

@@ -22,7 +22,7 @@ func (e *Engine) exportCandidate(p protocol.ProcessJobParams) (protocol.BinaryDo
 	}
 	document := job.candidate
 	frames, channels := document.Frames(), document.Channels()
-	if frames > maxProcessOutputBytes/4/int64(channels) {
+	if frames > e.exportStorageLimit()/4/int64(channels) {
 		return protocol.BinaryDocumentInfo{}, fmt.Errorf("%s: transfer exceeds output budget", method)
 	}
 	metadata := document.Metadata()
@@ -70,6 +70,9 @@ func (e *Engine) importBinaryDocumentMode(p protocol.BinaryDocumentParams, data 
 	if e.documentSequence == math.MaxUint64 {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("%s: document identity exhausted", method)
 	}
+	if err := e.checkDecodedStorage(p.Frames, p.Channels, audiobuf.BlockFrames, len(data)); err != nil {
+		return protocol.DocumentInfoResult{}, err
+	}
 	timeline := audiobuf.Timeline{NextID: p.NextAnchorID, Markers: make([]audiobuf.Marker, len(p.Markers)), Regions: make([]audiobuf.Region, len(p.Regions))}
 	for i, m := range p.Markers {
 		timeline.Markers[i] = audiobuf.Marker{ID: m.ID, Frame: m.Frame, Name: m.Name, Color: m.Color}
@@ -107,7 +110,7 @@ func (e *Engine) importBinaryDocumentMode(p protocol.BinaryDocumentParams, data 
 		return protocol.DocumentInfoResult{}, fmt.Errorf("%s: document: %w", method, err)
 	}
 	editor := editorState{documentID: fmt.Sprintf("doc-%d", e.documentSequence+1), selection: protocol.SelectionRange{ChannelMask: (1 << p.Channels) - 1}}
-	staged, err := newDocumentHistory(document, editor)
+	staged, err := e.newDocumentHistory(document, editor)
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("%s: history: %w", method, err)
 	}

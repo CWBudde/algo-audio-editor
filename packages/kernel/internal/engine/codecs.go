@@ -23,7 +23,7 @@ import (
 // The format comes from the container, never from the filename. Known malformed
 // formats must fail their decoder; they must not fall through to browser codecs.
 func (e *Engine) openDocument(p protocol.DocumentOpenParams, input []byte) (protocol.DocumentInfoResult, error) {
-	if len(input) >= 12 && string(input[:4]) == "RIFF" && string(input[8:12]) == "WAVE" {
+	if len(input) >= 12 && (string(input[:4]) == "RIFF" || string(input[:4]) == "RF64") && string(input[8:12]) == "WAVE" {
 		return e.openWAVDocument(p, input)
 	}
 	input, err := skipID3(input)
@@ -72,7 +72,7 @@ func (e *Engine) installDocument(document audiobuf.Document, depth int, isFloat 
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: document identity exhausted")
 	}
 	editor := editorState{documentID: fmt.Sprintf("doc-%d", e.documentSequence+1), selection: protocol.SelectionRange{ChannelMask: (1 << document.Channels()) - 1}}
-	history, err := newDocumentHistory(document, editor)
+	history, err := e.newDocumentHistory(document, editor)
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: initialize history: %w", err)
 	}
@@ -138,6 +138,9 @@ func (e *Engine) openAIFF(p protocol.DocumentOpenParams, input []byte) (protocol
 	if err = validateDecodedFormat(f.SampleRate, f.Channels, f.BitDepth, f.Frames); err != nil {
 		return protocol.DocumentInfoResult{}, err
 	}
+	if err = e.checkDecodedStorage(f.Frames, f.Channels, audiobuf.BlockFrames, len(input)); err != nil {
+		return protocol.DocumentInfoResult{}, err
+	}
 	blocks := make([][]*audiobuf.Block, f.Channels)
 	interleaved := make([]int32, audiobuf.BlockFrames*f.Channels)
 	pcm := make([][]int32, f.Channels)
@@ -175,8 +178,17 @@ func (e *Engine) openFLAC(p protocol.DocumentOpenParams, input []byte) (protocol
 	if err = validateDecodedFormat(rate, channels, depth, int64(info.NSamples)); err != nil {
 		return protocol.DocumentInfoResult{}, err
 	}
+	// STREAMINFO bounds sample volume; actual frame sizes are charged below.
+	// A single small frame must not force every frame's estimate to that size.
+	if err = e.checkDecodedStorage(int64(info.NSamples), channels, audiobuf.BlockFrames, len(input)); err != nil {
+		return protocol.DocumentInfoResult{}, err
+	}
 	blocks := make([][]*audiobuf.Block, channels)
 	var total int64
+	var stored int64
+	// Import is synchronous and stages all new blocks privately. Retained
+	// editor state cannot change, so scan its history/clipboard just once.
+	available := e.availableStorage() - max(int64(len(input)), e.callInputBytes)
 	hash := md5.New()
 	for {
 		f, err := d.ParseNext()
@@ -197,6 +209,10 @@ func (e *Engine) openFLAC(p protocol.DocumentOpenParams, input []byte) (protocol
 		if info.NSamples != 0 && total+int64(count) > int64(info.NSamples) {
 			return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: FLAC exceeds declared frame count")
 		}
+		stored += decodedStorage(int64(count), channels, count)
+		if stored > available {
+			return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: decoded FLAC exceeds memory budget")
+		}
 		pcm := make([][]int32, channels)
 		for ch := range pcm {
 			pcm[ch] = f.Subframes[ch].Samples
@@ -216,7 +232,7 @@ func (e *Engine) openFLAC(p protocol.DocumentOpenParams, input []byte) (protocol
 }
 
 func (e *Engine) openMP3(p protocol.DocumentOpenParams, input []byte) (protocol.DocumentInfoResult, error) {
-	blocks, rate, err := decodeMP3(input)
+	blocks, rate, err := e.decodeMP3(input)
 	if err != nil {
 		return protocol.DocumentInfoResult{}, err
 	}
@@ -227,7 +243,7 @@ func (e *Engine) openMP3(p protocol.DocumentOpenParams, input []byte) (protocol.
 // with values read from the stream and panics on some malformed frames (found
 // by FuzzWAVOpen); report those as bad input instead of crashing the kernel.
 // The recover covers only the third-party decode, never document installation.
-func decodeMP3(input []byte) (blocks [][]*audiobuf.Block, rate int, err error) {
+func (e *Engine) decodeMP3(input []byte) (blocks [][]*audiobuf.Block, rate int, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			blocks, rate, err = nil, 0, fmt.Errorf("doc.open: malformed MP3: %v", recovered)
@@ -246,6 +262,7 @@ func decodeMP3(input []byte) (blocks [][]*audiobuf.Block, rate int, err error) {
 	raw := make([]byte, audiobuf.BlockFrames*4)
 	pcm := [][]int32{make([]int32, audiobuf.BlockFrames), make([]int32, audiobuf.BlockFrames)}
 	var total int64
+	available := e.availableStorage() - max(int64(len(input)), e.callInputBytes)
 	for {
 		n, err := io.ReadFull(d, raw)
 		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
@@ -260,6 +277,9 @@ func decodeMP3(input []byte) (blocks [][]*audiobuf.Block, rate int, err error) {
 		count := n / 4
 		if validation := validateDecodedFormat(rate, 2, 16, total+int64(count)); validation != nil {
 			return nil, 0, validation
+		}
+		if decodedStorage(total+int64(count), 2, audiobuf.BlockFrames) > available {
+			return nil, 0, fmt.Errorf("doc.open: decoded MP3 exceeds memory budget")
 		}
 		for ch := range 2 {
 			pcm[ch] = pcm[ch][:count]
@@ -298,10 +318,7 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 	if err != nil {
 		return protocol.DocumentExportInfo{}, err
 	}
-	if document.Frames() > maxProcessOutputBytes/4/int64(document.Channels()) {
-		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: output exceeds memory budget")
-	}
-	writer := &memoryWriteSeeker{limit: int(maxProcessOutputBytes)}
+	writer := &memoryWriteSeeker{limit: int(e.exportStorageLimit()), budget: e}
 	var write func([][]int32) error
 	var closeEncoder func() error
 	switch p.Format {

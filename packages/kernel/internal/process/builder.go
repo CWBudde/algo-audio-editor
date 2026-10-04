@@ -7,16 +7,17 @@ import (
 	"math/bits"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/memory"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
 	"github.com/cwbudde/algo-dsp/measure/loudness"
 	timestats "github.com/cwbudde/algo-dsp/stats/time"
 )
 
-const DefaultMaxOutputBytes int64 = 512 << 20
+const DefaultMaxOutputBytes int64 = memory.StorageLimit
 
 // Limits bounds newly materialized selected-channel float32 samples. Cached
 // peaks and at most two fractional boundary copies per selected channel are
-// additional; the engine's unique sample+peak history budget remains authoritative.
+// additional; the engine reserves those against its shared storage budget.
 // Zero chooses DefaultMaxOutputBytes. Limits outside [0, DefaultMaxOutputBytes]
 // are invalid; callers may tighten but not bypass the materialization ceiling.
 type Limits struct{ MaxOutputBytes int64 }
@@ -35,6 +36,15 @@ type Stepper interface {
 	Peak() (float64, bool)
 	MemoryDocument() (audiobuf.Document, error)
 	Identity() bool
+	MaterializedBytes() int64
+}
+
+// MaterializedBytes bounds newly retained samples before any processing step.
+func (b *Builder) MaterializedBytes() int64 {
+	if b.identity {
+		return 0
+	}
+	return (b.selected.End - b.selected.Start) * 4 * int64(bits.OnesCount(uint(b.selected.ChannelMask)))
 }
 
 // Builder is a single-owner, length-preserving job. Step/Result/Cancel must not

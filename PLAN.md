@@ -702,26 +702,12 @@
 - [x] Flake in the Electron e2e `normal window bounds survive relaunch` (2026-10-04) — It failed once on PR #2 (saved width 1280, not 1000) and passed on reruns. The test closed the window right after `setBounds` and then raced the app's own quit with `closeEditor`. It now polls `getNormalBounds()` until the new size is applied, waits for the app to exit through its own close-and-flush path, and only then reads `window-state.json`. Passes 30 of 30 under Xvfb on two loaded cores
 - [ ] Pre-existing flake: `internal/effects/stream_test.go:181` (`AllocsPerRun`, "prepared auto-wah render+reset allocate 1") failed in 1 of 6 local `-race` runs. Find the stray allocation or make the measurement robust before it reddens CI
 
-### R.2 Kernel robustness
+### R.2 Kernel robustness — ✅ DONE (2026-10-04)
 
-- [ ] `recover()` in `Engine.CallWithData`, turning a panic into an error response that names the method. Add a regression test with a panicking dispatch target (2026-10-04) — partial: only the third-party go-mp3 decode recovers (`decodeMP3`, seed `testdata/fuzz/FuzzWAVOpen/50d796d81172b44e`). The top-level recover is still open
-- [ ] One memory-budget owner sized against the 4 GiB WASM limit and shared by:
-  - import (WAV included; today WAV has no decoded cap)
-  - history
-  - process candidates
-  - clipboard and paste-mix
-  - export
-
-  Lift the 512 MiB cap (about 23 minutes of stereo) on FLAC/AIFF/MP3 import.
-- [ ] Tolerant WAV reading:
-  - RIFF size larger than the file (truncated recordings)
-  - RIFF or data size of 0 or `0xFFFFFFFF`
-  - a missing final pad byte
-  - RF64/`ds64`
-- [ ] Fuzzing:
-  - WAV seeds with LIST/INFO, adtl, cue and bext chunks
-  - a fuzz target for export
-  - fuzz through `engine.New()` rather than `&Engine{}`
+- [x] `Engine.CallWithData` recovers dispatch/result-encoding panics into an error envelope naming the method and clears binary output. `TestCallRecoversDispatchPanic` exercises a panicking `tone.configure` target, checks the error/bulk response and confirms a subsequent RPC still succeeds. The existing malformed-MP3 decoder regression remains.
+- [x] `internal/memory.StorageLimit` and the engine-owned `memoryBudget` replace the independent 512 MiB ceilings with a shared **3 GiB storage budget**, leaving **1 GiB** of WASM's 4 GiB address space for runtime, bridge copies, metadata and bounded workspace. Accounting deduplicates retained history/document/clipboard blocks, includes peak caches, block/reference allowances, IR storage and bulk-buffer capacity, and reserves future processing/effects candidates until cancel/commit. The WASM bridge calls `CheckInputSize` before allocating its Go copy; `debug.SetMemoryLimit` complements hard reservations by collecting released import/export buffers before normal heap growth reaches the address-space ceiling. WAV, FLAC, AIFF, MP3 and planar PCM imports check input plus decoded storage before publishing; streaming decoders charge their actual blocks against a captured allowance. Clipboard conversion, paste-mix, silence insertion, candidate transfer and WAV/FLAC/AIFF export use the same allowance; codec writer growth charges old plus replacement capacity. History has a fixed owner-sized ceiling rather than unbounded `2×doc` growth. `memory_test.go` covers atomic failures for every import/export format, clipboard retention across document replacement, conversion/mix rejection, candidate reservation/release, history limits, writer reallocation, pre-allocation input checks and overflow. One-hour 48 kHz stereo compressed/16-bit WAV **budget arithmetic** passes; an actual full-hour import remains part of R.5's acceptance work.
+- [x] `inspectWAV` tolerates oversized/unfinalized RIFF/data lengths, zero/`0xFFFFFFFF` sizes and a missing final chunk pad. Interrupted audio keeps complete frames; declared metadata boundaries remain strict. RF64 requires a bounded first `ds64` chunk, handles its 64-bit data/RIFF sizes and optional chunk-size table, then uses the existing normalized streaming WAV decoder adapter. `wav_robustness_test.go` verifies recovery, export/reopen, RF64 tables and rejection of malformed/truncated metadata and finalized partial frames.
+- [x] `FuzzWAVOpen` now constructs `New()` engines, adds LIST/INFO, cue/adtl, bext and RF64 seeds, and bounds each fuzz engine to 32 MiB. `FuzzCodecOpen` uses the same bound. `FuzzDocumentExport` fuzzes actual WAV/FLAC/AIFF encoders, options and float sample representations, verifies source/history preservation, reopens successful outputs and checks finite float32 bit fidelity. `just fuzz-export` is included in `just ci` and the reusable CI fuzz workflow. Native race tests, V8/WASM tests, kernel lint/vet and all three 10-second fuzz smoke targets pass; protocol ABI and upstream DSP are unchanged.
 
 ### R.3 Kernel correctness
 

@@ -9,9 +9,10 @@ import (
 // memoryWriteSeeker permits overwrite of existing bytes and bounded appends.
 // WAV seeks only back into its headers and then to the end after finalization.
 type memoryWriteSeeker struct {
-	data  []byte
-	pos   int
-	limit int
+	budget *Engine
+	data   []byte
+	pos    int
+	limit  int
 }
 
 func (w *memoryWriteSeeker) Write(data []byte) (int, error) {
@@ -19,6 +20,16 @@ func (w *memoryWriteSeeker) Write(data []byte) (int, error) {
 		return 0, fmt.Errorf("wav.write: write exceeds file size limit %d", w.limit)
 	}
 	end := w.pos + len(data)
+	if end > cap(w.data) && w.budget != nil {
+		capacity := min(w.limit, max(end, max(4096, cap(w.data)*2)))
+		// Both buffers coexist during growth. Count capacity, not length.
+		if err := w.budget.checkStorage("doc.export", int64(cap(w.data))+int64(capacity)); err != nil {
+			return 0, err
+		}
+		grown := make([]byte, len(w.data), capacity)
+		copy(grown, w.data)
+		w.data = grown
+	}
 	if end > len(w.data) {
 		w.data = append(w.data, make([]byte, end-len(w.data))...)
 	}

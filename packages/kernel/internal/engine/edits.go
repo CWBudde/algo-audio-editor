@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/bits"
 
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
@@ -70,6 +71,15 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 			return protocol.EditResult{}, fmt.Errorf("%s: %w", method, err)
 		}
 	}
+	// Edits share whole blocks but may copy fractional boundaries. Reserve
+	// those before any conversion or operation publishes newly owned audio.
+	extra := decodedStorage(min(e.document.Frames(), 6*audiobuf.BlockFrames), e.document.Channels(), audiobuf.BlockFrames)
+	if p.Operation == "copy" || p.Operation == "swap-channels" {
+		extra = 0
+	}
+	if err := e.checkStorage(method, extra); err != nil {
+		return protocol.EditResult{}, err
+	}
 	var operation ops.Operation
 	changed := true
 	switch p.Operation {
@@ -99,6 +109,11 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 		if p.Frames == nil || *p.Frames <= 0 || *p.Frames > maxEditorFrame-e.document.Frames() {
 			return protocol.EditResult{}, fmt.Errorf("%s: positive silence duration must keep the result JS-safe", method)
 		}
+		extra += decodedStorage(min(*p.Frames, 2*audiobuf.BlockFrames), 1, audiobuf.BlockFrames)
+		extra += (*p.Frames/audiobuf.BlockFrames + 1) * int64(e.document.Channels()) * 32
+		if err := e.checkStorage(method, extra); err != nil {
+			return protocol.EditResult{}, err
+		}
 		operation = ops.InsertSilence{Range: selected, Frames: *p.Frames}
 		selection.End = p.Start + *p.Frames
 	case "paste-insert", "paste-replace", "paste-mix":
@@ -119,6 +134,27 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 		}
 		if resultFrames > maxEditorFrame {
 			return protocol.EditResult{}, fmt.Errorf("%s: result exceeds JS-safe frame limit", method)
+		}
+		if plan.ConversionRequired {
+			storage := decodedStorage(plan.Frames, plan.TargetChannels, audiobuf.BlockFrames)
+			if err := e.checkStorage(method, storage); err != nil {
+				return protocol.EditResult{}, err
+			}
+			extra += storage
+		}
+		if p.Operation == "paste-mix" {
+			storage := decodedStorage(plan.Frames, plan.TargetChannels, audiobuf.BlockFrames)
+			if err := e.checkStorage(method, storage); err != nil {
+				return protocol.EditResult{}, err
+			}
+			extra += storage
+		} else if !plan.ConversionRequired {
+			// Clipboard windows share original blocks; materializing a
+			// fractional edge for insert/replace may copy up to two blocks.
+			extra += decodedStorage(min(plan.Frames, 2*audiobuf.BlockFrames), plan.TargetChannels, audiobuf.BlockFrames)
+		}
+		if err := e.checkStorage(method, extra); err != nil {
+			return protocol.EditResult{}, err
 		}
 		if plan.ConversionRequired {
 			clip, err = convertClipboard(clip, plan.TargetRate, plan.TargetChannels)
@@ -156,7 +192,7 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 	if changed {
 		if stagedHistory == nil {
 			var err error
-			stagedHistory, err = newDocumentHistory(e.document, e.editor)
+			stagedHistory, err = e.newDocumentHistory(e.document, e.editor)
 			if err != nil {
 				return protocol.EditResult{}, fmt.Errorf("%s: initialize history: %w", method, err)
 			}

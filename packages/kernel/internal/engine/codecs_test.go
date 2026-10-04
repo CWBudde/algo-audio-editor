@@ -249,6 +249,7 @@ func FuzzCodecOpen(f *testing.F) {
 			return
 		}
 		e := New()
+		e.memory.limit = 32 << 20
 		_, _ = e.openDocument(protocol.DocumentOpenParams{}, p)
 	})
 }

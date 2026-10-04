@@ -59,7 +59,7 @@ func (e *Engine) commitTimeline(method, label string, timeline audiobuf.Timeline
 	}
 	staged := e.history
 	if staged == nil {
-		staged, err = newDocumentHistory(e.document, e.editor)
+		staged, err = e.newDocumentHistory(e.document, e.editor)
 		if err != nil {
 			return protocol.TimelineMutationResult{}, fmt.Errorf("%s: initialize history: %w", method, err)
 		}

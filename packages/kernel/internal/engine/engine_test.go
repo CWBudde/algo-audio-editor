@@ -45,6 +45,24 @@ func TestHello(t *testing.T) {
 	}
 }
 
+func TestCallRecoversDispatchPanic(t *testing.T) {
+	e := New()
+	e.bulkData = []byte("previous result")
+	// A corrupt diagnostic target makes the real tone.configure dispatcher
+	// panic, without adding a production-only handler injection mechanism.
+	e.tone = nil
+	response := call(t, e, protocol.MethodToneConfigure, `{"frequencyHz":440,"amplitude":0.2}`)
+	if response.OK || !strings.Contains(response.Error, protocol.MethodToneConfigure+": panic:") || len(response.Result) != 0 {
+		t.Fatalf("panic response: %+v", response)
+	}
+	if e.TakeData() != nil {
+		t.Fatal("panic exposed bulk data")
+	}
+	if response := call(t, e, protocol.MethodHello, ""); !response.OK {
+		t.Fatal("recovery killed subsequent RPC")
+	}
+}
+
 func TestDocumentMemory(t *testing.T) {
 	e := New()
 	channel := audiobuf.NewChannel(make([]float32, audiobuf.BlockFrames+17))

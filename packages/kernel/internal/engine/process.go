@@ -6,24 +6,26 @@ import (
 	"math"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/memory"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
 	processing "github.com/cwbudde/algo-audio-editor/packages/kernel/internal/process"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
 
-const maxProcessOutputBytes = 512 << 20
+const maxProcessOutputBytes = memory.StorageLimit
 
 // maxProcessBatchSteps bounds work before the worker yields to cancellation.
 // Each individual processing step still scans at most BlockFrames frames.
 const maxProcessBatchSteps = 4
 
 type processingJob struct {
-	result       protocol.ProcessJobResult
-	builder      processing.Stepper
-	identity     bool
-	candidate    audiobuf.Document
-	before       historySnapshot
-	historyState string
+	reservedBytes int64
+	result        protocol.ProcessJobResult
+	builder       processing.Stepper
+	identity      bool
+	candidate     audiobuf.Document
+	before        historySnapshot
+	historyState  string
 }
 
 // Job locks protect even callers bypassing the frontend operation fence. Read
@@ -88,6 +90,11 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams) (protocol.ProcessJo
 	if err != nil {
 		return protocol.ProcessJobResult{}, fmt.Errorf("%s: prepare processing: %w", method, err)
 	}
+	reservation, err := e.reserveProcess(method, builder.MaterializedBytes())
+	if err != nil {
+		builder.Cancel()
+		return protocol.ProcessJobResult{}, err
+	}
 	before := cloneEditor(e.editor)
 	before.selection = p.SelectionRange
 	phase, phaseCount, gainResolved, gainDB := "processing", 1, true, p.GainDB
@@ -102,6 +109,7 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams) (protocol.ProcessJo
 	}
 	e.processSequence++
 	e.processJob = &processingJob{
+		reservedBytes: reservation,
 		result: protocol.ProcessJobResult{
 			SelectionResult: protocol.SelectionResult{DocumentID: p.DocumentID, SelectionRange: selection},
 			JobID:           fmt.Sprintf("process-%d", e.processSequence), State: "running", Operation: p.Operation,
@@ -153,7 +161,7 @@ func validateProcessParameters(p protocol.ProcessStartParams) error {
 
 func (e *Engine) prepareProcess(p protocol.ProcessStartParams, selection protocol.SelectionRange) (processing.Stepper, error) {
 	selected := ops.Range{Start: selection.Start, End: selection.End, ChannelMask: selection.ChannelMask}
-	limits := processing.Limits{MaxOutputBytes: maxProcessOutputBytes}
+	limits := processing.Limits{MaxOutputBytes: e.processStorageLimit()}
 	if p.Operation == "gain" {
 		return processing.NewBuilder(e.document, selected, processing.Gain{DB: p.GainDB}, limits)
 	}

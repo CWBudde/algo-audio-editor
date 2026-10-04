@@ -268,15 +268,20 @@ func (e *Engine) applyEffects(p protocol.EffectsPreviewParams) (protocol.Process
 	if e.processSequence == math.MaxUint64 || e.history == nil {
 		return protocol.ProcessJobResult{}, fmt.Errorf("%s: history/job identity is unavailable", method)
 	}
-	job, err := effects.NewJob(e.document, ops.Range{Start: selection.Start, End: selection.End, ChannelMask: selection.ChannelMask}, config, processing.Limits{MaxOutputBytes: maxProcessOutputBytes})
+	job, err := effects.NewJob(e.document, ops.Range{Start: selection.Start, End: selection.End, ChannelMask: selection.ChannelMask}, config, processing.Limits{MaxOutputBytes: e.processStorageLimit()})
 	if err != nil {
 		return protocol.ProcessJobResult{}, fmt.Errorf("%s: %w", method, err)
+	}
+	reservation, err := e.reserveProcess(method, job.MaterializedBytes())
+	if err != nil {
+		job.Cancel()
+		return protocol.ProcessJobResult{}, err
 	}
 	before := cloneEditor(e.editor)
 	before.selection = p.SelectionRange
 	e.discardEffectPreview()
 	e.processSequence++
-	e.processJob = &processingJob{result: protocol.ProcessJobResult{SelectionResult: protocol.SelectionResult{DocumentID: p.DocumentID, SelectionRange: selection}, JobID: fmt.Sprintf("process-%d", e.processSequence), State: "running", Operation: "effects", TotalFrames: selection.End - selection.Start, Phase: "processing", PhaseCount: 1, GainResolved: true}, builder: job, before: historySnapshot{document: e.document, editor: before}, historyState: e.history.CurrentID()}
+	e.processJob = &processingJob{reservedBytes: reservation, result: protocol.ProcessJobResult{SelectionResult: protocol.SelectionResult{DocumentID: p.DocumentID, SelectionRange: selection}, JobID: fmt.Sprintf("process-%d", e.processSequence), State: "running", Operation: "effects", TotalFrames: selection.End - selection.Start, Phase: "processing", PhaseCount: 1, GainResolved: true}, builder: job, before: historySnapshot{document: e.document, editor: before}, historyState: e.history.CurrentID()}
 	e.refreshProcessStatus(e.processJob)
 	return e.processJob.result, nil
 }

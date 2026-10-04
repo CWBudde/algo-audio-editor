@@ -57,6 +57,9 @@ func (e *Engine) loadImpulseResponse(p protocol.EffectsIRLoadParams, input []byt
 	if e.impulseSequence == math.MaxInt32 {
 		return protocol.EffectsIRInfo{}, fmt.Errorf("%s: IR identity exhausted", method)
 	}
+	if err := e.checkStorage(method, int64(frames)*int64(layout.channels)*8+max(int64(len(input)), e.callInputBytes)); err != nil {
+		return protocol.EffectsIRInfo{}, err
+	}
 	decoder := wav.NewDecoder(layout.reader(input))
 	if err := decoder.FwdToPCM(); err != nil {
 		return protocol.EffectsIRInfo{}, fmt.Errorf("%s: locate PCM: %w", method, err)

@@ -114,6 +114,12 @@ func (n *Normalizer) Progress() Progress { return n.progress }
 // Identity distinguishes a resolved no-op from the initially unresolved 0 dB.
 func (n *Normalizer) Identity() bool { return n.identity }
 
+// MaterializedBytes reserves a possible gain pass even before analysis resolves
+// whether normalization changes the source.
+func (n *Normalizer) MaterializedBytes() int64 {
+	return (n.selected.End - n.selected.Start) * 4 * int64(bits.OnesCount(uint(n.selected.ChannelMask)))
+}
+
 // Peak returns finite OUTPUT amplitude; input amplitude is separate telemetry.
 func (n *Normalizer) Peak() (float64, bool) { return n.peak, false }
 

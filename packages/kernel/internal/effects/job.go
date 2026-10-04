@@ -163,7 +163,13 @@ func (j *Job) Cancel() {
 		_, _ = j.fail(context.Canceled)
 	}
 }
-func (j *Job) Identity() bool        { return j.identity }
+func (j *Job) Identity() bool { return j.identity }
+func (j *Job) MaterializedBytes() int64 {
+	if j.identity {
+		return 0
+	}
+	return (j.selected.End - j.selected.Start) * 4 * int64(bits.OnesCount(uint(j.selected.ChannelMask)))
+}
 func (j *Job) Peak() (float64, bool) { return j.peak, false }
 func (j *Job) Result() (audiobuf.Document, error) {
 	if j.failure != nil {

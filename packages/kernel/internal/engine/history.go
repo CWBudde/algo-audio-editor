@@ -7,12 +7,13 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/history"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/memory"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
 
 const (
 	maxHistoryEntries       = 100
-	minHistoryBytes   int64 = 512 << 20
+	maxHistoryBytes   int64 = memory.StorageLimit
 )
 
 type historySnapshot struct {
@@ -25,10 +26,19 @@ func cloneEditor(editor editorState) editorState {
 }
 
 func newDocumentHistory(document audiobuf.Document, editor editorState) (*history.History[historySnapshot], error) {
-	stats := audiobuf.CountMemory(document)
-	bytes := stats.SampleBytes + stats.PeakBytes
-	limits := history.Limits{MaxEntries: maxHistoryEntries, MaxBytes: max(minHistoryBytes, bytes*2)}
+	limits := history.Limits{MaxEntries: maxHistoryEntries, MaxBytes: maxHistoryBytes}
 	return history.New(historySnapshot{document: document, editor: cloneEditor(editor)}, "Opened", limits, func(snapshot historySnapshot) audiobuf.Document { return snapshot.document })
+}
+
+func (e *Engine) newDocumentHistory(document audiobuf.Document, editor editorState) (*history.History[historySnapshot], error) {
+	h, err := newDocumentHistory(document, editor)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.SetLimits(history.Limits{MaxEntries: maxHistoryEntries, MaxBytes: e.memory.capacity()}); err != nil {
+		return nil, err
+	}
+	return h, nil
 }
 
 func (e *Engine) historyResult() protocol.HistoryListResult {

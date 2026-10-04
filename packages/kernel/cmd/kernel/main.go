@@ -16,11 +16,13 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"math"
 	"runtime/debug"
 	"syscall/js"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/engine"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/memory"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
 
@@ -131,6 +133,10 @@ func newKernelAPI(eng *engine.Engine) js.Value {
 			if n > maxBinaryInputBytes {
 				return `{"ok":false,"error":"call: file exceeds the 2 GiB whole-file import limit"}`
 			}
+			if err := eng.CheckInputSize(args[0].String(), int64(n)); err != nil {
+				response, _ := json.Marshal(protocol.Response{Error: err.Error()})
+				return string(response)
+			}
 			input = make([]byte, int(n))
 			js.CopyBytesToGo(input, args[2])
 		}
@@ -162,6 +168,10 @@ func main() {
 	// Fewer, larger collections: GC pauses stall the worker that feeds the
 	// playback ring buffer, and the heap here is dominated by long-lived audio.
 	debug.SetGCPercent(300)
+	// The normal heap-growth target must not postpone collection of released
+	// imports/exports past WASM's address-space ceiling. This soft runtime
+	// limit complements the engine's hard retained-storage reservations.
+	debug.SetMemoryLimit(memory.StorageLimit)
 
 	api := newKernelAPI(engine.New())
 

@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/memory"
 	vecmath "github.com/cwbudde/algo-vecmath"
 )
 
@@ -15,7 +16,7 @@ const maxSafeFrames = 1<<53 - 1
 
 // MaxMixOutputBytes limits newly materialized selected-channel float32 samples
 // per paste-mix. Shared insert/replace storage is not subject to this budget.
-const MaxMixOutputBytes int64 = 512 << 20
+const MaxMixOutputBytes int64 = memory.StorageLimit
 
 // Range uses document frames and a positive bit mask (bit zero is channel zero).
 type Range struct {

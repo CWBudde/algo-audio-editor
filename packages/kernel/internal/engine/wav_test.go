@@ -269,7 +269,7 @@ func TestWAVRejectedOpenKeepsDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixtures := [][]byte{
-		nil, []byte("not WAV"), valid[:len(valid)-1],
+		nil, []byte("not WAV"), valid[:35],
 		rawWAV(1, 16, 2, 48000, []byte{1, 2}, false),
 		rawWAV(1, 16, 0, 48000, nil, false),
 		rawWAV(1, 16, 9, 48000, nil, false),
@@ -282,7 +282,7 @@ func TestWAVRejectedOpenKeepsDocument(t *testing.T) {
 	for _, field := range []struct {
 		offset int
 		value  uint32
-	}{{4, math.MaxUint32}, {16, math.MaxUint32}, {40, math.MaxUint32}, {28, 1}} {
+	}{{4, 1}, {16, math.MaxUint32}, {28, 1}} {
 		bad := slices.Clone(valid)
 		binary.LittleEndian.PutUint32(bad[field.offset:], field.value)
 		fixtures = append(fixtures, bad)
@@ -389,11 +389,20 @@ func FuzzWAVOpen(f *testing.F) {
 	f.Add(rawWAV(1, 8, 1, 48000, []byte{0, 128, 255}, false))
 	f.Add(rawWAV(3, 32, 2, 48000, floatPayload(32, []float64{0, -2, 2, 0.5}), true))
 	f.Add([]byte("RIFF\xff\xff\xff\xffWAVE"))
+	base := rawWAV(1, 16, 1, 48000, intPayload(16, []int32{0, 1, 2, 3}), false)
+	f.Add(wavWithTimeline(
+		base, true,
+		timelineRIFFChunk("LIST", append([]byte("INFO"), timelineRIFFChunk("INAM", []byte("Recording\x00"))...)),
+		timelineCue(7, 1), timelineADTL(timelineLabel(7, "Marker")),
+		timelineRIFFChunk("bext", make([]byte, 602)),
+	))
+	f.Add(rf64Fixture(base, 4, nil))
 	f.Fuzz(func(t *testing.T, input []byte) {
 		if len(input) > 1<<20 {
 			t.Skip()
 		}
-		engine := &Engine{}
+		engine := New()
+		engine.memory.limit = 32 << 20
 		info, err := engine.openDocument(protocol.DocumentOpenParams{Name: "fuzz.wav"}, input)
 		if err != nil {
 			if engine.document.Channels() != 0 {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/memory"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
 	"github.com/cwbudde/algo-dsp/dsp/resample"
 	vecmath "github.com/cwbudde/algo-vecmath"
@@ -11,7 +12,7 @@ import (
 
 // Converted sample storage is newly materialized, unlike shared same-format
 // pastes. Refuse excessive output before allocating any filter or sample blocks.
-const maxConvertedSampleBytes int64 = 512 << 20
+const maxConvertedSampleBytes int64 = memory.StorageLimit
 
 func clipboardOutputFrames(frames int64, inRate, outRate int) (int64, error) {
 	if frames <= 0 || frames > maxEditorFrame || inRate < MinSampleRate || inRate > MaxSampleRate || outRate < MinSampleRate || outRate > MaxSampleRate {

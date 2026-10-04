@@ -31,24 +31,71 @@ type wavLayout struct {
 // chunk lengths. It parses only structural fields; sample decoding stays in wav.
 func inspectWAV(input []byte) (wavLayout, error) {
 	var layout wavLayout
-	if len(input) < 12 || string(input[:4]) != "RIFF" || string(input[8:12]) != "WAVE" {
-		return layout, fmt.Errorf("wav.inspect: expected a RIFF/WAVE file")
+	if len(input) < 12 || (string(input[:4]) != "RIFF" && string(input[:4]) != "RF64") || string(input[8:12]) != "WAVE" {
+		return layout, fmt.Errorf("wav.inspect: expected a RIFF/RF64 WAVE file")
 	}
-	end := uint64(binary.LittleEndian.Uint32(input[4:8])) + 8
-	if end < 12 || end > uint64(len(input)) {
-		return layout, fmt.Errorf("wav.inspect: truncated or invalid RIFF size %d", end)
+	rf64 := string(input[:4]) == "RF64"
+	riffSize := uint64(binary.LittleEndian.Uint32(input[4:8]))
+	pos := uint64(12)
+	var largeData uint64
+	var table []rf64Size
+	if rf64 {
+		var err error
+		riffSize, largeData, table, pos, err = inspectDS64(input)
+		if err != nil {
+			return layout, err
+		}
 	}
-	seenFormat, seenData := false, false
-	for pos := uint64(12); pos < end; {
+	end := uint64(len(input))
+	if riffSize != 0 && riffSize != math.MaxUint32 {
+		if riffSize < 4 {
+			return layout, fmt.Errorf("wav.inspect: invalid RIFF size %d", riffSize)
+		}
+		// Avoid adding eight to an untrusted uint64 ds64 size.
+		if riffSize < end-8 {
+			end = riffSize + 8
+		}
+	}
+	if pos > end {
+		return layout, fmt.Errorf("wav.inspect: ds64 exceeds RIFF boundary")
+	}
+	seenFormat, seenData, recoveredData := false, false, false
+	for pos < end {
 		if end-pos < 8 {
 			return layout, fmt.Errorf("wav.inspect: truncated chunk header at %d", pos)
 		}
 		size := uint64(binary.LittleEndian.Uint32(input[pos+4 : pos+8]))
-		body, next := pos+8, pos+8+size+(size&1)
-		if next > end {
-			return layout, fmt.Errorf("wav.inspect: truncated %q chunk at %d", input[pos:pos+4], pos)
+		id := string(input[pos : pos+4])
+		if rf64 && size == math.MaxUint32 {
+			if id == "data" {
+				size = largeData
+			} else {
+				found := false
+				for i := range table {
+					if table[i].id == id && !table[i].used {
+						size, table[i].used, found = table[i].size, true, true
+						break
+					}
+				}
+				if !found {
+					return layout, fmt.Errorf("wav.inspect: missing ds64 size for %q", id)
+				}
+			}
 		}
-		switch string(input[pos : pos+4]) {
+		body := pos + 8
+		if id == "data" && (size == 0 || (!rf64 && size == math.MaxUint32) || size > end-body) {
+			// Unfinalized recordings run to EOF. Only data may be truncated;
+			// metadata still requires every declared byte to be present.
+			size, recoveredData = end-body, true
+		}
+		if size > end-body {
+			return layout, fmt.Errorf("wav.inspect: truncated %q chunk at %d", id, pos)
+		}
+		next := body + size
+		if size&1 != 0 && next < end {
+			next++ // The final chunk may omit its otherwise required pad byte.
+		}
+		switch id {
 		case "fmt ":
 			if seenFormat {
 				return layout, fmt.Errorf("wav.inspect: multiple format chunks")
@@ -81,6 +128,8 @@ func inspectWAV(input []byte) (wavLayout, error) {
 			if err := layout.addTimelineChunk(id, input[body:body+size]); err != nil {
 				return wavLayout{}, err
 			}
+		case "ds64":
+			return layout, fmt.Errorf("wav.inspect: unexpected ds64 chunk")
 		case "fact", "JUNK", "PAD ":
 			// Reconstructed format/data define current PCM; padding is disposable.
 		default:
@@ -94,10 +143,42 @@ func inspectWAV(input []byte) (wavLayout, error) {
 		return layout, fmt.Errorf("wav.inspect: format and data chunks are required")
 	}
 	align := layout.channels * (layout.bitDepth / 8)
+	if recoveredData {
+		// A recorder interrupted mid-frame still yields all complete frames.
+		layout.dataBytes -= layout.dataBytes % align
+	}
 	if layout.dataBytes%align != 0 {
 		return layout, fmt.Errorf("wav.inspect: data length %d is not a multiple of frame size %d", layout.dataBytes, align)
 	}
 	return layout, nil
+}
+
+type rf64Size struct {
+	id   string
+	size uint64
+	used bool
+}
+
+// inspectDS64 reads RF64's mandatory first chunk without allocating from a
+// declared 64-bit length. The optional table is bounded like other metadata.
+func inspectDS64(input []byte) (riff, data uint64, table []rf64Size, next uint64, err error) {
+	if binary.LittleEndian.Uint32(input[4:8]) != math.MaxUint32 || len(input) < 48 || string(input[12:16]) != "ds64" {
+		return 0, 0, nil, 0, fmt.Errorf("wav.inspect: RF64 requires a ds64 header")
+	}
+	size := uint64(binary.LittleEndian.Uint32(input[16:20]))
+	if size < 28 || size > maxTimelineMetadataBytes || size > uint64(len(input)-20) {
+		return 0, 0, nil, 0, fmt.Errorf("wav.inspect: invalid ds64 size")
+	}
+	count := uint64(binary.LittleEndian.Uint32(input[44:48]))
+	if count > (size-28)/12 {
+		return 0, 0, nil, 0, fmt.Errorf("wav.inspect: truncated ds64 size table")
+	}
+	table = make([]rf64Size, int(count))
+	for i := range table {
+		offset := 48 + i*12
+		table[i] = rf64Size{id: string(input[offset : offset+4]), size: binary.LittleEndian.Uint64(input[offset+4 : offset+12])}
+	}
+	return binary.LittleEndian.Uint64(input[20:28]), binary.LittleEndian.Uint64(input[28:36]), table, min(uint64(len(input)), 20+size+(size&1)), nil
 }
 
 func (l *wavLayout) inspectFormat(data []byte) error {
@@ -143,6 +224,9 @@ func (e *Engine) openWAVDocument(p protocol.DocumentOpenParams, input []byte) (p
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: validate WAV: %w", err)
 	}
 	frames := layout.dataBytes / (layout.channels * (layout.bitDepth / 8))
+	if err := e.checkDecodedStorage(int64(frames), layout.channels, audiobuf.BlockFrames, len(input)); err != nil {
+		return protocol.DocumentInfoResult{}, err
+	}
 	timeline, err := decodeWAVTimeline(layout.timelineChunks, int64(frames))
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: import annotations: %w", err)
@@ -254,6 +338,9 @@ func (e *Engine) exportWAVDocument(p protocol.DocumentExportParams) (protocol.Do
 	fileBytes := dataBytes + (dataBytes & 1) + 44 + metadataBytes
 	if fileBytes-8 > math.MaxUint32 || fileBytes > int64(math.MaxInt) {
 		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: document exceeds RIFF/WASM size limit")
+	}
+	if fileBytes > e.exportStorageLimit() {
+		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: output exceeds memory budget")
 	}
 	writer := &memoryWriteSeeker{data: make([]byte, 0, int(fileBytes)), limit: int(fileBytes)}
 	formatTag := 1

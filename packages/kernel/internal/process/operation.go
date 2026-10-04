@@ -240,7 +240,14 @@ func (b *blockOperation) OutputSelection() ops.Range  { return b.outputSelection
 func (b *blockOperation) OutputFormat() (int, int, int64) {
 	return b.outputRate, b.outputChannels, b.outputFrames
 }
-func (b *blockOperation) Identity() bool        { return b.identity }
+func (b *blockOperation) Identity() bool { return b.identity }
+
+func (b *blockOperation) MaterializedBytes() int64 {
+	if b.shared || b.identity {
+		return 0
+	}
+	return b.renderFrames * 4 * int64(len(b.blocks))
+}
 func (b *blockOperation) Peak() (float64, bool) { return b.peak, b.nonfinite }
 
 func (b *blockOperation) Step(ctx context.Context) (Progress, error) {

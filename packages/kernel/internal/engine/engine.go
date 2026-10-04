@@ -33,6 +33,8 @@ const (
 // Engine holds the kernel state. It is not safe for concurrent use; the
 // kernel runs on a single worker thread and is driven from one event loop.
 type Engine struct {
+	memory                       memoryBudget
+	callInputBytes               int64
 	sampleRate                   float64
 	channels                     int
 	tone                         *toneSource
@@ -96,10 +98,23 @@ func (e *Engine) Call(method string, payload []byte) []byte {
 
 // CallWithData supplies binary input separately from JSON control parameters.
 // Import consumes the bytes during the call without retaining the input file.
-func (e *Engine) CallWithData(method string, payload, input []byte) []byte {
+func (e *Engine) CallWithData(method string, payload, input []byte) (response []byte) {
+	defer func() {
+		e.callInputBytes = 0
+		if recovered := recover(); recovered != nil {
+			e.bulkData = nil
+			response = encodeResponse(protocol.Response{Error: fmt.Sprintf("%s: panic: %v", method, recovered)})
+		}
+	}()
 	// Binary data belongs to exactly one call. A rejected or non-bulk call must
 	// never expose a previous request's result.
 	e.bulkData = nil
+	e.callInputBytes = int64(len(input))
+	if e.callInputBytes > 0 {
+		if err := e.checkStorage(method, e.callInputBytes); err != nil {
+			return encodeResponse(protocol.Response{Error: err.Error()})
+		}
+	}
 	result, err := e.dispatch(method, payload, input)
 	if err != nil {
 		return encodeResponse(protocol.Response{Error: err.Error()})
