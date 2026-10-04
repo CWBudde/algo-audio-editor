@@ -287,3 +287,36 @@ func TestStretchTimelinePreservesIDsAndExactRoundedTime(t *testing.T) {
 		t.Fatal("large exact integer rounding", exact)
 	}
 }
+
+func TestNoiseProfileCaptureUsesUnpaddedSourceWindows(t *testing.T) {
+	for _, offset := range []int64{0, 64} {
+		for _, length := range []int64{1024, 2048, 5000} {
+			input := make([]float32, 6000)
+			for i := range input {
+				input[i] = .125
+			}
+			document := operationDocument(t, input)
+			settings := restoreSettings("noise-reduce")
+			settings.Restoration.ProfileStart = offset
+			settings.Restoration.ProfileEnd = offset + length
+			stepper, err := NewOperation(document, ops.Range{End: 6000, ChannelMask: 1}, settings, Limits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			operation := stepper.(*restorationOperation)
+			for operation.Status().Phase == "analyzing" {
+				if _, err := operation.Step(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// A constant Hann-windowed source has DC power (amplitude*N/2)^2.
+			// Both an exactly half-window profile and long profiles must retain it.
+			got := operation.profiles[0].Powers()[0]
+			want := math.Pow(.125*float64(settings.Restoration.FFTSize)/2, 2)
+			if math.Abs(got-want) > 1e-6 {
+				t.Fatalf("offset %d length %d: biased power %g, want %g", offset, length, got, want)
+			}
+			operation.Cancel()
+		}
+	}
+}

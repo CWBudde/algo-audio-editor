@@ -67,7 +67,7 @@ func TestIndependentCodecImports(t *testing.T) {
 			if format != "mp3" {
 				assertCodecSamples(t, e, want)
 			} else {
-				if info.Frames < 4097 {
+				if info.Frames != 4097 {
 					t.Fatalf("MP3 duration %+v", info)
 				}
 				var energy float64
@@ -106,18 +106,7 @@ func TestLosslessCodecExportRoundTrips(t *testing.T) {
 					if _, err := e.openDocument(protocol.DocumentOpenParams{Name: "source.wav"}, rawWAV(1, depth, channels, 44100, pcm, false)); err != nil {
 						t.Fatal(err)
 					}
-					if depth == 8 {
-						exact := make([]byte, 4097*channels*4)
-						for channel := range channels {
-							for frame := range 4097 {
-								value := values[(frame*channels+channel)%len(values)]
-								binary.LittleEndian.PutUint32(exact[(channel*4097+frame)*4:], math.Float32bits(float32(value)/128))
-							}
-						}
-						if _, err := e.importBinaryDocumentMode(protocol.BinaryDocumentParams{Name: "source.wav", SampleRate: 44100, Channels: channels, Frames: 4097, NextAnchorID: 1}, exact, true); err != nil {
-							t.Fatal(err)
-						}
-					}
+
 					want := codecSamples(t, e)
 					before := e.historyResult()
 					info, err := e.exportDocument(protocol.DocumentExportParams{Format: format, BitDepth: depth})
@@ -244,6 +233,14 @@ func FuzzCodecOpen(f *testing.F) {
 		f.Fatal(err)
 	}
 	f.Add(mp3[:min(128, len(mp3))])
+	f.Add(mp3)
+	for _, name := range []string{"tone-mono.mp3", "tone-crc.mp3"} {
+		seed, err := os.ReadFile("testdata/codecs/" + name)
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(seed)
+	}
 	f.Fuzz(func(t *testing.T, p []byte) {
 		if len(p) > 1<<20 {
 			return

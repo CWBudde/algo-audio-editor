@@ -146,7 +146,7 @@ func TestWAVImportFormatsAndChannels(t *testing.T) {
 		payload    []byte
 		samples    []float32
 	}{
-		{"PCM8 odd data", 1, 8, false, []byte{0, 128, 255}, []float32{-1, 1.0 / 255, 1}},
+		{"PCM8 odd data", 1, 8, false, []byte{0, 128, 255}, []float32{-1, 0, 127.0 / 128}},
 		{"PCM32", 1, 32, false, intPayload(32, []int32{math.MinInt32, -1073741824, 0, 1073741824, math.MaxInt32}), []float32{-1, -0.5, 0, 0.5, 1}},
 		{"float64", 3, 64, false, floatPayload(64, []float64{-2, -0.5, 0, 0.5, 2}), []float32{-2, -0.5, 0, 0.5, 2}},
 		{"extensible PCM24", 1, 24, true, intPayload(24, []int32{-4194304, 0, 4194304}), []float32{-0.5, 0, 0.5}},

@@ -171,9 +171,6 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 			return nil, fmt.Errorf("process.new: invalid generator duration")
 		}
 		b.outputFrames = document.Frames() - (selected.End - selected.Start) + b.renderFrames
-		if selected.ChannelMask != (1<<document.Channels())-1 {
-			b.outputFrames = max(b.outputFrames, document.Frames())
-		}
 		b.outputSelection = ops.Range{Start: selected.Start, End: selected.Start + b.renderFrames, ChannelMask: selected.ChannelMask}
 		if math.IsNaN(settings.LevelDB) || math.IsInf(settings.LevelDB, 0) || settings.LevelDB < -120 || settings.LevelDB > 0 {
 			return nil, fmt.Errorf("process.new: generator level must be in [-120,0] dBFS")
@@ -518,6 +515,21 @@ func (b *blockOperation) assemble() (audiobuf.Document, error) {
 		channel, _ := b.source.Channel(i)
 		channels[i] = channel
 		if b.selected.ChannelMask&(1<<i) == 0 {
+			if op == "generate" && b.selected.Start == b.selected.End {
+				left, err := channel.Slice(0, b.selected.Start)
+				if err != nil {
+					return audiobuf.Document{}, err
+				}
+				right, err := channel.Slice(b.selected.End, channel.Frames())
+				if err != nil {
+					return audiobuf.Document{}, err
+				}
+				silence, err := audiobuf.NewSilence(b.renderFrames)
+				if err != nil {
+					return audiobuf.Document{}, err
+				}
+				channels[i] = left.Concat(silence).Concat(right)
+			}
 			continue
 		}
 		left, err := channel.Slice(0, b.selected.Start)
@@ -534,7 +546,7 @@ func (b *blockOperation) assemble() (audiobuf.Document, error) {
 	if op == "time-stretch" {
 		stretchTimeline(&metadata.Timeline, b.selected, b.renderFrames)
 	}
-	if (op == "crossfade" || op == "generate") && b.selected.ChannelMask == (1<<b.source.Channels())-1 {
+	if (op == "crossfade" || op == "generate") && b.selected.ChannelMask == (1<<b.source.Channels())-1 || op == "generate" && b.selected.Start == b.selected.End {
 		var err error
 		metadata.Timeline, err = metadata.Timeline.Splice(b.source.Frames(), b.selected.Start, b.selected.End, b.renderFrames)
 		if err != nil {

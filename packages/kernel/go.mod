@@ -6,10 +6,10 @@ toolchain go1.26.8
 
 require (
 	github.com/cwbudde/aiff v0.1.0
-	github.com/cwbudde/algo-dsp v0.10.0
+	github.com/cwbudde/algo-dsp v0.10.1
 	github.com/cwbudde/algo-vecmath v0.1.3
 	github.com/cwbudde/flac v0.1.0
-	github.com/cwbudde/wav v0.1.3
+	github.com/cwbudde/wav v0.1.4
 	github.com/go-audio/audio v1.0.0
 	github.com/go-audio/riff v1.0.0
 	github.com/google/jsonschema-go v0.4.3

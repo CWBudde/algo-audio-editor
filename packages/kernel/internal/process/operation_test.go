@@ -327,12 +327,14 @@ func TestGeneratorInsertionAndSelectionReplacement(t *testing.T) {
 	if got[0] != 1 || got[1] != 2 || got[2] != 0 || got[3] != 1 || math.Abs(float64(got[4])) > 1e-6 || got[5] != -1 || got[6] != 3 || got[7] != 4 {
 		t.Fatalf("tone output %v", got)
 	}
-	if !reflect.DeepEqual(operationSamples(t, result, 1), []float32{5, 6, 7, 8, 0, 0, 0, 0}) {
-		t.Fatal("subset padding")
+	if !reflect.DeepEqual(operationSamples(t, result, 1), []float32{5, 6, 0, 0, 0, 0, 7, 8}) {
+		t.Fatal("subset insertion must preserve sync")
 	}
-	if !reflect.DeepEqual(document.Metadata(), result.Metadata()) {
-		t.Fatal("subset annotations shifted")
+	metadata := result.Metadata()
+	if metadata.Name != document.Metadata().Name || !reflect.DeepEqual(metadata.Timeline.Markers, document.Metadata().Timeline.Markers) || metadata.Timeline.Regions[0].Start != 0 || metadata.Timeline.Regions[0].End != 8 {
+		t.Fatal("subset insertion timeline did not follow all channels")
 	}
+
 	settings.Generator = "silence"
 	settings.DurationFrames = 999
 	stepper, err = NewOperation(document, ops.Range{Start: 1, End: 3, ChannelMask: 3}, settings, Limits{})
@@ -989,5 +991,48 @@ func TestResampleRejectsDivergedChannelClocks(t *testing.T) {
 	}
 	if _, err := stepper.MemoryDocument(); err == nil {
 		t.Fatal("divergedchannel partialmemoryretained")
+	}
+}
+
+func TestGeneratorSubsetInsertionSyncAtEveryCursor(t *testing.T) {
+	for _, count := range []int{2, 6} {
+		for _, cursor := range []int64{0, 4, 8} {
+			for _, mask := range []int{1, 1 << (count - 1), 3} {
+				input := make([][]float32, count)
+				for ch := range count {
+					input[ch] = make([]float32, 8)
+					for frame := range 8 {
+						input[ch][frame] = float32(10*ch + frame + 1)
+					}
+				}
+				document := operationDocument(t, input...)
+				stepper, err := NewOperation(document, ops.Range{Start: cursor, End: cursor, ChannelMask: mask}, Settings{Operation: "generate", Generator: "silence", DurationFrames: 3}, Limits{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				result := finishOperation(t, stepper)
+				if result.Frames() != 11 {
+					t.Fatal("duration")
+				}
+				for ch := range count {
+					want := append([]float32(nil), input[ch][:cursor]...)
+					want = append(want, 0, 0, 0)
+					want = append(want, input[ch][cursor:]...)
+					if !reflect.DeepEqual(operationSamples(t, result, ch), want) {
+						t.Fatalf("channels %d cursor %d mask %d ch %d: sync lost", count, cursor, mask, ch)
+					}
+					if !reflect.DeepEqual(operationSamples(t, document, ch), input[ch]) {
+						t.Fatal("source modified")
+					}
+				}
+				wantMarker := int64(1)
+				if wantMarker >= cursor {
+					wantMarker += 3
+				}
+				if result.Metadata().Timeline.Markers[0].Frame != wantMarker {
+					t.Fatal("marker no longer aligned with source")
+				}
+			}
+		}
 	}
 }

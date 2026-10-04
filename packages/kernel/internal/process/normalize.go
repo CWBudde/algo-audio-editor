@@ -33,8 +33,8 @@ type NormalizationStatus struct {
 
 // Normalizer first measures a linked selected program, delegates all gain and
 // loudness algorithms upstream, then materializes immutable output using Builder.
-// Selected channels are packed in ascending source order, all with unit loudness
-// weights: channel count does not imply a surround speaker layout.
+// Selected channels are packed in source order with the same explicit BS.1770
+// mapping used by statistics and playback meters.
 type Normalizer struct {
 	source         audiobuf.Document
 	selected       ops.Range
@@ -83,8 +83,18 @@ func NewNormalizer(document audiobuf.Document, selected ops.Range, operation str
 	if operation == "normalize-loudness" {
 		n.storage = make([]float32, count*audiobuf.BlockFrames)
 		n.block = make([][]float32, count)
+		indices := make([]int, 0, count)
+		for channel := range document.Channels() {
+			if selected.ChannelMask&(1<<channel) != 0 {
+				indices = append(indices, channel)
+			}
+		}
+		weights, err := loudness.BS1770ChannelWeights(document.Channels(), indices)
+		if err != nil {
+			return nil, fmt.Errorf("process.normalize: channel weights: %w", err)
+		}
 		analyzer, err := loudness.NewTargetAnalyzer(loudness.IntegratedConfig{
-			SampleRate: float64(document.SampleRate()), Channels: count, MaxFrames: n.progress.FramesTotal,
+			SampleRate: float64(document.SampleRate()), Channels: count, ChannelWeights: weights, MaxFrames: n.progress.FramesTotal,
 		}, target)
 		if err != nil {
 			return nil, fmt.Errorf("process.normalize: prepare loudness analysis: %w", err)

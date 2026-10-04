@@ -709,19 +709,21 @@
 - [x] `inspectWAV` tolerates oversized/unfinalized RIFF/data lengths, zero/`0xFFFFFFFF` sizes and a missing final chunk pad. Interrupted audio keeps complete frames; declared metadata boundaries remain strict. RF64 requires a bounded first `ds64` chunk, handles its 64-bit data/RIFF sizes and optional chunk-size table, then uses the existing normalized streaming WAV decoder adapter. `wav_robustness_test.go` verifies recovery, export/reopen, RF64 tables and rejection of malformed/truncated metadata and finalized partial frames.
 - [x] `FuzzWAVOpen` now constructs `New()` engines, adds LIST/INFO, cue/adtl, bext and RF64 seeds, and bounds each fuzz engine to 32 MiB. `FuzzCodecOpen` uses the same bound. `FuzzDocumentExport` fuzzes actual WAV/FLAC/AIFF encoders, options and float sample representations, verifies source/history preservation, reopens successful outputs and checks finite float32 bit fidelity. `just fuzz-export` is included in `just ci` and the reusable CI fuzz workflow. Native race tests, V8/WASM tests, kernel lint/vet and all three 10-second fuzz smoke targets pass; protocol ABI and upstream DSP are unchanged.
 
-### R.3 Kernel correctness
+### R.3 Kernel correctness — ✅ DONE (2026-10-05)
 
-- [ ] MP3: detect mono rather than always opening as stereo, and trim encoder delay and padding using the LAME/Xing header
-- [ ] 8-bit WAV: symmetric scaling so byte 128 decodes to 0 (fix upstream in `wav` if needed), and correct `wav_test.go:149`, which currently asserts the DC offset
-- [ ] One BS.1770 channel-weighting function used by statistics, meters and the Normalizer. Test: a 6-channel file normalized to −23 LUFS measures −23 LUFS
-- [ ] Noise profile: fix the zero-padding bias of the first frame (`restoration.go:214`)
-- [ ] Generating at the cursor on some channels must keep all channels in sync
-- [ ] Check for short reads on FLAC/AIFF export (`codecs.go:339`). Move the `e.history` nil check ahead of its use (`analysis.go:154`)
+- [x] `engine/mp3.go` reads source channel mode and bounded Xing/Info/LAME fields; `decodeMP3` skips the metadata frame, retains mono from the decoder's stereo PCM, and trims encoder delay/padding with the 529-sample decoder offset. Independent FFmpeg PCM references verify both endpoints and alignment within two PCM16 codes; fixtures cover mono/stereo, MPEG-2, VBR, LAME CRC protection, untagged audio, storage-block seams and atomic malformed-header rejection. Full stereo/mono/CRC fixtures also seed `FuzzCodecOpen`.
+- [x] Released `wav v0.1.4`: unsigned PCM8 now uses `(byte - 128) / 128` and matching centered encoding, with exhaustive 256-byte round trips. `TestWAVImportFormatsAndChannels` expects byte 128 to decode to exact zero; lossless FLAC/AIFF tests now use the actual PCM8 WAV import instead of substituting planar PCM.
+- [x] Released `algo-dsp v0.10.1` with `loudness.BS1770ChannelWeights`, used directly by statistics, playback meters and the Normalizer. Five/six-channel source order and packed subset identity agree; LFE-only normalization rejects before publication. `TestSurroundNormalizeStatisticsExportAndMeters` verifies −23 LUFS after WAV/FLAC/AIFF export/reopen, including selected surround/LFE subsets, and full-program playback meters.
+- [x] `restoration.NewNoiseCapture` in `algo-dsp v0.10.1` owns bounded STFT framing: complete Hann windows, a final aligned window and reflection for short profiles avoid zero-padding power bias. Kernel restoration delegates capture rather than assembling padded frames. Upstream window-reference/failure/cancellation tests and zero-allocation step benchmark pass; `TestNoiseProfileCaptureUsesUnpaddedSourceWindows` verifies exact constant-signal power at zero/nonzero offsets and half-window/full/long profile lengths.
+- [x] Cursor generation inserts equal-length silence on every unselected channel at the cursor and splices the shared timeline. `TestGeneratorSubsetInsertionSyncAtEveryCursor` covers start/middle/EOF cursors, stereo/six-channel masks and source preservation; `TestGeneratorSubsetCommitKeepsSyncAndUndo` checks private candidates, committed samples/markers and exact undo. Same-length subset replacements retain the other channels.
+- [x] FLAC/AIFF export checks source read counts before quantization/encoding; `TestCodecExportShortReads` verifies contextual `io.ErrUnexpectedEOF` and valid reads. `startAnalysis` checks history before active-job identity access; `TestAnalysisMissingHistoryBeforeActiveJobCheck` verifies safe rejection without job mutation.
+
+Validation: kernel lint/native and WASM vet, all native race tests, actual V8/WASM tests, WASM compilation, module tidiness, dependency drift check and all three 10-second fuzz smoke targets pass. Upstream full race suites and lint/vet pass, with actual WASM tests for the new DSP APIs. Both dependency releases passed their release guards before the editor's tagged dependency bumps; protocol ABI is unchanged.
 
 ### R.4 Rule 6: move DSP upstream
 
 - [ ] algo-dsp: a length-exact offline resampler stream. Replace the three local copies (`transport_resample.go`, `clipboard_convert.go`, `process/resample.go`) and the duplicated `rateGCD` helpers
-- [ ] algo-dsp `measure/loudness`: BS.1770 channel weighting. `restoration.NoiseProfile` should own its own STFT framing. Tag both, then bump here
+- [x] BS.1770 channel weighting and noise-profile STFT framing moved upstream in `algo-dsp v0.10.1`, then consumed by statistics/meters/normalization and restoration. R.3 records the reference, multichannel round-trip and framing regressions (2026-10-05).
 - [ ] Remove the float32→float64→float32 round trips around `vecmath.AddBlock` (`ops/operation.go:417`, `process/operation.go:379`)
 
 ### R.5 Kernel structure and performance
@@ -731,7 +733,7 @@
 - [ ] Consistent error wrapping: `%w` everywhere and a method prefix on all upstream errors (`restoration.go`, `wav_metadata.go`). Make `decode` reject unknown fields
 - [ ] Analysis and spectrogram steps limited by a time budget rather than 1024 frames or one FFT per call. Measure the round-trip count for a one-hour file (2026-10-04) — partial: pitch steps now spend 2^18 YIN units per call (151 instead of 9,422 round trips per second of audio). Statistics, clipping and spectrum steps are unchanged
 - [ ] History byte accounting kept incrementally, without calling `countBytes()` on every push, prune or undo
-- [ ] Tests: mono MP3, multichannel LUFS round trip, one-hour FLAC import, behaviour at the memory budget
+- [ ] Tests — partial (2026-10-05): mono MP3 and multichannel LUFS export/reopen regressions pass in R.3; memory-budget boundaries pass in R.2. An actual one-hour FLAC import remains outstanding.
 
 ### R.6 Frontend correctness
 

@@ -38,7 +38,11 @@ func newPlaybackMeters(rate float64, channels int) (*playbackMeters, error) {
 	for c := range indices {
 		indices[c] = c
 	}
-	l, err := loudness.NewStreamingMeter(loudness.IntegratedConfig{SampleRate: rate, Channels: channels, ChannelWeights: analysisWeights(channels, indices), MaxFrames: int64(rate * 86400)})
+	weights, err := loudness.BS1770ChannelWeights(channels, indices)
+	if err != nil {
+		return nil, fmt.Errorf("meters: channel weights: %w", err)
+	}
+	l, err := loudness.NewStreamingMeter(loudness.IntegratedConfig{SampleRate: rate, Channels: channels, ChannelWeights: weights, MaxFrames: int64(rate * 86400)})
 	if err != nil {
 		return nil, err
 	}

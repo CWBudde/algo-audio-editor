@@ -11,7 +11,6 @@ import (
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
 	"github.com/cwbudde/algo-dsp/dsp/effects/pitch"
 	"github.com/cwbudde/algo-dsp/dsp/effects/restoration"
-	"github.com/cwbudde/algo-dsp/dsp/stft"
 )
 
 // RestorationSettings contains control data for upstream algorithms only.
@@ -37,12 +36,10 @@ type restorationOperation struct {
 	profiles               []*restoration.NoiseProfile
 	hum                    []*restoration.HumRemover
 	stretch                *pitch.StretchStream
-	transform              *stft.STFT
+	captures               []*restoration.NoiseCapture
 	raw                    []float64
-	bins                   []complex128
 	pending                [][]float64
 	kept                   []int64
-	profileFrame           int64
 	regionStart, regionEnd int64
 }
 
@@ -138,18 +135,12 @@ func newRestorationOperation(document audiobuf.Document, selected ops.Range, set
 			r.hum = append(r.hum, h)
 		}
 	case "noise-reduce":
-		r.transform, err = stft.New(c.FFTSize, c.FFTSize/4, stft.WithCenter(stft.PadNone))
-		if err != nil {
-			return nil, err
-		}
-		r.raw = make([]float64, c.FFTSize)
-		r.bins = make([]complex128, c.FFTSize/2+1)
-		for range count {
-			profile, e := restoration.NewNoiseProfile(c.FFTSize, float64(document.SampleRate()))
-			if e != nil {
-				return nil, e
+		for i := range count {
+			capture, captureErr := restoration.NewNoiseCapture(c.ProfileEnd-c.ProfileStart, func(dst []float64, start int64) int { return r.channels[i].ReadFloat64(dst, c.ProfileStart+start) }, c.FFTSize, float64(document.SampleRate()))
+			if captureErr != nil {
+				return nil, fmt.Errorf("process.noise: capture: %w", captureErr)
 			}
-			r.profiles = append(r.profiles, profile)
+			r.captures = append(r.captures, capture)
 		}
 		r.status.Phase, r.status.PhaseCount = "analyzing", 2
 		r.progress.FramesTotal = c.ProfileEnd - c.ProfileStart
@@ -209,26 +200,25 @@ func (r *restorationOperation) Step(ctx context.Context) (Progress, error) {
 	if err := ctx.Err(); err != nil {
 		return r.fail(fmt.Errorf("process.restoration: %w", err))
 	}
-	c := r.settings.Restoration
 	if r.status.Phase == "analyzing" {
-		start := c.ProfileStart + r.profileFrame*int64(c.FFTSize/4) - int64(c.FFTSize/2)
-		for i := range r.channels {
-			clear(r.raw)
-			lo := max(int64(0), c.ProfileStart-start)
-			hi := min(int64(len(r.raw)), c.ProfileEnd-start)
-			if hi > lo && r.channels[i].ReadFloat64(r.raw[lo:hi], start+lo) != int(hi-lo) {
-				return r.fail(fmt.Errorf("process.noise: short profile read"))
-			}
-			if err := r.transform.FrameInto(r.bins, r.raw, 0); err != nil {
-				return r.fail(err)
-			}
-			if err := r.profiles[i].AddSpectrum(r.bins); err != nil {
-				return r.fail(err)
+		done := false
+		for _, capture := range r.captures {
+			var err error
+			done, err = capture.Step(ctx)
+			if err != nil {
+				return r.fail(fmt.Errorf("process.noise: capture: %w", err))
 			}
 		}
-		r.profileFrame++
-		r.progress.FramesDone = min(r.progress.FramesTotal, r.profileFrame*int64(c.FFTSize/4))
-		if r.progress.FramesDone == r.progress.FramesTotal {
+		r.progress.FramesDone = r.captures[0].Progress()
+		if done {
+			for _, capture := range r.captures {
+				profile, err := capture.Profile()
+				if err != nil {
+					return r.fail(fmt.Errorf("process.noise: profile: %w", err))
+				}
+				r.profiles = append(r.profiles, profile)
+			}
+			r.captures = nil
 			if err := r.prepareSpectral(); err != nil {
 				return r.fail(err)
 			}
@@ -237,6 +227,7 @@ func (r *restorationOperation) Step(ctx context.Context) (Progress, error) {
 		}
 		return r.progress, nil
 	}
+	c := r.settings.Restoration
 	if r.identity {
 		count := int(min(int64(restorationChunk), r.renderFrames-r.progress.FramesDone))
 		for i := range r.channels {
@@ -371,9 +362,8 @@ func (r *restorationOperation) release() {
 	r.profiles = nil
 	r.hum = nil
 	r.stretch = nil
-	r.transform = nil
+	r.captures = nil
 	r.raw = nil
-	r.bins = nil
 	r.pending = nil
 }
 

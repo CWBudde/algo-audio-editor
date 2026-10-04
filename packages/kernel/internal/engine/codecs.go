@@ -249,19 +249,34 @@ func (e *Engine) decodeMP3(input []byte) (blocks [][]*audiobuf.Block, rate int, 
 			blocks, rate, err = nil, 0, fmt.Errorf("doc.open: malformed MP3: %v", recovered)
 		}
 	}()
+	info, err := inspectMP3(input)
+	if err != nil {
+		return nil, 0, err
+	}
 	// Hide Seek to avoid go-mp3's eager frame index scan; decoding stays bounded.
-	d, err := mp3.NewDecoder(bytes.NewBuffer(input))
+	d, err := mp3.NewDecoder(bytes.NewBuffer(input[info.tagBytes:]))
 	if err != nil {
 		return nil, 0, fmt.Errorf("doc.open: MP3: %w", err)
 	}
 	rate = d.SampleRate()
-	if err = validateDecodedFormat(rate, 2, 16, 0); err != nil {
+	if err = validateDecodedFormat(rate, info.channels, 16, 0); err != nil {
 		return nil, 0, err
 	}
-	blocks = make([][]*audiobuf.Block, 2)
+	blocks = make([][]*audiobuf.Block, info.channels)
 	raw := make([]byte, audiobuf.BlockFrames*4)
-	pcm := [][]int32{make([]int32, audiobuf.BlockFrames), make([]int32, audiobuf.BlockFrames)}
+	pcm := make([][]int32, info.channels)
+	for ch := range pcm {
+		pcm[ch] = make([]int32, audiobuf.BlockFrames)
+	}
+	skip := int64(0)
+	tail := int64(0)
+	if info.gapless {
+		skip += info.delay + 529
+		tail = info.padding - 529
+	}
+	var decoded int64
 	var total int64
+	var stored int64
 	available := e.availableStorage() - max(int64(len(input)), e.callInputBytes)
 	for {
 		n, err := io.ReadFull(d, raw)
@@ -274,27 +289,66 @@ func (e *Engine) decodeMP3(input []byte) (blocks [][]*audiobuf.Block, rate int, 
 		if n%4 != 0 {
 			return nil, 0, fmt.Errorf("doc.open: partial MP3 frame")
 		}
-		count := n / 4
-		if validation := validateDecodedFormat(rate, 2, 16, total+int64(count)); validation != nil {
-			return nil, 0, validation
-		}
-		if decodedStorage(total+int64(count), 2, audiobuf.BlockFrames) > available {
-			return nil, 0, fmt.Errorf("doc.open: decoded MP3 exceeds memory budget")
-		}
-		for ch := range 2 {
-			pcm[ch] = pcm[ch][:count]
-			for i := range count {
-				pcm[ch][i] = int32(int16(binary.LittleEndian.Uint16(raw[i*4+ch*2:])))
+		decoded += int64(n / 4)
+		// Retain all decode state, but drop metadata and encoder/decoder lead-in.
+		first := int(min(skip, int64(n/4)))
+		skip -= int64(first)
+		count := n/4 - first
+		if count > 0 {
+			if validation := validateDecodedFormat(rate, info.channels, 16, total+int64(count)); validation != nil {
+				return nil, 0, validation
 			}
+			stored += decodedStorage(int64(count), info.channels, count)
+			if stored > available {
+				return nil, 0, fmt.Errorf("doc.open: decoded MP3 exceeds memory budget")
+			}
+			for ch := range pcm {
+				pcm[ch] = pcm[ch][:count]
+				for i := range count {
+					pcm[ch][i] = int32(int16(binary.LittleEndian.Uint16(raw[(i+first)*4+ch*2:])))
+				}
+			}
+			if err = appendPCM(blocks, pcm, 16); err != nil {
+				return nil, 0, err
+			}
+			total += int64(count)
 		}
-		if err = appendPCM(blocks, pcm, 16); err != nil {
-			return nil, 0, err
-		}
-		total += int64(count)
-		if count < audiobuf.BlockFrames {
+		if n < len(raw) {
 			break
 		}
 	}
+	if info.hasCount && decoded != info.audioFrames {
+		return nil, 0, fmt.Errorf("doc.open: MP3 audio does not match Xing frame count")
+	}
+	if skip > 0 || tail >= total && info.gapless {
+		return nil, 0, fmt.Errorf("doc.open: MP3 shorter than gapless interval")
+	}
+	if tail > 0 {
+		for ch := range blocks {
+			remaining := total - tail
+			for i, block := range blocks[ch] {
+				if remaining > int64(block.Frames()) {
+					remaining -= int64(block.Frames())
+					continue
+				}
+				if remaining < int64(block.Frames()) {
+					samples := make([]float32, int(remaining))
+					if block.Read(samples, 0) != len(samples) {
+						return nil, 0, fmt.Errorf("doc.open: short MP3 tail read")
+					}
+					trimmed, err := audiobuf.NewBlock(samples)
+					if err != nil {
+						return nil, 0, fmt.Errorf("doc.open: MP3 trim: %w", err)
+					}
+					blocks[ch][i] = trimmed
+				}
+				clear(blocks[ch][i+1:])
+				blocks[ch] = blocks[ch][:i+1]
+				break
+			}
+		}
+	}
+
 	return blocks, rate, nil
 }
 
@@ -370,7 +424,9 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 	for start := int64(0); start < document.Frames(); start += 4096 {
 		count := int(min(int64(4096), document.Frames()-start))
 		for ch := range pcm {
-			sources[ch].Read(scratch[:count], start)
+			if err := readCodecExportSamples(sources[ch], scratch[:count], start, p.Format, ch); err != nil {
+				return protocol.DocumentExportInfo{}, err
+			}
 			pcm[ch] = pcm[ch][:count]
 			for i, v := range scratch[:count] {
 				if quantizers != nil {
@@ -400,4 +456,11 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 		mime = "audio/aiff"
 	}
 	return protocol.DocumentExportInfo{Name: base + "." + p.Format, MimeType: mime, DataBytes: len(writer.data)}, nil
+}
+
+func readCodecExportSamples(source audiobuf.Channel, dst []float32, start int64, format string, channel int) error {
+	if n := source.Read(dst, start); n != len(dst) {
+		return fmt.Errorf("doc.export: %s channel %d read %d of %d frames: %w", format, channel, n, len(dst), io.ErrUnexpectedEOF)
+	}
+	return nil
 }

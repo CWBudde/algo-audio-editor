@@ -156,6 +156,9 @@ func (e *Engine) startAnalysis(p protocol.AnalysisStartParams) (protocol.Analysi
 	if err := e.validateDocumentID(method, p.DocumentID); err != nil {
 		return protocol.AnalysisJobResult{}, err
 	}
+	if e.history == nil {
+		return protocol.AnalysisJobResult{}, fmt.Errorf("%s: analysis history unavailable", method)
+	}
 	if e.analysisJob != nil && (e.analysisJob.result.State == "running" || e.analysisJob.result.Kind == "clipping") && e.analysisJob.stateID == e.history.CurrentID() && e.analysisJob.result.DocumentID == p.DocumentID {
 		return protocol.AnalysisJobResult{}, fmt.Errorf("%s: analysis job is already active", method)
 	}
@@ -172,7 +175,7 @@ func (e *Engine) startAnalysis(p protocol.AnalysisStartParams) (protocol.Analysi
 	if p.End <= p.Start {
 		return protocol.AnalysisJobResult{}, fmt.Errorf("%s: document is empty", method)
 	}
-	if e.history == nil || e.analysisSequence == math.MaxUint64 {
+	if e.analysisSequence == math.MaxUint64 {
 		return protocol.AnalysisJobResult{}, fmt.Errorf("%s: analysis history or identity unavailable", method)
 	}
 	if p.Kind != "statistics" && p.Kind != "clipping" && p.Kind != "pitch" && p.Kind != "spectrum" && p.Kind != "spectrogram" {
@@ -205,7 +208,10 @@ func (e *Engine) startAnalysis(p protocol.AnalysisStartParams) (protocol.Analysi
 			}
 		}
 		if p.Kind == "statistics" {
-			weights := analysisWeights(e.document.Channels(), job.result.Channels)
+			weights, weightErr := loudness.BS1770ChannelWeights(e.document.Channels(), job.result.Channels)
+			if weightErr != nil {
+				return protocol.AnalysisJobResult{}, fmt.Errorf("%s: channel weights: %w", method, weightErr)
+			}
 			positive := false
 			for _, weight := range weights {
 				positive = positive || weight > 0
@@ -572,27 +578,6 @@ func spectrogramRowLevel(levels []float64, row, height int) float64 {
 		level = max(level, candidate)
 	}
 	return level
-}
-
-func analysisWeights(total int, selected []int) []float64 {
-	physical := make([]float64, total)
-	for c := range physical {
-		physical[c] = 1
-	}
-	switch total {
-	case 5:
-		physical[3] = 1.41
-		physical[4] = 1.41
-	case 6:
-		physical[3] = 0
-		physical[4] = 1.41
-		physical[5] = 1.41
-	}
-	weights := make([]float64, len(selected))
-	for c, index := range selected {
-		weights[c] = physical[index]
-	}
-	return weights
 }
 
 func analysisColor(name string, x float64) [4]byte {
