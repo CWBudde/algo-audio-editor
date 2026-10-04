@@ -2,6 +2,8 @@ module github.com/cwbudde/algo-audio-editor/packages/kernel
 
 go 1.25.0
 
+toolchain go1.26.8
+
 require (
 	github.com/cwbudde/aiff v0.1.0
 	github.com/cwbudde/algo-dsp v0.10.0
