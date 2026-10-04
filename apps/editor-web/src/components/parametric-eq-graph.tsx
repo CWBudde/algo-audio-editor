@@ -1,14 +1,15 @@
 import type { EffectDescriptor, EffectParameterDescriptor } from "@aae/protocol";
-import { type PointerEvent, useId, useRef, useState } from "react";
+import { Menu } from "@base-ui/react/menu";
+import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import type { RackEffect } from "@/lib/effect-presets";
 
 const WIDTH = 640;
-const HEIGHT = 280;
+const HEIGHT = 220;
 const LEFT = 52;
 const RIGHT = 620;
 const TOP = 20;
-const BOTTOM = 230;
-const COLORS = [
+const BOTTOM = 170;
+export const EQ_BAND_COLORS = [
   "#fb923c",
   "#facc15",
   "#a3e635",
@@ -42,8 +43,12 @@ export function ParametricEQGraph({
   const svg = useRef<SVGSVGElement>(null);
   const drag = useRef<{ band: number; pointer: number } | undefined>(undefined);
   const [selected, setSelected] = useState(1);
+  const [menu, setMenu] = useState<{ band: number; anchor: SVGElement }>();
   const maxHz = Math.min(20000, sampleRate * 0.49);
   const bandCount = clamp(Math.trunc(Number(node.params.bands) || 1), 1, 8);
+  useEffect(() => {
+    if (menu && (disabled || menu.band > bandCount)) setMenu(undefined);
+  }, [menu, disabled, bandCount]);
   const bands = Array.from({ length: bandCount }, (_, index) => index + 1);
   const parameter = (band: number, suffix: string) =>
     descriptor.parameters.find((p) => p.id === `band${band}${suffix}`);
@@ -90,16 +95,32 @@ export function ParametricEQGraph({
       event.currentTarget.releasePointerCapture(event.pointerId);
   };
   const activeBand = Math.min(selected, bandCount);
+  const openTypes = (band: number, anchor: SVGElement) => {
+    if (disabled || !parameter(band, "Type")?.options?.length) return;
+    setSelected(band);
+    setMenu({ band, anchor });
+  };
+  const menuType = menu && parameter(menu.band, "Type");
   return (
     <div className="space-y-2">
       {/* biome-ignore lint/a11y/useSemanticElements: SVG groups the response image and independently focusable band handles. */}
       <svg
         ref={svg}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="w-full touch-none select-none rounded border bg-background"
+        className="mx-auto w-full max-w-[40rem] touch-none select-none rounded border bg-background"
         role="group"
         aria-label="Parametric EQ frequency graph"
         aria-describedby={`${id}-help`}
+        onContextMenu={(event) => {
+          if (disabled) return;
+          const handle =
+            event.target instanceof Element ? event.target.closest("[data-eq-band]") : null;
+          const anchor = handle?.querySelector<SVGElement>("[role=slider]");
+          if (!anchor) return;
+          event.preventDefault();
+          event.stopPropagation();
+          openTypes(Number(handle?.getAttribute("data-eq-band")), anchor);
+        }}
         onPointerDown={(event) => {
           if (disabled || event.button !== 0 || drag.current) return;
           const point = position(event);
@@ -227,11 +248,12 @@ export function ParametricEQGraph({
           if (![hz, gain, q].every(Number.isFinite)) return null;
           return (
             <g key={band} data-eq-band={band}>
+              <circle cx={x(hz)} cy={y(gain)} r="12" fill="transparent" />
               <circle
                 cx={x(hz)}
                 cy={y(gain)}
-                r="12"
-                fill={COLORS[band - 1]}
+                r="6"
+                fill={EQ_BAND_COLORS[band - 1]}
                 stroke={activeBand === band ? "currentColor" : "transparent"}
                 strokeWidth="2"
                 className="cursor-grab focus:stroke-foreground focus:stroke-[3px] focus:outline-none"
@@ -242,11 +264,18 @@ export function ParametricEQGraph({
                 aria-valuemin={-24}
                 aria-valuemax={24}
                 aria-valuenow={gain}
-                aria-valuetext={`${Math.round(hz)} Hz, ${gain.toFixed(1)} dB, Q ${q.toFixed(2)}`}
+                aria-valuetext={`${Math.round(hz)} Hz, ${gain.toFixed(1)} dB, Q ${q.toFixed(2)}, ${String(node.params[`band${band}Type`] ?? "")}`}
+                aria-haspopup="menu"
                 aria-describedby={`${id}-help`}
                 onFocus={() => setSelected(band)}
                 onKeyDown={(event) => {
                   if (disabled) return;
+                  if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openTypes(band, event.currentTarget);
+                    return;
+                  }
                   const fine = event.shiftKey;
                   let changes: [EffectParameterDescriptor | undefined, number][];
                   switch (event.key) {
@@ -286,11 +315,11 @@ export function ParametricEQGraph({
               />
               <text
                 x={x(hz)}
-                y={y(gain) + 4}
+                y={y(gain) - 11}
                 textAnchor="middle"
                 fontSize="11"
                 fontWeight="600"
-                fill="#171717"
+                fill={EQ_BAND_COLORS[band - 1]}
                 pointerEvents="none"
               >
                 {band}
@@ -299,14 +328,68 @@ export function ParametricEQGraph({
           );
         })}
       </svg>
+      <Menu.Root
+        open={Boolean(menu && menu.band <= bandCount && !disabled)}
+        modal={false}
+        onOpenChange={(open, details) => {
+          if (!open) {
+            if (details.reason !== "outside-press" && details.reason !== "focus-out")
+              menu?.anchor.focus();
+            setMenu(undefined);
+          }
+        }}
+      >
+        {/* Keep the portal inside the native dialog's top layer. */}
+        <Menu.Portal container={svg.current?.parentElement}>
+          <Menu.Positioner
+            anchor={menu?.anchor}
+            positionMethod="fixed"
+            align="start"
+            sideOffset={6}
+            className="z-50"
+          >
+            <Menu.Popup
+              aria-label={`Band ${menu?.band} filter type`}
+              finalFocus={false}
+              className="min-w-40 rounded border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  menu?.anchor.focus();
+                  setMenu(undefined);
+                }
+              }}
+            >
+              <Menu.RadioGroup
+                value={String(menuType ? node.params[menuType.id] : "")}
+                onValueChange={(type) => {
+                  if (menuType && !disabled) onChange({ ...node.params, [menuType.id]: type });
+                }}
+              >
+                {menuType?.options?.map((option) => (
+                  <Menu.RadioItem
+                    key={option.value}
+                    value={option.value}
+                    className="flex items-center justify-between gap-4 rounded px-2 py-1 text-sm outline-none data-highlighted:bg-accent"
+                  >
+                    {option.label}
+                    <Menu.RadioItemIndicator>✓</Menu.RadioItemIndicator>
+                  </Menu.RadioItem>
+                ))}
+              </Menu.RadioGroup>
+            </Menu.Popup>
+          </Menu.Positioner>
+        </Menu.Portal>
+      </Menu.Root>
       <p className="text-sm" aria-live="polite">
-        <span style={{ color: COLORS[activeBand - 1] }}>Band {activeBand}</span> ·{" "}
+        <span style={{ color: EQ_BAND_COLORS[activeBand - 1] }}>Band {activeBand}</span> ·{" "}
         {formatHz(value(activeBand, "FreqHz"))} Hz · {value(activeBand, "GainDB").toFixed(1)} dB · Q{" "}
         {value(activeBand, "Q").toFixed(2)}
       </p>
       <p id={`${id}-help`} className="text-xs text-muted-foreground">
-        Drag a band to change frequency and gain. Arrow keys adjust the focused band; Shift makes
-        smaller steps. +/− adjusts Q; Home resets gain.
+        Drag: frequency/gain · Right-click or Shift+F10: type · Arrows: frequency/gain · Shift: fine
+        · +/−: Q · Home: zero gain
       </p>
     </div>
   );

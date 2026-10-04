@@ -72,7 +72,7 @@ export function EffectsDialog(props: Props) {
   return (
     <dialog
       ref={dialog}
-      className="m-auto max-h-[calc(100vh-2rem)] w-[min(52rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl backdrop:bg-black/50"
+      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(64rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border bg-popover p-4 text-popover-foreground shadow-xl backdrop:bg-black/50"
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-help`}
       onCancel={(event) => {
@@ -88,105 +88,110 @@ export function EffectsDialog(props: Props) {
         the whole document.
       </p>
       {view && (
-        <div className="mt-4 space-y-4">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="flex-1">
-              <label htmlFor={`${id}-add`} className="block text-sm">
-                Add effect
-              </label>
-              <select
-                id={`${id}-add`}
-                className="mt-1 w-full rounded border px-2 py-1"
-                value={effectId}
-                disabled={Boolean(working) || view.rack.length >= 32}
-                onChange={(event) => setEffectId(event.target.value)}
-              >
-                <option value="">Choose an effect</option>
-                {[...new Set(descriptors.map((descriptor) => descriptor.category))].map(
-                  (category) => (
-                    <optgroup key={category} label={category}>
-                      {descriptors
-                        .filter((effect) => effect.category === category)
-                        .map((effect) => (
-                          <option
-                            key={effect.id}
-                            value={effect.id}
-                            disabled={
-                              effect.channelMode === "stereo" &&
-                              !stereoSelection(view.selection.channelMask)
-                            }
-                          >
-                            {effect.name}
-                          </option>
-                        ))}
-                    </optgroup>
-                  ),
-                )}
-              </select>
-            </div>
-            <button
-              type="button"
-              className="rounded border px-3 py-1 disabled:opacity-50"
-              disabled={Boolean(working) || !effectId || view.rack.length >= 32}
-              onClick={() => {
-                const descriptor = descriptors.find((entry) => entry.id === effectId);
-                if (descriptor)
-                  props.onChange({ rack: [...view.rack, createRackEffect(descriptor)] });
-              }}
-            >
-              Add
-            </button>
-          </div>
-          <div className="rounded border p-3">
-            <label htmlFor={`${id}-preset`} className="text-sm">
-              User preset
-            </label>
-            <select
-              id={`${id}-preset`}
-              className="mx-2 rounded border px-2 py-1"
-              value={presetId}
-              disabled={Boolean(working)}
-              onChange={(event) => {
-                setPresetId(event.target.value);
-                if (event.target.value) props.onLoadPreset(event.target.value);
-              }}
-            >
-              <option value="">Choose a preset</option>
-              {props.presets.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              disabled={Boolean(working) || !presetId}
-              className="rounded border px-2 py-1 text-sm disabled:opacity-50"
-              onClick={() => {
-                props.onDeletePreset(presetId);
-                setPresetId("");
-              }}
-            >
-              Delete preset
-            </button>
-            <div className="mt-2 flex gap-2">
-              <input
-                className="min-w-0 flex-1 rounded border px-2 py-1 text-sm"
-                aria-label="Preset name"
-                placeholder="Name this rack"
-                value={presetName}
-                disabled={Boolean(working)}
-                onChange={(event) => setPresetName(event.target.value)}
-              />
+        <div className="mt-3 space-y-3">
+          <div className="grid items-end gap-3 sm:grid-cols-2">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <label htmlFor={`${id}-add`} className="block text-sm">
+                  Add effect
+                </label>
+                <select
+                  id={`${id}-add`}
+                  className="mt-1 w-full rounded border px-2 py-1"
+                  value={effectId}
+                  disabled={Boolean(working) || view.rack.length >= 32}
+                  onChange={(event) => setEffectId(event.target.value)}
+                >
+                  <option value="">Choose an effect</option>
+                  {[...new Set(descriptors.map((descriptor) => descriptor.category))].map(
+                    (category) => (
+                      <optgroup key={category} label={category}>
+                        {descriptors
+                          .filter((effect) => effect.category === category)
+                          .map((effect) => (
+                            <option
+                              key={effect.id}
+                              value={effect.id}
+                              disabled={
+                                effect.channelMode === "stereo" &&
+                                !stereoSelection(view.selection.channelMask)
+                              }
+                            >
+                              {effect.name}
+                            </option>
+                          ))}
+                      </optgroup>
+                    ),
+                  )}
+                </select>
+              </div>
               <button
                 type="button"
-                className="rounded border px-2 py-1 text-sm disabled:opacity-50"
-                disabled={Boolean(working) || !valid || !presetName.trim()}
-                onClick={() => props.onSavePreset(presetName)}
+                className="rounded border px-3 py-1 disabled:opacity-50"
+                disabled={Boolean(working) || !effectId || view.rack.length >= 32}
+                onClick={() => {
+                  const descriptor = descriptors.find((entry) => entry.id === effectId);
+                  if (descriptor)
+                    props.onChange({ rack: [...view.rack, createRackEffect(descriptor)] });
+                }}
               >
-                Save preset
+                Add
               </button>
             </div>
+            <details className="min-w-0 rounded border p-2">
+              <summary className="cursor-pointer text-sm">User presets</summary>
+              <div className="mt-2">
+                <label htmlFor={`${id}-preset`} className="text-sm">
+                  User preset
+                </label>
+                <select
+                  id={`${id}-preset`}
+                  className="mx-2 max-w-full rounded border px-2 py-1"
+                  value={presetId}
+                  disabled={Boolean(working)}
+                  onChange={(event) => {
+                    setPresetId(event.target.value);
+                    if (event.target.value) props.onLoadPreset(event.target.value);
+                  }}
+                >
+                  <option value="">Choose a preset</option>
+                  {props.presets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={Boolean(working) || !presetId}
+                  className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                  onClick={() => {
+                    props.onDeletePreset(presetId);
+                    setPresetId("");
+                  }}
+                >
+                  Delete preset
+                </button>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    className="min-w-0 flex-1 rounded border px-2 py-1 text-sm"
+                    aria-label="Preset name"
+                    placeholder="Name this rack"
+                    value={presetName}
+                    disabled={Boolean(working)}
+                    onChange={(event) => setPresetName(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                    disabled={Boolean(working) || !valid || !presetName.trim()}
+                    onClick={() => props.onSavePreset(presetName)}
+                  >
+                    Save preset
+                  </button>
+                </div>
+              </div>
+            </details>
           </div>
           <ol className="space-y-3" aria-label="Effect order">
             {view.rack.map((node, index) => {
@@ -203,6 +208,40 @@ export function EffectsDialog(props: Props) {
                     <h3 className="font-medium">
                       {index + 1}. {descriptor.name}
                     </h3>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <label className="text-sm" htmlFor={`${id}-factory-${node.id}`}>
+                        Factory preset
+                      </label>
+                      <select
+                        id={`${id}-factory-${node.id}`}
+                        className="min-w-0 max-w-52 rounded border px-2 py-1 text-sm"
+                        defaultValue=""
+                        disabled={Boolean(working)}
+                        onChange={(event) => {
+                          const preset = descriptor.presets.find(
+                            (entry) => entry.id === event.target.value,
+                          );
+                          if (preset)
+                            changeNode(index, {
+                              params: {
+                                ...createRackEffect(descriptor).params,
+                                ...preset.num,
+                                ...preset.str,
+                                ...(node.type === "reverb-conv"
+                                  ? { irIndex: node.params.irIndex }
+                                  : {}),
+                              },
+                            });
+                        }}
+                      >
+                        <option value="">Default parameters</option>
+                        {descriptor.presets.map((preset) => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="flex items-center gap-2">
                       <label className="text-sm">
                         <input
@@ -243,38 +282,6 @@ export function EffectsDialog(props: Props) {
                       </button>
                     </div>
                   </div>
-                  <label className="text-sm" htmlFor={`${id}-factory-${node.id}`}>
-                    Factory preset
-                  </label>
-                  <select
-                    id={`${id}-factory-${node.id}`}
-                    className="ml-2 mb-3 rounded border px-2 py-1 text-sm"
-                    defaultValue=""
-                    disabled={Boolean(working)}
-                    onChange={(event) => {
-                      const preset = descriptor.presets.find(
-                        (entry) => entry.id === event.target.value,
-                      );
-                      if (preset)
-                        changeNode(index, {
-                          params: {
-                            ...createRackEffect(descriptor).params,
-                            ...preset.num,
-                            ...preset.str,
-                            ...(node.type === "reverb-conv"
-                              ? { irIndex: node.params.irIndex }
-                              : {}),
-                          },
-                        });
-                    }}
-                  >
-                    <option value="">Default parameters</option>
-                    {descriptor.presets.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.name}
-                      </option>
-                    ))}
-                  </select>
                   {node.type === "reverb-conv" && (
                     <div className="mb-3">
                       <label className="block text-sm">

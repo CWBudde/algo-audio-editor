@@ -1,8 +1,8 @@
 import type { EffectDescriptor, EffectParameterDescriptor } from "@aae/protocol";
 import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import { DynamicsGraph } from "@/components/dynamics-graph";
-import { EffectSlider } from "@/components/effect-slider";
-import { ParametricEQGraph } from "@/components/parametric-eq-graph";
+import { EffectKnob } from "@/components/effect-knob";
+import { EQ_BAND_COLORS, ParametricEQGraph } from "@/components/parametric-eq-graph";
 import type { KernelClient } from "@/kernel/client";
 import type { RackEffect } from "@/lib/effect-presets";
 
@@ -11,42 +11,30 @@ function NumericParameter({
   value,
   disabled,
   onChange,
+  label = parameter.label,
 }: {
   parameter: EffectParameterDescriptor;
   value: number;
   disabled: boolean;
   onChange(value: number): void;
+  label?: string;
 }) {
   const id = useId();
   const [text, setText] = useState(String(value));
   useEffect(() => {
-    setText(Number.isFinite(value) ? String(value) : "");
+    setText(Number.isFinite(value) ? String(Number(value.toPrecision(6))) : "");
   }, [value]);
-  const logarithmic = parameter.scale === "log" && parameter.min > 0;
-  const sliderValue = logarithmic ? Math.log(Math.max(parameter.min, value)) : value;
   return (
-    <div className="space-y-2">
-      <label htmlFor={id} className="text-sm">
-        {parameter.label}
-        {parameter.unit && ` (${parameter.unit})`}
+    <div className="min-w-0 space-y-1 text-center">
+      <label htmlFor={id} className="block truncate text-xs" title={parameter.label}>
+        {label}
       </label>
-      <div className="flex items-center gap-3">
-        <EffectSlider
-          className="flex-1"
-          aria-label={`${parameter.label} slider`}
-          disabled={disabled}
-          value={[Number.isFinite(sliderValue) ? sliderValue : parameter.min]}
-          min={logarithmic ? Math.log(parameter.min) : parameter.min}
-          max={logarithmic ? Math.log(parameter.max) : parameter.max}
-          step={logarithmic ? 0.001 : parameter.step || (parameter.max - parameter.min) / 1000}
-          onValueChange={(values) => {
-            const position = Array.isArray(values) ? values[0] : values;
-            onChange(logarithmic ? Math.exp(position) : position);
-          }}
-        />
+      <EffectKnob {...{ parameter, value, disabled, onChange }} />
+      <div className="flex items-center rounded border focus-within:ring-1 focus-within:ring-ring">
         <input
           id={id}
-          className="w-28 rounded border px-2 py-1 text-sm"
+          aria-label={`${parameter.label}${parameter.unit ? ` (${parameter.unit})` : ""}`}
+          className="w-full min-w-0 bg-transparent py-0.5 pl-1 text-center text-xs tabular-nums outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           type="number"
           min={parameter.min}
           max={parameter.max}
@@ -58,6 +46,9 @@ function NumericParameter({
             onChange(event.target.value.trim() ? Number(event.target.value) : Number.NaN);
           }}
         />
+        {parameter.unit && (
+          <span className="shrink-0 pr-1 text-[10px] text-muted-foreground">{parameter.unit}</span>
+        )}
       </div>
     </div>
   );
@@ -179,7 +170,7 @@ function EffectCurve({
     );
   if (descriptor.view === "dynamics")
     return (
-      <div>
+      <div className="mx-auto max-w-[40rem]">
         <DynamicsGraph {...{ descriptor, node, points, disabled }} />
         {error && (
           <p role="alert" className="text-xs text-destructive">
@@ -189,7 +180,7 @@ function EffectCurve({
       </div>
     );
   return (
-    <div>
+    <div className="mx-auto max-w-[40rem]">
       <svg
         ref={svg}
         viewBox="0 0 400 160"
@@ -248,72 +239,126 @@ export function EffectParameters({
   const nonlinearMoog =
     descriptor.id === "filter-moog" ||
     (descriptor.id.startsWith("filter") && node.params.family === "moog");
+  const parameters = descriptor.parameters.filter((parameter) => parameter.id !== "irIndex");
+  const control = (parameter: EffectParameterDescriptor, label = parameter.label) => {
+    const field = `${id}-${parameter.id}`;
+    if (parameter.type === "enum")
+      return (
+        <div
+          key={parameter.id}
+          className={label === "Type" ? "flex min-w-0 items-center gap-2" : "min-w-0 space-y-1"}
+        >
+          <label htmlFor={field} className="block text-xs">
+            {label}
+          </label>
+          <select
+            id={field}
+            aria-label={parameter.label}
+            className="w-full min-w-0 rounded border px-1 py-1 text-xs"
+            value={String(node.params[parameter.id])}
+            disabled={disabled}
+            onChange={(event) => onChange({ ...node.params, [parameter.id]: event.target.value })}
+          >
+            {parameter.options?.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      );
+    if (parameter.type === "boolean")
+      return (
+        <label key={parameter.id} className="flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={Boolean(node.params[parameter.id])}
+            disabled={disabled}
+            onChange={(event) =>
+              onChange({ ...node.params, [parameter.id]: event.target.checked ? 1 : 0 })
+            }
+          />
+          {label}
+        </label>
+      );
+    return (
+      <NumericParameter
+        key={parameter.id}
+        {...{ parameter, label, disabled }}
+        value={Number(node.params[parameter.id])}
+        onChange={(value) => onChange({ ...node.params, [parameter.id]: value })}
+      />
+    );
+  };
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {descriptor.view !== "generic" && !nonlinearMoog && (
-        <EffectCurve {...{ descriptor, node, disabled, client, sampleRate, onChange }} />
+        <div
+          className={
+            descriptor.id === "eq-parametric"
+              ? "grid grid-cols-[minmax(0,1fr)_5rem] items-start gap-3"
+              : undefined
+          }
+        >
+          <EffectCurve {...{ descriptor, node, disabled, client, sampleRate, onChange }} />
+          {descriptor.id === "eq-parametric" && (
+            <div className="space-y-3">
+              {parameters
+                .filter((parameter) => !/^band\d/.test(parameter.id))
+                .map((parameter) => control(parameter))}
+            </div>
+          )}
+        </div>
       )}
       {nonlinearMoog && (
         <p className="text-xs text-muted-foreground">
           Moog response depends on the input signal. Adjust its controls and use live preview.
         </p>
       )}
-      {descriptor.parameters
-        .filter((parameter) => parameter.id !== "irIndex")
-        .filter((parameter) => {
-          if (descriptor.id !== "eq-parametric") return true;
-          const band = /^band(\d+)/.exec(parameter.id);
-          return !band || Number(band[1]) <= Number(node.params.bands ?? 4);
-        })
-        .map((parameter) => {
-          const field = `${id}-${parameter.id}`;
-          if (parameter.type === "enum")
-            return (
-              <div key={parameter.id}>
-                <label htmlFor={field} className="text-sm">
-                  {parameter.label}
-                </label>
-                <select
-                  id={field}
-                  className="ml-3 rounded border px-2 py-1 text-sm"
-                  value={String(node.params[parameter.id])}
-                  disabled={disabled}
-                  onChange={(event) =>
-                    onChange({ ...node.params, [parameter.id]: event.target.value })
-                  }
-                >
-                  {parameter.options?.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            );
-          if (parameter.type === "boolean")
-            return (
-              <label key={parameter.id} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={Boolean(node.params[parameter.id])}
-                  disabled={disabled}
-                  onChange={(event) =>
-                    onChange({ ...node.params, [parameter.id]: event.target.checked ? 1 : 0 })
-                  }
-                />
-                {parameter.label}
-              </label>
-            );
-          return (
-            <NumericParameter
-              key={parameter.id}
-              parameter={parameter}
-              value={Number(node.params[parameter.id])}
-              disabled={disabled}
-              onChange={(value) => onChange({ ...node.params, [parameter.id]: value })}
-            />
-          );
-        })}
+      {descriptor.id === "eq-parametric" ? (
+        <div className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 min-[1000px]:grid-cols-4">
+          {Array.from(
+            { length: Math.max(1, Math.min(8, Math.round(Number(node.params.bands) || 4))) },
+            (_, index) => {
+              const band = index + 1;
+              const fields = parameters.filter((parameter) =>
+                parameter.id.startsWith(`band${band}`),
+              );
+              return (
+                <fieldset key={band} className="min-w-0 rounded border px-2 pb-2">
+                  <legend
+                    className="px-1 text-xs font-medium"
+                    style={{ color: EQ_BAND_COLORS[index] }}
+                  >
+                    Band {band}
+                  </legend>
+                  {fields
+                    .filter((parameter) => parameter.type === "enum")
+                    .map((parameter) => control(parameter, "Type"))}
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {fields
+                      .filter((parameter) => parameter.type !== "enum")
+                      .map((parameter) =>
+                        control(
+                          parameter,
+                          parameter.id.endsWith("FreqHz")
+                            ? "Frequency"
+                            : parameter.id.endsWith("GainDB")
+                              ? "Gain"
+                              : parameter.label.replace(/^Band\s*\d+\s*/i, ""),
+                        ),
+                      )}
+                  </div>
+                </fieldset>
+              );
+            },
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,7rem))] items-start gap-3">
+          {parameters.map((parameter) => control(parameter))}
+        </div>
+      )}
     </div>
   );
 }

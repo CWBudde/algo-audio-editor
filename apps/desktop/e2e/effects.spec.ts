@@ -6,6 +6,7 @@ import { fixture, LEFT, load, RIGHT, samples, select } from "../../editor-web/e2
 import { showEffectMenuItem } from "../../editor-web/e2e/effect-menu.js";
 import { sourceState } from "../../editor-web/e2e/export-fixture.js";
 import { captureKernelWorker } from "../../editor-web/e2e/kernel-probe.js";
+import { revealControl } from "../../editor-web/e2e/ui-disclosures.js";
 import type { DesktopBridge } from "../../editor-web/src/platform.js";
 import { closeEditor, launchEditor } from "./launch.js";
 
@@ -53,7 +54,9 @@ test("Electron effects rack preview, one-step apply and durable IR presets use t
       .getByLabel("Impulse response WAV", { exact: true })
       .setInputFiles({ name: "desktop-room.wav", mimeType: "audio/wav", buffer: impulse });
     await expect(dialog.getByRole("button", { name: "Preview", exact: true })).toBeEnabled();
-    await dialog.getByLabel("Preset name", { exact: true }).fill("Desktop room");
+    await (await revealControl(dialog.getByLabel("Preset name", { exact: true }))).fill(
+      "Desktop room",
+    );
     await dialog.getByRole("button", { name: "Save preset", exact: true }).click();
     await expect(
       dialog
@@ -79,7 +82,9 @@ test("Electron effects rack preview, one-step apply and durable IR presets use t
     await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
     await load(page);
     dialog = await open("rack");
-    await dialog.getByLabel("User preset", { exact: true }).selectOption({ label: "Desktop room" });
+    await (await revealControl(dialog.getByLabel("User preset", { exact: true }))).selectOption({
+      label: "Desktop room",
+    });
     await expect(dialog).toContainText("desktop-room.wav");
     await expect(dialog.getByRole("button", { name: "Preview", exact: true })).toBeEnabled();
     await dialog.getByRole("button", { name: "Preview", exact: true }).click();

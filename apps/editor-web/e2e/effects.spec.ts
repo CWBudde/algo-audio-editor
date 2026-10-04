@@ -185,7 +185,9 @@ test("factory and OPFS user presets survive reload, including persisted convolut
   const factory = dialog.getByLabel("Factory preset", { exact: true });
   await expect(factory.locator("option")).not.toHaveCount(1);
   await factory.selectOption({ index: 1 });
-  await dialog.getByLabel("Preset name", { exact: true }).fill("Browser rack");
+  await (await revealControl(dialog.getByLabel("Preset name", { exact: true }))).fill(
+    "Browser rack",
+  );
   await dialog.getByRole("button", { name: "Save preset", exact: true }).click();
   await expect(
     dialog
@@ -197,7 +199,9 @@ test("factory and OPFS user presets survive reload, including persisted convolut
   await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
   await load(page);
   dialog = await openEffect(page);
-  await dialog.getByLabel("User preset", { exact: true }).selectOption({ label: "Browser rack" });
+  await (await revealControl(dialog.getByLabel("User preset", { exact: true }))).selectOption({
+    label: "Browser rack",
+  });
   await expect(dialog.locator('[data-effect-id="distortion"]')).toBeVisible();
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   dialog = await openEffect(page, "reverb-conv");
@@ -207,7 +211,9 @@ test("factory and OPFS user presets survive reload, including persisted convolut
     buffer: fixture([[1]], 48000),
   });
   await expect(dialog.getByRole("button", { name: "Preview", exact: true })).toBeEnabled();
-  await dialog.getByLabel("Preset name", { exact: true }).fill("Browser convolution");
+  await (await revealControl(dialog.getByLabel("Preset name", { exact: true }))).fill(
+    "Browser convolution",
+  );
   await dialog.getByRole("button", { name: "Save preset", exact: true }).click();
   await expect(
     dialog
@@ -219,9 +225,9 @@ test("factory and OPFS user presets survive reload, including persisted convolut
   await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
   await load(page);
   dialog = await openEffect(page);
-  await dialog
-    .getByLabel("User preset", { exact: true })
-    .selectOption({ label: "Browser convolution" });
+  await (await revealControl(dialog.getByLabel("User preset", { exact: true }))).selectOption({
+    label: "Browser convolution",
+  });
   await expect(dialog).toContainText("persisted-impulse.wav");
   await expect(dialog.getByRole("button", { name: "Preview", exact: true })).toBeEnabled();
   await dialog.getByRole("button", { name: "Preview", exact: true }).click();
@@ -273,6 +279,7 @@ test("custom EQ and dynamics curves come from the kernel and EQ pointer editing 
 test("parametric EQ has labeled axes, persistent draggable bands and keyboard controls on desktop and narrow screens", async ({
   page,
 }, testInfo) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await load(page);
   const before = await sourceState(page);
   const descriptor = (await catalogue(page)).effects.find(
@@ -302,6 +309,23 @@ test("parametric EQ has labeled axes, persistent draggable bands and keyboard co
   await expect(path).not.toHaveAttribute("d", initialPath ?? "");
   await first.press("+");
   await expect(field("band1Q")).toHaveValue("1.1");
+  await first.click({ button: "right" });
+  const types = dialog.getByRole("menu", { name: "Band 1 filter type" });
+  await expect(types).toBeVisible();
+  const shelf = descriptor.parameters
+    .find((parameter) => parameter.id === "band1Type")
+    ?.options?.find((option) => option.value === "lowshelf");
+  if (!shelf) throw new Error("Low shelf type missing");
+  await types.getByRole("menuitemradio", { name: shelf.label }).click();
+  await expect(field("band1Type")).toHaveValue("lowshelf");
+  await expect(field("band1GainDB")).toHaveValue("0.5");
+  await first.focus();
+  await first.press("Shift+F10");
+  await expect(types).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(types).not.toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expect(first).toBeFocused();
   const secondFrequency = await field("band2FreqHz").inputValue();
   const box = await graph.boundingBox();
   const handle = await first.boundingBox();
@@ -310,7 +334,7 @@ test("parametric EQ has labeled axes, persistent draggable bands and keyboard co
   await page.mouse.down();
   await page.mouse.move(
     box.x + (box.width * (52 + (568 * Math.log(5000 / 20)) / Math.log(1000))) / 640,
-    box.y + (box.height * 72.5) / 280,
+    box.y + (box.height * 57.5) / 220,
     { steps: 12 },
   );
   await page.mouse.up();
@@ -326,9 +350,52 @@ test("parametric EQ has labeled axes, persistent draggable bands and keyboard co
   });
   await field("bands").fill("8");
   await expect(graph.getByRole("slider")).toHaveCount(8);
+  await dialog.screenshot({ path: testInfo.outputPath("parametric-eq-full-hd-dialog.png") });
+  const layout = await dialog.evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    width: element.clientWidth,
+    graph: element
+      .querySelector("svg[aria-label='Parametric EQ frequency graph']")
+      ?.getBoundingClientRect().height,
+    cards: Array.from(element.querySelectorAll("fieldset")).map(
+      (card) => card.getBoundingClientRect().height,
+    ),
+  }));
+  expect(layout.scrollHeight <= layout.clientHeight, JSON.stringify(layout)).toBe(true);
+  expect(layout.clientHeight).toBeLessThan(1000);
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  const gainKnob = dialog.getByRole("slider", {
+    name: `${descriptor.parameters.find((parameter) => parameter.id === "band1GainDB")?.label} knob`,
+    exact: true,
+  });
+  const gainBeforeKnob = Number(await field("band1GainDB").inputValue());
+  await gainKnob.focus();
+  await gainKnob.press("ArrowDown");
+  await expect
+    .poll(async () => Number(await field("band1GainDB").inputValue()))
+    .toBeLessThan(gainBeforeKnob);
+  const knobBox = await gainKnob.boundingBox();
+  if (!knobBox) throw new Error("Gain knob geometry missing");
+  const beforeDrag = Number(await field("band1GainDB").inputValue());
+  await page.mouse.move(knobBox.x + knobBox.width / 2, knobBox.y + knobBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(knobBox.x + knobBox.width / 2, knobBox.y + knobBox.height / 2 + 12);
+  await page.mouse.up();
+  await expect
+    .poll(async () => Number(await field("band1GainDB").inputValue()))
+    .toBeLessThan(beforeDrag);
+  await testInfo.attach("parametric-eq-full-hd-dialog", {
+    body: await dialog.screenshot({
+      path: testInfo.outputPath("parametric-eq-full-hd-dialog.png"),
+    }),
+    contentType: "image/png",
+  });
   await field("bands").fill("1");
   await expect(graph.getByRole("slider")).toHaveCount(1);
   await page.setViewportSize({ width: 640, height: 720 });
+  await field("bands").fill("8");
+  await expect(graph.getByRole("slider")).toHaveCount(8);
   await graph.scrollIntoViewIfNeeded();
   await expect(graph).toBeVisible();
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);

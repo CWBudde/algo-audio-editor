@@ -98,13 +98,13 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
-it("generates accessible numeric/slider/enum/boolean controls and applies factory presets", () => {
+it("generates accessible numeric/knob/enum/boolean controls and applies factory presets", () => {
   const actions = callbacks();
   const ui = render(
     <EffectsDialog view={view} descriptors={[descriptor]} presets={[]} {...actions} />,
   );
   expect(ui.getByRole("dialog", { name: "Effects rack" })).toBeTruthy();
-  expect(ui.getByRole("slider", { name: "Drive slider" })).toBeTruthy();
+  expect(ui.getByRole("slider", { name: "Drive knob" })).toBeTruthy();
   fireEvent.change(ui.getByLabelText("Drive"), { target: { value: "3" } });
   expect(actions.onChange).toHaveBeenCalledWith(
     expect.objectContaining({

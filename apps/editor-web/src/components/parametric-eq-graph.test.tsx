@@ -48,6 +48,16 @@ const descriptor: EffectDescriptor = {
       numeric(`band${index + 1}FreqHz`, (index + 1) * 1000, 20, 23520),
       numeric(`band${index + 1}GainDB`, 0, -24, 24),
       numeric(`band${index + 1}Q`, 1, 0.2, 8),
+      {
+        ...numeric(`band${index + 1}Type`, 0, 0, 0),
+        type: "enum" as const,
+        defaultString: "peak",
+        options: [
+          { value: "peak", label: "Peak" },
+          { value: "lowshelf", label: "Low shelf" },
+          { value: "highshelf", label: "High shelf" },
+        ],
+      },
     ]).flat(),
   ],
 };
@@ -55,7 +65,10 @@ const initial: RackEffect = {
   id: "eq",
   type: "eq-parametric",
   params: Object.fromEntries(
-    descriptor.parameters.map((parameter) => [parameter.id, parameter.default]),
+    descriptor.parameters.map((parameter) => [
+      parameter.id,
+      parameter.defaultString ?? parameter.default,
+    ]),
   ),
 };
 const base = {
@@ -81,9 +94,9 @@ function setup(svg: Element) {
     left: 0,
     top: 0,
     right: 640,
-    bottom: 280,
+    bottom: 220,
     width: 640,
-    height: 280,
+    height: 220,
     toJSON() {},
   });
   return node;
@@ -97,7 +110,7 @@ it("draws supplied kernel points against labeled logarithmic axes and shows only
   expect(view.getByRole("img", { name: "Parametric EQ response curve" })).toBeTruthy();
   expect(view.getAllByRole("slider")).toHaveLength(2);
   expect(view.getByTestId("effect-response-path").getAttribute("d")).toMatch(
-    /^M52,125 L[\d.]+,98.75 L620,125$/,
+    /^M52,95 L[\d.]+,76.25 L620,95$/,
   );
   view.rerender(
     <EffectParameters
@@ -110,6 +123,25 @@ it("draws supplied kernel points against labeled logarithmic axes and shows only
   );
   expect(view.getByLabelText("band2GainDB")).toBeTruthy();
   expect(view.queryByLabelText("band3GainDB")).toBeNull();
+});
+
+it("opens the band type menu by right-click or keyboard without moving its frequency/gain", async () => {
+  const onChange = vi.fn();
+  const view = render(<ParametricEQGraph {...base} onChange={onChange} />);
+  const band = view.getByRole("slider", { name: "EQ band 2" });
+  expect(band.getAttribute("r")).toBe("6");
+  fireEvent.contextMenu(band);
+  const peak = await view.findByRole("menuitemradio", { name: "Peak" });
+  expect(peak.getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(view.getByRole("menuitemradio", { name: "Low shelf" }));
+  expect(onChange).toHaveBeenCalledExactlyOnceWith({ ...initial.params, band2Type: "lowshelf" });
+  fireEvent.keyDown(band, { key: "F10", shiftKey: true });
+  expect(await view.findByRole("menu", { name: "Band 2 filter type" })).toBeTruthy();
+  fireEvent.keyDown(view.getByRole("menu"), { key: "Escape" });
+  expect(view.queryByRole("menu")).toBeNull();
+  view.rerender(<ParametricEQGraph {...base} disabled onChange={onChange} />);
+  fireEvent.contextMenu(band);
+  expect(view.queryByRole("menu")).toBeNull();
 });
 
 it("keeps the grabbed band through crossings, clamps outside drags and ignores other pointers/canceled work", () => {
@@ -132,7 +164,7 @@ it("keeps the grabbed band through crossings, clamps outside drags and ignores o
   const band = view.getByRole("slider", { name: "EQ band 1" });
   fireEvent.pointerDown(band, {
     clientX: Number(band.getAttribute("cx")),
-    clientY: 125,
+    clientY: 95,
     button: 0,
   });
   fireEvent.pointerMove(svg, { clientX: 600, clientY: 80, pointerId: 2 });
