@@ -980,7 +980,7 @@ func TestResampleRejectsDivergedChannelClocks(t *testing.T) {
 	}
 	job := stepper.(*rateOperation)
 	// Advance one independent DSP stream to simulate a lost channel clock.
-	if _, err := job.streams[1].ProcessInto(make([]float64, 32), make([]float64, 9)); err != nil {
+	if _, err := job.streams[1].ProcessInto(make([]float64, 32), make([]float64, 1)); err != nil {
 		t.Fatal(err)
 	}
 	if progress, err := stepper.Step(context.Background()); err == nil || !strings.Contains(err.Error(), "channel clocks differ") || progress.Done {

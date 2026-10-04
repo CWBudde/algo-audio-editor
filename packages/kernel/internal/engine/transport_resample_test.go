@@ -9,9 +9,16 @@ import (
 	"github.com/cwbudde/algo-dsp/dsp/resample"
 )
 
+func referenceRateGCD(a, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
 func directResampled(t *testing.T, input []float32, inRate, outRate, outputs int) []float32 {
 	t.Helper()
-	g := rateGCD(inRate, outRate)
+	g := referenceRateGCD(inRate, outRate)
 	up, down := outRate/g, inRate/g
 	taps := resample.QualityProfile(resample.QualityBalanced).TapsPerPhase * ((down + up - 1) / up)
 	stream, err := resample.NewRational(up, down, resample.WithTapsPerPhase(taps))
@@ -208,10 +215,10 @@ func TestTransportResampleWorkspaceFailureIsAtomic(t *testing.T) {
 
 func TestConvertedFrameCountAvoidsLongRunOverflow(t *testing.T) {
 	frames := int64(1<<53 - 1)
-	if got := convertedFrameCount(frames, 8000, 384000); got != frames*48 {
+	if got, err := resample.FrameCount(frames, 8000, 384000); err != nil || got != frames*48 {
 		t.Fatalf("long duration %d, want %d", got, frames*48)
 	}
-	if got := convertedFrameCount(frames, 384000, 8000); got != (frames+47)/48 {
+	if got, err := resample.FrameCount(frames, 384000, 8000); err != nil || got != (frames+47)/48 {
 		t.Fatalf("long duration %d, want %d", got, (frames+47)/48)
 	}
 }

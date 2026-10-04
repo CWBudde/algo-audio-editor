@@ -2,7 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/effects"
 	"github.com/cwbudde/algo-dsp/dsp/resample"
@@ -13,14 +12,12 @@ import (
 const maxResampleWorkspaceBytes int64 = 64 << 20
 
 type documentResampler struct {
-	streams              []*resample.Resampler
+	streams              []*resample.Stream
 	input, output        [][]float64
 	inRate, outRate      int64
 	readFrame            int64
-	flushRemaining       int64
 	remainingOutput      int64
 	tagRemainder         int64
-	skip                 int
 	stageStart, stageEnd int
 }
 
@@ -28,31 +25,37 @@ func newDocumentResampler(t *documentTransport, inRate, outRate int) (*documentR
 	if inRate < MinSampleRate || inRate > MaxSampleRate || outRate < MinSampleRate || outRate > MaxSampleRate {
 		return nil, fmt.Errorf("resample.prepare: rates %d/%d outside [%d, %d]", inRate, outRate, MinSampleRate, MaxSampleRate)
 	}
-	g := rateGCD(inRate, outRate)
-	up, down := outRate/g, inRate/g
-	// Keep anti-alias transition width consistent when downsampling: the
-	// upstream prototype is tapsPerPhase*up, so down/up needs longer branches.
-	tapsPerPhase := resample.QualityProfile(resample.QualityBalanced).TapsPerPhase * ((down + up - 1) / up)
-	capacity := (transportBlockFrames*outRate+inRate-1)/inRate + 1
-	coefficientBytes := int64(tapsPerPhase)*int64(up)*16 + int64(up)*32
-	channelBytes := int64(len(t.channels)) * int64(tapsPerPhase+transportBlockFrames+capacity) * 8
-	if coefficientBytes+channelBytes > maxResampleWorkspaceBytes {
-		return nil, fmt.Errorf("resample.prepare: exact rate ratio %d/%d needs approximately %d bytes, exceeding the %d-byte worker workspace limit", up, down, coefficientBytes+channelBytes, maxResampleWorkspaceBytes)
+	plan, err := resample.NewStreamPlan(inRate, outRate, transportBlockFrames, resample.QualityBalanced)
+	if err != nil {
+		return nil, fmt.Errorf("resample.prepare: plan filter: %w", err)
 	}
-	base, err := resample.NewRational(up, down, resample.WithTapsPerPhase(tapsPerPhase))
+	workspace, err := plan.WorkspaceBytes(len(t.channels))
+	if err != nil {
+		return nil, fmt.Errorf("resample.prepare: estimate workspace: %w", err)
+	}
+	capacity := plan.OutputBlockFrames()
+	workspace += int64(len(t.channels)) * int64(transportBlockFrames+capacity) * 8
+	if workspace > maxResampleWorkspaceBytes {
+		return nil, fmt.Errorf("resample.prepare: exact rate ratio needs approximately %d bytes, exceeding the %d-byte worker workspace limit", workspace, maxResampleWorkspaceBytes)
+	}
+	frames := t.end - t.position
+	remainingOutput, err := resample.FrameCount(frames, inRate, outRate)
+	if err != nil {
+		return nil, fmt.Errorf("resample.prepare: output duration: %w", err)
+	}
+	if t.loop {
+		frames = -1
+	}
+	base, err := plan.NewStream(frames)
 	if err != nil {
 		return nil, fmt.Errorf("resample.prepare: design filter: %w", err)
 	}
 	r := &documentResampler{
-		streams: make([]*resample.Resampler, len(t.channels)),
+		streams: make([]*resample.Stream, len(t.channels)),
 		input:   make([][]float64, len(t.channels)), output: make([][]float64, len(t.channels)),
 		inRate: int64(inRate), outRate: int64(outRate), readFrame: t.position,
-		skip:            int(math.Ceil(base.GroupDelayOutput())),
-		remainingOutput: convertedFrameCount(t.end-t.position, int64(inRate), int64(outRate)),
+		remainingOutput: remainingOutput,
 	}
-	// Feeding explicit zero frames recovers the delayed final samples. Output
-	// is trimmed to the exact source duration after the leading delay is removed.
-	r.flushRemaining = (int64(r.skip)*int64(inRate)+int64(outRate)-1)/int64(outRate) + 1
 	for channel := range r.streams {
 		if channel == 0 {
 			r.streams[channel] = base
@@ -65,34 +68,16 @@ func newDocumentResampler(t *documentTransport, inRate, outRate int) (*documentR
 	return r, nil
 }
 
-// Split quotient/remainder first so long documents do not overflow frames*rate.
-func convertedFrameCount(frames, inRate, outRate int64) int64 {
-	return (frames/inRate)*outRate + ((frames%inRate)*outRate+inRate-1)/inRate
-}
-
-func rateGCD(a, b int) int {
-	for b != 0 {
-		a, b = b, a%b
-	}
-	return a
-}
-
 func (r *documentResampler) prepareStage(t *documentTransport) bool {
 	count := transportBlockFrames
 	if t.effects != nil {
 		count = effects.Quantum
 	}
-	zeros := !t.loop && r.readFrame == t.end
-	if zeros {
-		if r.flushRemaining == 0 {
-			return false
-		}
-		count = int(min(int64(count), r.flushRemaining))
-		r.flushRemaining -= int64(count)
-	} else if !t.loop {
+	flushing := !t.loop && r.readFrame == t.end
+	if !t.loop {
 		count = int(min(int64(count), t.end-r.readFrame))
 	}
-	if t.effects != nil && !zeros {
+	if t.effects != nil && !flushing {
 		cursor, copied := r.readFrame, 0
 		for copied < count {
 			n := int(min(int64(count-copied), t.end-cursor))
@@ -117,10 +102,6 @@ func (r *documentResampler) prepareStage(t *documentTransport) bool {
 	} else {
 		for channel, samples := range t.channels {
 			input := r.input[channel][:count]
-			if zeros {
-				clear(input)
-				continue
-			}
 			cursor, copied := r.readFrame, 0
 			for copied < count {
 				n := int(min(int64(count-copied), t.end-cursor))
@@ -136,26 +117,33 @@ func (r *documentResampler) prepareStage(t *documentTransport) bool {
 			}
 		}
 	}
-	if !zeros {
+	if !flushing {
 		r.readFrame += int64(count)
 		if t.loop && r.readFrame >= t.end {
 			r.readFrame = t.start + (r.readFrame-t.start)%(t.end-t.start)
 		}
 	}
 	n := 0
+	done := false
 	for channel, stream := range r.streams {
-		written, err := stream.ProcessInto(r.output[channel], r.input[channel][:count])
-		if err != nil || (channel > 0 && written != n) {
+		var written int
+		var finished bool
+		var err error
+		if flushing {
+			written, finished, err = stream.FlushInto(r.output[channel])
+		} else {
+			written, err = stream.ProcessInto(r.output[channel], r.input[channel][:count])
+		}
+		if err != nil || (channel > 0 && (written != n || finished != done)) {
 			// Workspace bounds and identical channel clocks make this impossible
 			// for valid upstream state. Fail silent instead of emitting stale data.
 			return false
 		}
-		n = written
+		n, done = written, finished
 	}
 	r.stageEnd = n
-	r.stageStart = min(n, r.skip)
-	r.skip -= r.stageStart
-	return true
+	r.stageStart = 0
+	return n > 0 || !done
 }
 
 func (t *documentTransport) renderResampled(dst []float32, positions []int64) int {

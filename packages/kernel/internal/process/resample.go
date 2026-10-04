@@ -3,7 +3,6 @@ package process
 import (
 	"context"
 	"fmt"
-	"math"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
@@ -14,11 +13,10 @@ const maxRateWorkspaceBytes int64 = 64 << 20
 
 type rateOperation struct {
 	*blockOperation
-	streams       []*resample.Resampler
+	streams       []*resample.Stream
 	input, output []float64
 	inputFrames   int
-	read, flush   int64
-	skip          int
+	read          int64
 }
 
 func newRateOperation(document audiobuf.Document, selected ops.Range, settings Settings, limits Limits) (*rateOperation, error) {
@@ -38,12 +36,23 @@ func newRateOperation(document audiobuf.Document, selected ops.Range, settings S
 	default:
 		return nil, fmt.Errorf("process.resample: unsupported quality")
 	}
-	outFrames := convertedFrames(document.Frames(), document.SampleRate(), settings.SampleRate)
+	outFrames, err := resample.FrameCount(document.Frames(), document.SampleRate(), settings.SampleRate)
+	if err != nil {
+		return nil, fmt.Errorf("process.resample: output duration: %w", err)
+	}
 	b := &blockOperation{source: document, selected: ops.Range{End: document.Frames(), ChannelMask: (1 << document.Channels()) - 1}, settings: settings, outputRate: settings.SampleRate, outputChannels: document.Channels(), outputFrames: outFrames, renderFrames: outFrames, progress: Progress{FramesTotal: outFrames}, status: NormalizationStatus{Phase: "processing", PhaseCount: 1, GainResolved: true}}
 	if outFrames > 1<<53-1 {
 		return nil, fmt.Errorf("process.resample: output exceeds JS-safe frame limit")
 	}
-	b.outputSelection = ops.Range{Start: scaledFrame(selected.Start, document.SampleRate(), settings.SampleRate, outFrames), End: scaledFrame(selected.End, document.SampleRate(), settings.SampleRate, outFrames), ChannelMask: selected.ChannelMask}
+	start, err := scaledFrame(selected.Start, document.SampleRate(), settings.SampleRate, outFrames)
+	if err != nil {
+		return nil, fmt.Errorf("process.resample: selection start: %w", err)
+	}
+	end, err := scaledFrame(selected.End, document.SampleRate(), settings.SampleRate, outFrames)
+	if err != nil {
+		return nil, fmt.Errorf("process.resample: selection end: %w", err)
+	}
+	b.outputSelection = ops.Range{Start: start, End: end, ChannelMask: selected.ChannelMask}
 	r := &rateOperation{blockOperation: b}
 	if document.SampleRate() == settings.SampleRate {
 		b.identity, b.shared = true, true
@@ -57,22 +66,31 @@ func newRateOperation(document audiobuf.Document, selected ops.Range, settings S
 	if err := outputBudget(outFrames, document.Channels(), limits); err != nil {
 		return nil, fmt.Errorf("process.resample: %w", err)
 	}
-	g := rateGCD(document.SampleRate(), settings.SampleRate)
-	up, down := settings.SampleRate/g, document.SampleRate()/g
-	taps := resample.QualityProfile(quality).TapsPerPhase * ((down + up - 1) / up)
-	inputCount := int(min(int64(audiobuf.BlockFrames), max(int64(1), int64(audiobuf.BlockFrames-1)*int64(down)/int64(up))))
-	// The exact ratio and clone histories are bounded before designing filters.
-	workspace := int64(taps)*int64(up)*16 + int64(up)*32 + int64(document.Channels())*int64(taps)*8 + int64(inputCount+audiobuf.BlockFrames)*8 + int64(audiobuf.BlockFrames)*12
+	plan, err := resample.NewStreamPlan(document.SampleRate(), settings.SampleRate, audiobuf.BlockFrames, quality)
+	if err != nil {
+		return nil, fmt.Errorf("process.resample: plan filter: %w", err)
+	}
+	inputCount, err := plan.InputFramesForOutputLimit(audiobuf.BlockFrames)
+	if err != nil {
+		return nil, fmt.Errorf("process.resample: bound chunks: %w", err)
+	}
+	plan, err = resample.NewStreamPlan(document.SampleRate(), settings.SampleRate, inputCount, quality)
+	if err != nil {
+		return nil, fmt.Errorf("process.resample: plan bounded filter: %w", err)
+	}
+	workspace, err := plan.WorkspaceBytes(document.Channels())
+	if err != nil {
+		return nil, fmt.Errorf("process.resample: estimate workspace: %w", err)
+	}
+	workspace += int64(inputCount+audiobuf.BlockFrames)*8 + int64(audiobuf.BlockFrames)*12
 	if workspace > maxRateWorkspaceBytes {
 		return nil, fmt.Errorf("process.resample: exact ratio requires %d bytes, exceeding %d-byte workspace limit", workspace, maxRateWorkspaceBytes)
 	}
-	stream, err := resample.NewRational(up, down, resample.WithQuality(quality), resample.WithTapsPerPhase(taps))
+	stream, err := plan.NewStream(document.Frames())
 	if err != nil {
 		return nil, fmt.Errorf("process.resample: design filter: %w", err)
 	}
 	r.inputFrames = inputCount
-	r.skip = int(math.Ceil(stream.GroupDelayOutput()))
-	r.flush = (int64(r.skip)*int64(document.SampleRate())+int64(settings.SampleRate)-1)/int64(settings.SampleRate) + 1
 	r.input, r.output = make([]float64, inputCount), make([]float64, audiobuf.BlockFrames)
 	b.mono, b.dsp = make([]float32, audiobuf.BlockFrames), make([]float64, audiobuf.BlockFrames)
 	b.blocks = make([][]*audiobuf.Block, document.Channels())
@@ -135,48 +153,47 @@ func (r *rateOperation) Step(ctx context.Context) (Progress, error) {
 		return r.finish(ctx)
 	}
 	count := int(min(int64(r.inputFrames), r.source.Frames()-r.read))
-	zeros := count == 0
-	if zeros {
-		count = int(min(int64(r.inputFrames), r.flush))
-		if count == 0 {
-			return r.fail(fmt.Errorf("process.resample: incomplete flushed tail"))
-		}
-	}
-	n := r.streams[0].PredictOutputLen(count)
-	if n > audiobuf.BlockFrames {
-		return r.fail(fmt.Errorf("process.resample: output chunk exceeds bounded workspace"))
-	}
-	start := min(n, r.skip)
-	kept := int(min(int64(n-start), r.outputFrames-r.progress.FramesDone))
+	flushing := count == 0
+	n := 0
+	done := false
 	for channel, stream := range r.streams {
 		if err := ctx.Err(); err != nil {
 			return r.fail(fmt.Errorf("process.resample: %w", err))
 		}
-		if zeros {
-			clear(r.input[:count])
-		} else if r.channels[channel].ReadFloat64(r.input[:count], r.read) != count {
+		if stream.InputFrames() != r.read {
+			return r.fail(fmt.Errorf("process.resample: channel clocks differ"))
+		}
+		if !flushing && r.channels[channel].ReadFloat64(r.input[:count], r.read) != count {
 			return r.fail(fmt.Errorf("process.resample: short channel read"))
 		}
-		written, err := stream.ProcessInto(r.output, r.input[:count])
+		var written int
+		var finished bool
+		var err error
+		if flushing {
+			written, finished, err = stream.FlushInto(r.output)
+		} else {
+			written, err = stream.ProcessInto(r.output, r.input[:count])
+		}
 		if err != nil {
 			return r.fail(fmt.Errorf("process.resample: render channel: %w", err))
 		}
-		if written != n {
+		if channel > 0 && (written != n || finished != done) {
 			return r.fail(fmt.Errorf("process.resample: channel clocks differ"))
 		}
-		if kept > 0 {
-			if err := r.storeConverted(channel, r.output[start:start+kept]); err != nil {
+		n, done = written, finished
+		if n > 0 {
+			if err := r.storeConverted(channel, r.output[:n]); err != nil {
 				return r.fail(err)
 			}
 		}
 	}
-	if zeros {
-		r.flush -= int64(count)
-	} else {
+	if !flushing {
 		r.read += int64(count)
 	}
-	r.skip -= start
-	r.progress.FramesDone += int64(kept)
+	r.progress.FramesDone += int64(n)
+	if done && r.progress.FramesDone != r.outputFrames {
+		return r.fail(fmt.Errorf("process.resample: incomplete flushed tail"))
+	}
 	if err := ctx.Err(); err != nil {
 		return r.fail(fmt.Errorf("process.resample: %w", err))
 	}
@@ -197,11 +214,23 @@ func (r *rateOperation) finish(ctx context.Context) (Progress, error) {
 	}
 	metadata := r.source.Metadata()
 	for i := range metadata.Timeline.Markers {
-		metadata.Timeline.Markers[i].Frame = scaledFrame(metadata.Timeline.Markers[i].Frame, r.source.SampleRate(), r.outputRate, r.outputFrames)
+		frame, err := scaledFrame(metadata.Timeline.Markers[i].Frame, r.source.SampleRate(), r.outputRate, r.outputFrames)
+		if err != nil {
+			return r.fail(fmt.Errorf("process.resample: marker position: %w", err))
+		}
+		metadata.Timeline.Markers[i].Frame = frame
 	}
 	regions := metadata.Timeline.Regions[:0]
 	for _, region := range metadata.Timeline.Regions {
-		region.Start, region.End = scaledFrame(region.Start, r.source.SampleRate(), r.outputRate, r.outputFrames), scaledFrame(region.End, r.source.SampleRate(), r.outputRate, r.outputFrames)
+		var err error
+		region.Start, err = scaledFrame(region.Start, r.source.SampleRate(), r.outputRate, r.outputFrames)
+		if err != nil {
+			return r.fail(fmt.Errorf("process.resample: region start: %w", err))
+		}
+		region.End, err = scaledFrame(region.End, r.source.SampleRate(), r.outputRate, r.outputFrames)
+		if err != nil {
+			return r.fail(fmt.Errorf("process.resample: region end: %w", err))
+		}
 		if region.Start < region.End {
 			regions = append(regions, region)
 		}
@@ -235,18 +264,10 @@ func (r *rateOperation) Cancel() {
 	}
 }
 
-func convertedFrames(frames int64, inRate, outRate int) int64 {
-	return (frames/int64(inRate))*int64(outRate) + (frames%int64(inRate)*int64(outRate)+int64(inRate)-1)/int64(inRate)
-}
-
-func scaledFrame(frame int64, inRate, outRate int, total int64) int64 {
-	// Quotient/remainder avoids losing precision in long frame coordinates.
-	return min(total, (frame/int64(inRate))*int64(outRate)+int64(math.Round(float64(frame%int64(inRate))*float64(outRate)/float64(inRate))))
-}
-
-func rateGCD(a, b int) int {
-	for b != 0 {
-		a, b = b, a%b
+func scaledFrame(frame int64, inRate, outRate int, total int64) (int64, error) {
+	position, err := resample.FramePosition(frame, inRate, outRate)
+	if err != nil {
+		return 0, err
 	}
-	return a
+	return min(total, position), nil
 }

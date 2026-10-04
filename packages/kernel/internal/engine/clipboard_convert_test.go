@@ -41,7 +41,7 @@ func TestClipboardConversionRatesDurationTailAndDC(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				count := int(convertedFrameCount(int64(frames), int64(rates[0]), int64(rates[1])))
+				count := (frames*rates[1] + rates[0] - 1) / rates[0]
 				if converted.Frames() != int64(count) || converted.SampleRate() != rates[1] {
 					t.Fatal("duration/format mismatch")
 				}

@@ -720,11 +720,13 @@
 
 Validation: kernel lint/native and WASM vet, all native race tests, actual V8/WASM tests, WASM compilation, module tidiness, dependency drift check and all three 10-second fuzz smoke targets pass. Upstream full race suites and lint/vet pass, with actual WASM tests for the new DSP APIs. Both dependency releases passed their release guards before the editor's tagged dependency bumps; protocol ABI is unchanged.
 
-### R.4 Rule 6: move DSP upstream
+### R.4 Rule 6: move DSP upstream — ✅ DONE (2026-10-05)
 
-- [ ] algo-dsp: a length-exact offline resampler stream. Replace the three local copies (`transport_resample.go`, `clipboard_convert.go`, `process/resample.go`) and the duplicated `rateGCD` helpers
+- [x] Released `algo-dsp v0.10.2`: `resample.StreamPlan` preflights exact ratios and workspace before filter allocation; `Stream` owns delay compensation, bounded finite-tail flushing and continuous indefinite processing. Transport, clipboard conversion and offline processing now delegate to it, removing local filter/delay/flush/GCD and duration conversion copies. `TestResampleAdaptersShareFiniteSamplesAndTail` verifies bit parity across all three adapters; independent FIR references, extreme ratios, annotations, workspace rejection, effect-loop resets, seeking and zero-allocation rendering remain covered.
 - [x] BS.1770 channel weighting and noise-profile STFT framing moved upstream in `algo-dsp v0.10.1`, then consumed by statistics/meters/normalization and restoration. R.3 records the reference, multichannel round-trip and framing regressions (2026-10-05).
-- [ ] Remove the float32→float64→float32 round trips around `vecmath.AddBlock` (`ops/operation.go:417`, `process/operation.go:379`)
+- [x] `signal.AddInto32` and `AverageInto32` in `algo-dsp v0.10.2` replace wide block conversions in `ops.mix` and stereo-to-mono processing; unused downmix envelope scratch is also removed. `TestPasteMixFloat32AcrossBlocksAndEOF` and `TestStereoToMonoFloat32AcrossBlocks` preserve unclipped results, source samples, signed zeros, subnormals and overflow-safe averaging; upstream randomized bit-parity tests and allocation checks cover the primitives.
+
+Validation: upstream full race suite, focused V8/WASM tests, lint/vet and release guard pass. Against the published tag, all editor kernel race and V8/WASM tests, lint/WASM vet, module tidiness, dependency drift and production build/budget checks pass; ten Chromium checks cover all resampling quality modes, downmix, clipboard conversion, finite playback and loops. Protocol ABI is unchanged.
 
 ### R.5 Kernel structure and performance
 

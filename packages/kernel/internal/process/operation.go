@@ -13,7 +13,6 @@ import (
 	"github.com/cwbudde/algo-dsp/dsp/fade"
 	"github.com/cwbudde/algo-dsp/dsp/signal"
 	timestats "github.com/cwbudde/algo-dsp/stats/time"
-	vecmath "github.com/cwbudde/algo-vecmath"
 )
 
 // Settings contains control values only; samples remain private to a job.
@@ -203,7 +202,10 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 		}
 	}
 	b.mono, b.second = make([]float32, audiobuf.BlockFrames), make([]float32, audiobuf.BlockFrames)
-	b.dsp, b.other = make([]float64, audiobuf.BlockFrames), make([]float64, audiobuf.BlockFrames)
+	b.dsp = make([]float64, audiobuf.BlockFrames)
+	if settings.Operation == "fade-in" || settings.Operation == "fade-out" || settings.Operation == "crossfade" {
+		b.other = make([]float64, audiobuf.BlockFrames)
+	}
 	if settings.Operation == "crossfade" {
 		b.rising = make([]float64, audiobuf.BlockFrames)
 	}
@@ -377,17 +379,10 @@ func (b *blockOperation) render(i, count int) error {
 		return b.generators[i].GenerateInto32(b.mono[:count])
 	case "stereo-to-mono":
 		if b.settings.ChannelMode == "mix" {
-			if b.channels[1].ReadFloat64(b.other[:count], offset) != count {
+			if b.channels[1].Read(b.second[:count], offset) != count {
 				return fmt.Errorf("short right read")
 			}
-			for frame, sample := range b.mono[:count] {
-				b.dsp[frame] = float64(sample)
-			}
-			vecmath.AddBlockInPlace(b.dsp[:count], b.other[:count])
-			vecmath.ScaleBlockInPlace(b.dsp[:count], 0.5)
-			for frame, sample := range b.dsp[:count] {
-				b.mono[frame] = float32(sample)
-			}
+			return signal.AverageInto32(b.mono[:count], b.mono[:count], b.second[:count])
 		}
 	}
 	return nil

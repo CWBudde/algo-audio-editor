@@ -18,7 +18,10 @@ func clipboardOutputFrames(frames int64, inRate, outRate int) (int64, error) {
 	if frames <= 0 || frames > maxEditorFrame || inRate < MinSampleRate || inRate > MaxSampleRate || outRate < MinSampleRate || outRate > MaxSampleRate {
 		return 0, fmt.Errorf("clipboard.convert: invalid duration or sample rates")
 	}
-	count := convertedFrameCount(frames, int64(inRate), int64(outRate))
+	count, err := resample.FrameCount(frames, inRate, outRate)
+	if err != nil {
+		return 0, fmt.Errorf("clipboard.convert: output duration: %w", err)
+	}
 	if count > maxEditorFrame {
 		return 0, fmt.Errorf("clipboard.convert: output duration exceeds JS-safe frame limit")
 	}
@@ -46,15 +49,20 @@ func convertClipboard(clip ops.Clipboard, outRate, outChannels int) (ops.Clipboa
 	capacity := transportBlockFrames
 	var stream *documentResampler
 	if inRate != outRate {
-		g := rateGCD(inRate, outRate)
-		up, down := outRate/g, inRate/g
-		taps := resample.QualityProfile(resample.QualityBalanced).TapsPerPhase * ((down + up - 1) / up)
-		capacity = (transportBlockFrames*outRate+inRate-1)/inRate + 1
-		coefficients := int64(taps)*int64(up)*16 + int64(up)*32
-		sourceBytes := int64(sourceChannels) * int64(taps+transportBlockFrames+capacity) * 8
+		plan, planErr := resample.NewStreamPlan(inRate, outRate, transportBlockFrames, resample.QualityBalanced)
+		if planErr != nil {
+			return ops.Clipboard{}, fmt.Errorf("clipboard.convert: plan sinc: %w", planErr)
+		}
+		capacity = plan.OutputBlockFrames()
+		workspace, planErr := plan.WorkspaceBytes(sourceChannels)
+		if planErr != nil {
+			return ops.Clipboard{}, fmt.Errorf("clipboard.convert: estimate workspace: %w", planErr)
+		}
+		sourceBytes := int64(sourceChannels) * int64(transportBlockFrames+capacity) * 8
 		sinkBytes := int64(outChannels) * (int64(capacity)*8 + int64(audiobuf.BlockFrames)*4)
-		if coefficients+sourceBytes+sinkBytes > maxResampleWorkspaceBytes {
-			return ops.Clipboard{}, fmt.Errorf("clipboard.convert: exact ratio needs %d bytes, exceeding the %d-byte workspace limit", coefficients+sourceBytes+sinkBytes, maxResampleWorkspaceBytes)
+		workspace += sourceBytes + sinkBytes
+		if workspace > maxResampleWorkspaceBytes {
+			return ops.Clipboard{}, fmt.Errorf("clipboard.convert: exact ratio needs %d bytes, exceeding the %d-byte workspace limit", workspace, maxResampleWorkspaceBytes)
 		}
 		stream, err = newDocumentResampler(&documentTransport{channels: make([]audiobuf.Channel, sourceChannels), end: clip.Frames()}, inRate, outRate)
 		if err != nil {
@@ -80,19 +88,16 @@ func convertClipboard(clip ops.Clipboard, outRate, outChannels int) (ops.Clipboa
 	read, written, pendingCount := int64(0), int64(0), 0
 	for written < frames {
 		count := int(min(int64(transportBlockFrames), clip.Frames()-read))
-		zeros := count == 0
-		if zeros {
-			if stream == nil || stream.flushRemaining == 0 {
+		flushing := count == 0
+		if flushing {
+			if stream == nil {
 				return ops.Clipboard{}, fmt.Errorf("clipboard.convert: incomplete flushed tail")
 			}
-			count = int(min(int64(transportBlockFrames), stream.flushRemaining))
-			stream.flushRemaining -= int64(count)
 		}
 		n := count
+		done := false
 		for channel := range input {
-			if zeros {
-				clear(input[channel][:count])
-			} else {
+			if !flushing {
 				if got := clip.Read(mono[:count], channel, read); got != count {
 					return ops.Clipboard{}, fmt.Errorf("clipboard.convert: short channel %d read", channel)
 				}
@@ -101,37 +106,41 @@ func convertClipboard(clip ops.Clipboard, outRate, outChannels int) (ops.Clipboa
 				}
 			}
 			if stream != nil {
-				got, processErr := stream.streams[channel].ProcessInto(output[channel], input[channel][:count])
+				var got int
+				var finished bool
+				var processErr error
+				if flushing {
+					got, finished, processErr = stream.streams[channel].FlushInto(output[channel])
+				} else {
+					got, processErr = stream.streams[channel].ProcessInto(output[channel], input[channel][:count])
+				}
 				if processErr != nil {
 					return ops.Clipboard{}, fmt.Errorf("clipboard.convert: sinc channel %d: %w", channel, processErr)
 				}
-				if channel > 0 && got != n {
+				if channel > 0 && (got != n || finished != done) {
 					return ops.Clipboard{}, fmt.Errorf("clipboard.convert: channel clocks differ")
 				}
-				n = got
+				n, done = got, finished
 			}
 		}
-		if !zeros {
+		if !flushing {
 			read += int64(count)
 		}
-		start := 0
-		if stream != nil {
-			start = min(n, stream.skip)
-			stream.skip -= start
+		if done && written+int64(n) != frames {
+			return ops.Clipboard{}, fmt.Errorf("clipboard.convert: incomplete flushed tail")
 		}
-		n = int(min(int64(n-start), frames-written))
 		if n == 0 {
 			continue
 		}
 		for target := range mixed {
 			stage := mixed[target][:n]
 			if outChannels >= sourceChannels {
-				copy(stage, output[target%sourceChannels][start:start+n])
+				copy(stage, output[target%sourceChannels][:n])
 			} else {
-				copy(stage, output[target][start:start+n])
+				copy(stage, output[target][:n])
 				contributors := 1
 				for source := target + outChannels; source < sourceChannels; source += outChannels {
-					vecmath.AddBlockInPlace(stage, output[source][start:start+n])
+					vecmath.AddBlockInPlace(stage, output[source][:n])
 					contributors++
 				}
 				if contributors > 1 {

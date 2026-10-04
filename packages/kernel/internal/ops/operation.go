@@ -9,7 +9,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/memory"
-	vecmath "github.com/cwbudde/algo-vecmath"
+	"github.com/cwbudde/algo-dsp/dsp/signal"
 )
 
 const maxSafeFrames = 1<<53 - 1
@@ -403,10 +403,9 @@ func validateMixBudget(frames int64, channels int) error {
 }
 
 func mix(channel audiobuf.Channel, start int64, window audiobuf.Window) (audiobuf.Channel, error) {
-	// Movement/conversion scratch is bounded to one mono block. Summation is
-	// delegated to vecmath, with no clipping or local sample arithmetic.
+	// Movement scratch is bounded to two mono float32 blocks. Summation is
+	// delegated upstream, with no clipping or local sample arithmetic.
 	left, right := make([]float32, audiobuf.BlockFrames), make([]float32, audiobuf.BlockFrames)
-	a, b := make([]float64, audiobuf.BlockFrames), make([]float64, audiobuf.BlockFrames)
 	blocks := make([]*audiobuf.Block, 0, int((window.Frames()+audiobuf.BlockFrames-1)/audiobuf.BlockFrames))
 	for offset := int64(0); offset < window.Frames(); offset += audiobuf.BlockFrames {
 		count := int(min(int64(audiobuf.BlockFrames), window.Frames()-offset))
@@ -415,12 +414,8 @@ func mix(channel audiobuf.Channel, start int64, window audiobuf.Window) (audiobu
 		if n := window.Read(right[:count], offset); n != count {
 			return audiobuf.Channel{}, fmt.Errorf("mix: clipboard read %d of %d frames", n, count)
 		}
-		for i := range count {
-			a[i], b[i] = float64(left[i]), float64(right[i])
-		}
-		vecmath.AddBlock(a[:count], a[:count], b[:count])
-		for i := range count {
-			left[i] = float32(a[i])
+		if err := signal.AddInto32(left[:count], left[:count], right[:count]); err != nil {
+			return audiobuf.Channel{}, fmt.Errorf("mix: add: %w", err)
 		}
 		block, err := audiobuf.NewBlock(left[:count])
 		if err != nil {
