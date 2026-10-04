@@ -120,6 +120,7 @@ async function fixture() {
     playPreview: vi.fn().mockResolvedValue(undefined),
     stopPreview: vi.fn().mockResolvedValue(undefined),
     onEdited: vi.fn(),
+    onRecorded: vi.fn(),
     onError: vi.fn(),
   };
   const ui = renderHook((props) => useEffects(props), { initialProps: options });
@@ -167,6 +168,7 @@ it("holds the document fence through private live preview, serializes latest con
   expect(f.result.current.view).toBeUndefined();
   expect(f.locked()).toBe(false);
   expect(f.options.onEdited).not.toHaveBeenCalled();
+  expect(f.options.onRecorded).not.toHaveBeenCalled();
   expect(f.call.mock.calls.some(([method]) => method === "process.commit")).toBe(false);
 });
 it("applies the ordered rack exactly once using the selected channels and one authoritative history reply", async () => {
@@ -195,6 +197,7 @@ it("applies the ordered rack exactly once using the selected channels and one au
   ]);
   expect(f.call.mock.calls.filter(([method]) => method === "process.commit")).toHaveLength(1);
   expect(f.options.onEdited).toHaveBeenCalledOnce();
+  expect(f.options.onRecorded).toHaveBeenCalledOnce();
   expect(f.result.current.view).toBeUndefined();
   expect(f.locked()).toBe(false);
 });
@@ -213,8 +216,10 @@ it("discards a failed offline job before retry and keeps errors inside the dialo
   });
   expect(f.result.current.view).toMatchObject({ phase: "idle", error: "render failed" });
   expect(f.options.onEdited).not.toHaveBeenCalled();
+  expect(f.options.onRecorded).not.toHaveBeenCalled();
   await act(async () => f.result.current.apply());
   expect(f.options.onEdited).toHaveBeenCalledOnce();
+  expect(f.options.onRecorded).toHaveBeenCalledOnce();
 });
 it("invalidates clipping acknowledgement when the rack changes", async () => {
   const f = await fixture();
@@ -226,10 +231,12 @@ it("invalidates clipping acknowledgement when the rack changes", async () => {
   await act(async () => f.result.current.apply());
   expect(f.result.current.view?.phase).toBe("ready");
   expect(f.options.onEdited).not.toHaveBeenCalled();
+  expect(f.options.onRecorded).not.toHaveBeenCalled();
   act(() => f.result.current.change({ wet: 0.5 }));
   expect(f.result.current.view?.phase).toBe("idle");
   await act(async () => f.result.current.apply());
   expect(f.options.onEdited).not.toHaveBeenCalled();
+  expect(f.options.onRecorded).not.toHaveBeenCalled();
   await act(async () => f.result.current.cancel());
 });
 it("refetches rate-dependent descriptors and uses the old audio callbacks during replacement cleanup", async () => {

@@ -522,20 +522,22 @@ export interface EffectPreviewResult extends SelectionResult {
   bypass: boolean;
 }
 
-/** Version 1 native CLI/MCP chains reuse the UI's control payloads.
+/** Version 1 editor/native CLI/MCP chains reuse the UI's control payloads.
  * Selection fields are optional and default to the current kernel selection.
- * The native session supplies documentId and follows identity changes.
+ * range: "document" resolves current dimensions and excludes explicit start/end.
+ * Runners supply documentId and follow committed identity changes.
  */
 type RecordedParams<T extends SelectionResult> = T extends unknown
   ? Omit<T, keyof SelectionResult> & Partial<SelectionRange>
   : never;
-export type RecordedOperation =
+export type RecordedOperation = { range?: "document" } & (
   | { method: "edit.apply"; params: RecordedParams<EditApplyParams> }
   | {
       method: "process.start";
       params: RecordedParams<Exclude<ProcessStartParams, { operation: "extract-channel" }>>;
     }
-  | { method: "effects.apply"; params: RecordedParams<EffectPreviewParams> };
+  | { method: "effects.apply"; params: RecordedParams<EffectPreviewParams> }
+);
 export interface OperationChain {
   version: 1;
   operations: RecordedOperation[];

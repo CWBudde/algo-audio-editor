@@ -17,6 +17,9 @@
                   "params": {
                     "additionalProperties": true,
                     "type": "object"
+                  },
+                  "range": {
+                    "type": "string"
                   }
                 },
                 "required": ["method", "params"],
@@ -154,6 +157,9 @@
             "params": {
               "additionalProperties": true,
               "type": "object"
+            },
+            "range": {
+              "type": "string"
             }
           },
           "required": ["method", "params"],

@@ -112,6 +112,7 @@ function mounted(overrides: Partial<EditOptions> = {}) {
     info,
     beforeEdit: vi.fn(async () => {}),
     onEdited: vi.fn(),
+    onRecorded: vi.fn(),
     confirmConversion: vi.fn(async () => true),
     onError: vi.fn(),
     ...overrides,
@@ -315,6 +316,7 @@ describe("useEdit", () => {
     await pending;
     expect(worker.calls("edit.apply")).toHaveLength(0);
     expect(options.onEdited).not.toHaveBeenCalled();
+    expect(options.onRecorded).not.toHaveBeenCalled();
     expect(result.current.busy).toBe(false);
   });
 
@@ -350,6 +352,7 @@ describe("useEdit", () => {
     });
     await pending;
     expect(options.onEdited).not.toHaveBeenCalled();
+    expect(options.onRecorded).not.toHaveBeenCalled();
     expect(result.current.clipboard).toBeUndefined();
     await act(async () => next.reply(next.calls("edit.state")[0], empty));
     expect(result.current.clipboard).toEqual(empty);
@@ -375,6 +378,7 @@ describe("useEdit", () => {
     await act(async () => worker.fail(worker.calls("edit.apply")[0]));
     await pending;
     expect(options.onEdited).not.toHaveBeenCalled();
+    expect(options.onRecorded).not.toHaveBeenCalled();
     expect(options.onError).toHaveBeenCalledWith("Could not insert-silence", expect.any(Error));
   });
 
@@ -397,6 +401,7 @@ describe("useEdit", () => {
     );
     await next;
     expect(options.onEdited).toHaveBeenCalledOnce();
+    expect(options.onRecorded).toHaveBeenCalledOnce();
   });
 
   it("does not apply or report a late failure after unmount during stop", async () => {
@@ -409,6 +414,7 @@ describe("useEdit", () => {
     expect(worker.calls("edit.apply")).toHaveLength(0);
     expect(options.onError).not.toHaveBeenCalled();
     expect(options.onEdited).not.toHaveBeenCalled();
+    expect(options.onRecorded).not.toHaveBeenCalled();
   });
 
   it("releases pending confirmation on unmount without waiting for the dialog owner", async () => {

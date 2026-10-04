@@ -1,7 +1,7 @@
 # Native automation and MCP
 
 `aae-mcp` runs the editor's Go kernel as a local stdio MCP server. `aae` runs
-the same kernel and recorded operation chains as a single-file CLI. Both work
+the same kernel and recorded operation chains as a single-file or batch CLI. Both work
 without Electron, a browser, WASM or an audio device. DSP and codecs remain in
 the engine and its tagged upstream dependencies.
 
@@ -134,8 +134,8 @@ A version 1 chain stores the UI protocol method and its control parameters:
 {
   "version": 1,
   "operations": [
-    {"method": "process.start", "params": {"operation": "gain", "gainDb": -6}},
-    {"method": "process.start", "params": {"operation": "resample", "sampleRate": 44100, "quality": "balanced"}}
+    {"method": "process.start", "range": "document", "params": {"operation": "gain", "gainDb": -6}},
+    {"method": "process.start", "range": "document", "params": {"operation": "resample", "sampleRate": 44100, "quality": "balanced"}}
   ]
 }
 ```
@@ -143,8 +143,14 @@ A version 1 chain stores the UI protocol method and its control parameters:
 The accepted methods are `edit.apply`, `process.start` and `effects.apply`.
 Omit `documentId` from their `params`; the runner supplies the current engine
 identity. Missing `start`, `end` and `channelMask` use the current selection
-at that step. Supply frame fields explicitly for fades, crops or other scoped
-operations. Inspect `list_operations` and `list_effects` before choosing
+at that step. The optional operation-level `"range": "document"` instead uses
+the current whole document, following each file's dimensions and preceding
+structural edits. It cannot be combined with `start` or `end`; an explicit
+`channelMask` can restrict channels. Supply frame fields explicitly for fades,
+crops or other scoped operations. A recorded paste with no `clipboardVersion`
+binds to the current engine clipboard, allowing earlier recorded copy/cut steps
+to supply it. Headless paste needs a preceding copy/cut step; clipboard audio
+is never serialized. Inspect `list_operations` and `list_effects` before choosing
 parameters. `extract-channel` is excluded because it creates another document;
 loading convolution impulse resources through MCP is also pending.
 
@@ -163,7 +169,44 @@ Omit `--chain` for format conversion without processing. `--float`, `--dither`
 and `--overwrite` are available; `--help` lists flags. A successful run prints
 the output path, encoded byte count and completed operation count as JSON.
 On failure it exits nonzero and prints the wrapped error on stderr. The CLI
-writes output only after the whole chain succeeds.
+writes a file only after its whole chain succeeds.
+
+For multiple files, repeat `--input` and use `--output-dir`:
+
+```sh
+packages/kernel/bin/aae \
+  --input /absolute/path/first.wav \
+  --input /absolute/path/second.mp3 \
+  --chain /absolute/path/chain.json \
+  --output-dir /absolute/path/audio-output \
+  --allow-write /absolute/path/audio-output \
+  --suffix=-mastered --format flac --bit-depth 16
+```
+
+The existing output directory receives `first-mastered.flac` and
+`second-mastered.flac`. The default suffix is `-processed`. Duplicate output
+names and unauthorized paths fail preflight before audio is read. Each file
+uses a fresh engine, selection, clipboard and history. Files run sequentially;
+stdout emits one JSON result per attempted file, including `input` and either
+success details or `error`. A failed file produces no output; other files
+continue by default. `--fail-fast` stops at the first failure. Any failed file
+makes the final exit status nonzero. Successful outputs remain on disk if
+another file fails or the process is interrupted. Existing files require the
+explicit `--overwrite` flag.
+
+In the editor, File → **Record new macro** clears the current chain and begins
+recording successful edit, processing and effect requests. The header indicator
+and File → **Stop recording macro** end recording. File → **Macros and
+automation…** lists the steps, imports/exports the JSON and applies the chain
+to the current document, with progress and cancellation. It uses the shared
+document lock and stops playback before replay. Whole-document steps adapt;
+partial selections and spectral geometry retain sample coordinates. Previews,
+Undo/Redo, timeline and metadata actions are excluded. Undo during recording
+does not remove previously recorded requests. Noise profiles, channel extraction
+and loaded convolution IRs stop recording with an explanation while retaining
+the preceding chain; editor import also rejects these session-bound operations.
+The chain remains in memory until the page closes; export JSON to retain it.
+The UI batch file-list/output dialog remains pending.
 
 Each changing step creates its own history entry, subject to the kernel's
 history limits. A failing chain returns an MCP tool error with `result.applied`,
@@ -188,9 +231,9 @@ documents lose their resources. Waveform PNG/peak resources are pending.
 
 The server offers `mastering_check`, `podcast_cleanup` and `batch_convert`
 prompts. They guide inspection, schema discovery and explicit output choices;
-they do not automatically execute operations. Batch UI and macro recording
-remain Phase 12 work. HTTP transport and editing the running Electron session
-remain Phase 14 work.
+they do not automatically execute operations. The batch file-list/output dialog
+and the 100-file UI acceptance remain Phase 12 work. HTTP transport and editing
+the running Electron session remain Phase 14 work.
 
 `just test-go` exercises actual MCP client/server messages in memory and a
 native stdio child process. Tests cover golden advertised schemas, descriptor
@@ -198,8 +241,15 @@ pagination, independent documents, effect/application dry runs, resources,
 partial-chain errors, save points and filesystem confinement/no-clobber.
 The same gain/reverse chain through MCP, the CLI runner and an independently
 driven UI protocol sequence produces byte-identical float WAV output, checked
-against the reviewed Phase 3 IEEE-754 vectors. This verifies the operation
-path, not interactive clicks in Claude or the editor UI.
+against the reviewed Phase 3 IEEE-754 vectors. Production browser regressions
+also exercise actual macro recording, JSON export, exact processing/effect
+replay, clipboard versions, structural edits and undoable failures. Electron
+coverage records via native menus, writes macro JSON through the file grant
+and replays/undoes it. On Linux, the compiled CLI produces byte-identical float
+WAV from the browser-recorded/exported gain/reverse macro. `batch_test.go`
+processes 100 files through normalization to −16 LUFS, both edge fades and
+44.1 kHz/16-bit FLAC; every file matches the independent UI-method oracle.
+Interactive Claude host acceptance remains pending.
 
 Review schema changes before deliberately updating the golden with
 `UPDATE_MCP_SCHEMAS=1 just test-go`. `just ci` includes native race tests and the

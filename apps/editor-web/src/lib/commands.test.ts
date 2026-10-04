@@ -482,3 +482,16 @@ it("fences restoration by profile, spectral geometry, channel layout and modal s
     ).toBe(false);
   }
 });
+
+it("gates macro recording by document, active recording and modal state", () => {
+  expect(enabled("file.automation", { info: undefined })).toBe(true);
+  expect(enabled("file.record-macro", { info: undefined })).toBe(false);
+  expect(enabled("file.record-macro")).toBe(true);
+  expect(enabled("file.record-macro", { recordingMacro: true })).toBe(false);
+  expect(enabled("file.stop-recording")).toBe(false);
+  expect(enabled("file.stop-recording", { recordingMacro: true })).toBe(true);
+  for (const id of ["file.automation", "file.record-macro", "file.stop-recording"] as const) {
+    expect(enabled(id, { recordingMacro: true, busy: true })).toBe(false);
+    expect(enabled(id, { recordingMacro: true, modalOpen: true })).toBe(false);
+  }
+});

@@ -8,12 +8,14 @@ import type {
 } from "@aae/protocol";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KernelClient } from "@/kernel/client";
+import type { AppliedOperation } from "@/lib/operation-chain";
 
 export interface EditOptions {
   client: KernelClient | undefined;
   info: DocumentInfoResult | undefined;
   busy?: boolean;
   beforeEdit(): Promise<void>;
+  onRecorded?(operation: AppliedOperation, info: DocumentInfoResult): void;
   onEdited(result: EditResult, sourceDocumentId: string): void;
   confirmConversion(plan: PastePlan): Promise<boolean>;
   onError(action: string, error: unknown): void;
@@ -129,17 +131,19 @@ export function useEdit(options: EditOptions) {
           await latest.current.beforeEdit();
           if (!active()) return;
         }
-        const result = await client.call("edit.apply", {
+        const params = {
           documentId: sourceDocumentId,
           ...range,
           operation: kind,
           ...(frames === undefined ? {} : { frames }),
           ...(clipboardVersion === undefined ? {} : { clipboardVersion }),
           ...(convert === undefined ? {} : { convert }),
-        });
+        };
+        const result = await client.call("edit.apply", params);
         if (!active()) return;
         clipboardRevision.current++;
         setClipboard({ client, value: result.clipboard });
+        latest.current.onRecorded?.({ method: "edit.apply", params }, info);
         latest.current.onEdited(result, sourceDocumentId);
       };
       try {
@@ -155,7 +159,15 @@ export function useEdit(options: EditOptions) {
     [],
   );
 
+  const acceptClipboard = useCallback((value: ClipboardInfo) => {
+    const client = latest.current.client;
+    if (!mounted.current || !client) return;
+    clipboardRevision.current++;
+    setClipboard({ client, value });
+  }, []);
+
   return {
+    acceptClipboard,
     busy,
     clipboard: clipboardState?.client === options.client ? clipboardState?.value : undefined,
     run,

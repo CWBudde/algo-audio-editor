@@ -21,6 +21,9 @@ const MaxChainOperations = 64
 type Operation struct {
 	Method string         `json:"method"`
 	Params map[string]any `json:"params"`
+	// Document ranges adapt to each file and to preceding structural edits.
+	// Empty range retains the original current-selection default.
+	Range string `json:"range,omitempty"`
 }
 
 type Chain struct {
@@ -88,6 +91,16 @@ func ValidateOperation(op Operation) error {
 	if _, ok := op.Params["documentId"]; ok {
 		return fmt.Errorf("operation: omit documentId from params; the runner supplies it")
 	}
+	if op.Range != "" && op.Range != "document" {
+		return fmt.Errorf("operation: range must be omitted or document")
+	}
+	if op.Range == "document" {
+		for _, key := range []string{"start", "end"} {
+			if _, exists := op.Params[key]; exists {
+				return fmt.Errorf("operation: document range cannot include %s", key)
+			}
+		}
+	}
 	var target any
 	switch op.Method {
 	case protocol.MethodEditApply:
@@ -133,6 +146,13 @@ func Apply(ctx context.Context, e *engine.Engine, documentID string, op Operatio
 	if _, err := Call(e, protocol.MethodSelectionGet, protocol.SelectionGetParams{DocumentID: documentID}, nil, &selection); err != nil {
 		return result, err
 	}
+	if op.Range == "document" {
+		var info protocol.DocumentInfoResult
+		if _, err := Call(e, protocol.MethodDocumentInfo, nil, nil, &info); err != nil {
+			return result, err
+		}
+		selection.Start, selection.End, selection.ChannelMask = 0, info.Frames, (1<<info.Channels)-1
+	}
 	params := make(map[string]any, len(op.Params)+4)
 	for key, value := range op.Params {
 		params[key] = value
@@ -146,6 +166,18 @@ func Apply(ctx context.Context, e *engine.Engine, documentID string, op Operatio
 	if op.Method == protocol.MethodEditApply {
 		if dryRun {
 			return result, fmt.Errorf("operation: dry-run is currently supported for processing and effects only")
+		}
+		// Clipboard versions fence UI requests, but are session-specific. An
+		// omitted version binds a recorded paste to this engine's clipboard.
+		kind, _ := params["operation"].(string)
+		if kind == "paste-insert" || kind == "paste-replace" || kind == "paste-mix" {
+			if _, exists := params["clipboardVersion"]; !exists {
+				var clipboard protocol.ClipboardInfo
+				if _, err := Call(e, protocol.MethodEditState, nil, nil, &clipboard); err != nil {
+					return result, err
+				}
+				params["clipboardVersion"] = clipboard.Version
+			}
 		}
 		result.Edit = new(protocol.EditResult)
 		_, err := Call(e, op.Method, params, nil, result.Edit)

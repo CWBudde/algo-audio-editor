@@ -9,6 +9,9 @@ export type CommandId =
   | "file.save"
   | "file.export"
   | "file.metadata"
+  | "file.automation"
+  | "file.record-macro"
+  | "file.stop-recording"
   | "edit.undo"
   | "edit.redo"
   | "edit.cut"
@@ -72,6 +75,7 @@ export type CommandId =
 export type ShortcutPlatform = "mac" | "other";
 
 export interface CommandContext {
+  recordingMacro?: boolean;
   ready: boolean;
   busy: boolean;
   audioReady: boolean;
@@ -128,7 +132,19 @@ interface Definition {
 export const COMMAND_MENUS: readonly { label: string; items: readonly (CommandId | "-")[] }[] = [
   {
     label: "File",
-    items: ["file.new", "file.open", "-", "file.save", "file.export", "-", "file.metadata"],
+    items: [
+      "file.new",
+      "file.open",
+      "-",
+      "file.save",
+      "file.export",
+      "-",
+      "file.metadata",
+      "-",
+      "file.automation",
+      "file.record-macro",
+      "file.stop-recording",
+    ],
   },
   {
     label: "Edit",
@@ -318,6 +334,19 @@ function pasteAvailable(c: CommandContext, mode: "insert" | "replace" | "mix"): 
 
 const mod = (key: string, shift = false): Shortcut => ({ key, mod: true, shift });
 const definitions: readonly Definition[] = [
+  { id: "file.automation", label: "Macros and automation…", menu: "File", enabled: available },
+  {
+    id: "file.record-macro",
+    label: "Record new macro",
+    menu: "File",
+    enabled: (c) => documentAvailable(c) && !c.recordingMacro,
+  },
+  {
+    id: "file.stop-recording",
+    label: "Stop recording macro",
+    menu: "File",
+    enabled: (c) => available(c) && Boolean(c.recordingMacro),
+  },
   { id: "file.metadata", label: "File metadata…", menu: "File", enabled: documentAvailable },
   {
     id: "process.capture-noise-profile",

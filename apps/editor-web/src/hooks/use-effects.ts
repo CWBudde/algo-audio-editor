@@ -21,6 +21,7 @@ import {
   storeEffectIR,
 } from "@/lib/effect-presets";
 import { createRackEffect, rackGraph, validRack } from "@/lib/effect-rack";
+import type { AppliedOperation } from "@/lib/operation-chain";
 
 export interface EffectsOptions {
   client?: KernelClient;
@@ -31,6 +32,7 @@ export interface EffectsOptions {
   preparePreview(info: DocumentInfoResult): Promise<void>;
   playPreview(info: DocumentInfoResult, preview: EffectPreviewResult): Promise<void>;
   stopPreview(): Promise<void>;
+  onRecorded?(operation: AppliedOperation, info: DocumentInfoResult): void;
   onEdited(result: EditResult, sourceDocumentId: string): void;
   onError(action: string, error: unknown): void;
 }
@@ -431,7 +433,8 @@ export function useEffects(options: EffectsOptions) {
             });
             s.job = undefined;
           }
-          const job = await s.client.call("effects.apply", request(s));
+          const params = request(s);
+          const job = await s.client.call("effects.apply", params);
           s.job = job;
           if (s.closing || !owns(s)) return;
           const ready =
@@ -456,8 +459,21 @@ export function useEffects(options: EffectsOptions) {
             documentId: s.info.documentId,
             jobId: ready.jobId,
           });
-          if (mounted.current && latest.current.client === s.client)
+          if (mounted.current && latest.current.client === s.client) {
+            latest.current.onRecorded?.(
+              {
+                method: "effects.apply",
+                params: {
+                  ...params,
+                  start: ready.start,
+                  end: ready.end,
+                  channelMask: ready.channelMask,
+                },
+              },
+              s.info,
+            );
             latest.current.onEdited(result, s.info.documentId);
+          }
           s.job = undefined;
           await removeImpulses(s, true).catch((error) => {
             latest.current.onError("Could not release impulse responses", error);

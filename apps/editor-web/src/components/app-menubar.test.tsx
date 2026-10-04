@@ -15,6 +15,9 @@ const commands: readonly ResolvedCommand[] = [
   },
   { id: "file.save", label: "Save", menu: "File", enabled: false },
   { id: "file.metadata", label: "File metadata…", menu: "File", enabled: true },
+  { id: "file.automation", label: "Macros and automation…", menu: "File", enabled: true },
+  { id: "file.record-macro", label: "Record new macro", menu: "File", enabled: true },
+  { id: "file.stop-recording", label: "Stop recording macro", menu: "File", enabled: false },
   { id: "view.zoom-in", label: "Zoom In", menu: "View", enabled: true },
   { id: "help.about", label: "About this editor", menu: "Help", enabled: true },
 ];
@@ -90,8 +93,16 @@ describe("AppMenubar", () => {
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.dataset.commandId),
-    ).toEqual(["file.new", "file.open", "file.save", "file.metadata"]);
-    expect(within(menu).getAllByRole("separator")).toHaveLength(2);
+    ).toEqual([
+      "file.new",
+      "file.open",
+      "file.save",
+      "file.metadata",
+      "file.automation",
+      "file.record-macro",
+      "file.stop-recording",
+    ]);
+    expect(within(menu).getAllByRole("separator")).toHaveLength(3);
     expect(queryByRole("menuitem", { name: "About this editor" })).toBeNull();
   });
   it("groups effects into ordered submenus while retaining rack access and live availability", async () => {

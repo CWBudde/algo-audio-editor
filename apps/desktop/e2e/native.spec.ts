@@ -269,3 +269,58 @@ test("a second process routes open-with to the existing window and records succe
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("native macro commands record, export JSON to disk, replay and undo", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "aae-native-macro-"));
+  const input = path.join(directory, "source.wav"),
+    output = path.join(directory, "macro.json");
+  await writeFile(input, fixture([[0, 0.5, -0.5, 0.25]]));
+  const app = await launchEditor({ args: [path.join(__dirname, ".."), input] });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("document-name")).toHaveText("source.wav");
+    await command(app, "file.record-macro");
+    await expect(page.getByRole("button", { name: "Recording macro · Stop" })).toBeVisible();
+    await command(app, "process.reverse");
+    const process = page.locator("dialog[open]");
+    await process.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect(process).not.toBeVisible();
+    await command(app, "file.stop-recording");
+    await command(app, "file.automation");
+    const dialog = page.getByRole("dialog", { name: "Macros and automation" });
+    await expect(dialog.getByRole("status")).toHaveText("1 operation");
+    await setDialogs(app, { output });
+    await dialog.getByRole("button", { name: "Export chain" }).click();
+    await expect
+      .poll(async () => {
+        try {
+          return JSON.parse(await readFile(output, "utf8"));
+        } catch {
+          return undefined;
+        }
+      })
+      .toEqual({
+        version: 1,
+        operations: [
+          { method: "process.start", range: "document", params: { operation: "reverse" } },
+        ],
+      });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await command(app, "edit.undo");
+    await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
+    await command(app, "file.automation");
+    await dialog.getByRole("button", { name: "Apply macro" }).click();
+    await expect(dialog.getByRole("status")).toContainText("1 of 1 completed");
+    expect(
+      await app.evaluate(
+        ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("file.open")?.enabled,
+      ),
+    ).toBe(false);
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await command(app, "edit.undo");
+    await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
+  } finally {
+    await closeEditor(app);
+    await rm(directory, { recursive: true, force: true });
+  }
+});

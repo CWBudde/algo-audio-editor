@@ -7,6 +7,7 @@ import type {
 } from "@aae/protocol";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { KernelClient } from "@/kernel/client";
+import type { AppliedOperation } from "@/lib/operation-chain";
 import {
   defaultProcessSettings,
   type ProcessSettings,
@@ -23,6 +24,7 @@ export interface ProcessOptions {
   preparePreview(info: DocumentInfoResult): Promise<void>;
   playPreview(info: DocumentInfoResult, job: ProcessJobResult): Promise<void>;
   stopPreview(): Promise<void>;
+  onRecorded?(operation: AppliedOperation, info: DocumentInfoResult): void;
   onEdited(result: EditResult, sourceDocumentId: string): void;
   onExtract?(info: DocumentInfoResult, job: ProcessJobResult): Promise<void>;
   prepareExtract?(): void;
@@ -404,17 +406,35 @@ export function useProcess(options: ProcessOptions) {
           if (operation === "extract-channel") {
             if (!latest.current.onExtract) throw new Error("Channel extraction unavailable");
             await latest.current.onExtract(s.info, s.job);
+            latest.current.onRecorded?.({ method: "process.start", params }, s.info);
             await discard(s);
             await finish(s);
             return;
           }
+          // Record the source range resolved by the kernel. Insertion and
+          // cursor crossfade coordinates retain their requested meaning.
+          const recordedParams =
+            operation === "crossfade" || operation === "generate"
+              ? params
+              : {
+                  ...params,
+                  start: s.job.start,
+                  end: s.job.end,
+                  channelMask: s.job.channelMask,
+                };
           const result = await s.client.call("process.commit", {
             documentId: s.info.documentId,
             jobId: s.job.jobId,
           });
           s.committed = true;
           s.job = undefined;
-          if (owns(s)) latest.current.onEdited(result, s.info.documentId);
+          if (owns(s)) {
+            latest.current.onRecorded?.(
+              { method: "process.start", params: recordedParams },
+              s.info,
+            );
+            latest.current.onEdited(result, s.info.documentId);
+          }
           await finish(s);
         } catch (error) {
           report(s, error);

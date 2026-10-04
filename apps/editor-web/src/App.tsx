@@ -1,4 +1,5 @@
 import type {
+  ClipboardInfo,
   EditOperation,
   EditResult,
   HistoryListResult,
@@ -15,6 +16,7 @@ import { AboutStatusDialog } from "@/components/about-status-dialog";
 import { AnalysisControls } from "@/components/analysis-controls";
 import { AnalysisDialog } from "@/components/analysis-dialog";
 import { AppMenubar } from "@/components/app-menubar";
+import { AutomationDialog } from "@/components/automation-dialog";
 import { CommandPalette } from "@/components/command-palette";
 import { EditToolbar, PasteConversionDialog } from "@/components/edit-toolbar";
 import { EffectsDialog } from "@/components/effects-dialog";
@@ -36,6 +38,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { WaveformPlaceholder } from "@/components/waveform-placeholder";
 import { WaveformView, type WaveformViewHandle } from "@/components/waveform-view";
 import { useAnalysisDialog } from "@/hooks/use-analysis-dialog";
+import { useAutomation } from "@/hooks/use-automation";
 import { useCommands } from "@/hooks/use-commands";
 import { useDesktop } from "@/hooks/use-desktop";
 import { useDocument } from "@/hooks/use-document";
@@ -109,6 +112,7 @@ export default function App() {
   const [, setCommandReady] = useState(true);
   const [silenceValue, setSilenceValue] = useState("48000");
   const acceptHistory = useRef<((history: HistoryListResult) => void) | undefined>(undefined);
+  const acceptClipboard = useRef<((clipboard: ClipboardInfo) => void) | undefined>(undefined);
   const confirmation = useRef<
     | {
         client: typeof client;
@@ -179,6 +183,7 @@ export default function App() {
   const onEdited = useCallback(
     (result: EditResult, sourceDocumentId: string) => {
       acceptHistory.current?.(result.history);
+      if (result.clipboard) acceptClipboard.current?.(result.clipboard);
       if (!result.changed) return;
       editedDocument.current = { client, id: result.document.documentId };
       doc.replaceInfo(result.document, sourceDocumentId);
@@ -199,6 +204,14 @@ export default function App() {
       setPosition(engine?.position() ?? 0);
     }
   }, [engine]);
+  const automation = useAutomation({
+    client,
+    info: doc.info,
+    busy: doc.busy,
+    withOperation: doc.withOperation,
+    beforeEdit,
+    onEdited,
+  });
   const history = useHistory({
     client,
     info: doc.info,
@@ -210,6 +223,7 @@ export default function App() {
   });
   acceptHistory.current = history.accept;
   const edit = useEdit({
+    onRecorded: automation.record,
     client,
     info: doc.info,
     busy: doc.busy || history.busy,
@@ -219,6 +233,7 @@ export default function App() {
     confirmConversion,
     onError: (action, error) => reportError(action)(error),
   });
+  acceptClipboard.current = edit.acceptClipboard;
   const busy = doc.busy || edit.busy || history.busy;
   const playbackMeters = usePlaybackMeters(client, doc.info, metersOpen);
   const analysis = useAnalysisDialog({
@@ -246,6 +261,7 @@ export default function App() {
     onError: (action, error) => reportError(action)(error),
   });
   const effects = useEffects({
+    onRecorded: automation.record,
     client,
     info: doc.info,
     busy,
@@ -279,6 +295,7 @@ export default function App() {
     onError: (action, error) => reportError(action)(error),
   });
   const processing = useProcess({
+    onRecorded: automation.record,
     client,
     info: doc.info,
     busy,
@@ -448,6 +465,7 @@ export default function App() {
     );
   const { commands, execute } = useCommands({
     getContext: () => ({
+      recordingMacro: automation.recording,
       ready: Boolean(client),
       audioReady: Boolean(engine),
       busy,
@@ -470,6 +488,7 @@ export default function App() {
       modalOpen: Boolean(
         desktopClosing ||
           pastePlan ||
+          automation.open ||
           processing.view ||
           effects.view ||
           exporting.view ||
@@ -481,6 +500,9 @@ export default function App() {
     paletteOpen,
     onError: (_id, error) => reportError("Command failed")(error),
     actions: {
+      "file.automation": automation.show,
+      "file.record-macro": automation.startRecording,
+      "file.stop-recording": automation.stopRecording,
       "file.metadata": metadata.open,
       "process.capture-noise-profile": () => {
         const range = waveformView.current?.selectionState() ?? selection;
@@ -632,7 +654,8 @@ export default function App() {
     busy:
       busy ||
       Boolean(
-        processing.view ||
+        automation.open ||
+          processing.view ||
           effects.view ||
           exporting.view ||
           analysis.view ||
@@ -643,6 +666,7 @@ export default function App() {
       Boolean(client) &&
       !desktopClosing &&
       !busy &&
+      !automation.open &&
       !processing.view &&
       !effects.view &&
       !exporting.view &&
@@ -695,6 +719,16 @@ export default function App() {
             <span className="shrink-0 text-xs text-muted-foreground">Development build</span>
           )}
           {!desktop.native && <AppMenubar commands={commands} onExecute={execute} />}
+          {automation.recording && (
+            <button
+              type="button"
+              className="ml-auto shrink-0 rounded border border-destructive px-2 py-1 text-xs text-destructive"
+              disabled={busy}
+              onClick={() => execute("file.stop-recording")}
+            >
+              Recording macro · Stop
+            </button>
+          )}
         </header>
         {kernel.status === "error" && (
           <p
@@ -898,6 +932,7 @@ export default function App() {
         />
       </div>
       <Toaster theme="dark" />
+      <AutomationDialog automation={automation} canReplay={Boolean(client && doc.info && !busy)} />
       <AnalysisDialog
         view={analysis.view}
         onCancel={analysis.cancel}

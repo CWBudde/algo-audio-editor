@@ -121,6 +121,7 @@ function setup(operation: ProcessOperation = "gain", overrides: Partial<ProcessO
     playPreview: vi.fn().mockResolvedValue(undefined),
     stopPreview: vi.fn().mockResolvedValue(undefined),
     onEdited: vi.fn(),
+    onRecorded: vi.fn(),
     onError: vi.fn(),
     ...overrides,
   };
@@ -148,6 +149,7 @@ it("rebuilds a candidate when any fade setting changes and reuses the exact prep
   await act(async () => s.result.current.apply());
   expect(s.call.mock.calls.filter(([method]) => method === "process.start")).toHaveLength(2);
   expect(s.options.onEdited).toHaveBeenCalledOnce();
+  expect(s.options.onRecorded).toHaveBeenCalledOnce();
 });
 
 it("preserves a resolved noise seed between Preview and Apply", async () => {
@@ -184,6 +186,10 @@ it("reserves the extracted window under the Apply gesture and leaves source hist
   );
   expect(s.call.mock.calls.map(([method]) => method)).toEqual(["process.start", "process.cancel"]);
   expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).toHaveBeenCalledWith(
+    { method: "process.start", params: expect.objectContaining({ operation: "extract-channel" }) },
+    info,
+  );
   expect(s.result.current.view).toBeUndefined();
   expect(s.held()).toBe(false);
 });
@@ -196,6 +202,7 @@ it("closes a reserved extraction window on failure and releases it on Cancel", a
   expect(cancelExtract).toHaveBeenCalledOnce();
   expect(s.options.onError).toHaveBeenCalledWith("Could not process audio", expect.any(Error));
   expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
   await act(async () => s.result.current.cancel());
   expect(cancelExtract).toHaveBeenCalledTimes(2);
   expect(s.held()).toBe(false);
@@ -239,10 +246,12 @@ it("holds a shared document lock, prepares under the gesture and previews withou
   expect(s.result.current.view).toMatchObject({ phase: "ready", previewing: true });
   expect(s.call.mock.calls.map(([method]) => method)).toEqual(["process.start"]);
   expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
   expect(s.held()).toBe(true);
   await act(async () => s.result.current.cancel());
   expect(s.options.stopPreview).toHaveBeenCalledOnce();
   expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
   expect(s.result.current.view).toBeUndefined();
   expect(s.held()).toBe(false);
 });
@@ -266,6 +275,7 @@ it("requires a separate clipping acknowledgement and reuses the prepared candida
   await act(async () => s.result.current.apply(true));
   expect(s.runProcess).toHaveBeenCalledOnce();
   expect(s.options.onEdited).toHaveBeenCalledOnce();
+  expect(s.options.onRecorded).toHaveBeenCalledOnce();
 });
 
 it.each([
@@ -301,6 +311,7 @@ it.each([
     expect(s.held()).toBe(true);
     expect(s.call.mock.calls.map(([method]) => method)).toEqual(["process.start"]);
     expect(s.options.onEdited).not.toHaveBeenCalled();
+    expect(s.options.onRecorded).not.toHaveBeenCalled();
     expect(onExtract).not.toHaveBeenCalled();
     let pending: Promise<void> | undefined;
     act(() => {
@@ -316,6 +327,7 @@ it.each([
       "process.cancel",
     ]);
     expect(s.options.onEdited).not.toHaveBeenCalled();
+    expect(s.options.onRecorded).toHaveBeenCalledOnce();
     expect(s.held()).toBe(false);
   },
 );
@@ -357,6 +369,7 @@ it("cancels while slices are running and holds the lock through the terminal rep
   expect(s.held()).toBe(false);
   expect(s.options.playPreview).not.toHaveBeenCalled();
   expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
 });
 
 it("cancellation before the start reply discards the eventual job without running or committing", async () => {
@@ -383,6 +396,7 @@ it("cancellation before the start reply discards the eventual job without runnin
     jobId: initialJob.jobId,
   });
   expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
   expect(s.held()).toBe(false);
 });
 
@@ -418,6 +432,7 @@ it("old preview cleanup stops its captured audio engine, not the replacement ses
   expect(s.options.stopPreview).toHaveBeenCalledOnce();
   expect(stopNew).not.toHaveBeenCalled();
   expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
 });
 
 it("serializes Stop preview against another run and waits for it before closing", async () => {
@@ -471,6 +486,7 @@ it("an unexpected cancelled terminal reply leaves a retryable dialog and never c
   await act(async () => s.result.current.apply());
   expect(s.result.current.view).toMatchObject({ phase: "idle", job: undefined });
   expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
   expect(s.call).not.toHaveBeenCalledWith("process.commit", expect.anything());
   await act(async () => s.result.current.cancel());
   expect(s.held()).toBe(false);
@@ -486,6 +502,7 @@ it("a rejected commit discards its private candidate without publishing or relea
   await act(async () => s.result.current.apply());
   expect(s.call).toHaveBeenCalledWith("process.cancel", expect.anything());
   expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
   expect(s.options.onError).toHaveBeenCalledWith("Could not process audio", expect.any(Error));
   expect(s.result.current.view?.phase).toBe("idle");
   expect(s.held()).toBe(true);
@@ -507,6 +524,7 @@ it("unmount cancels a running job and waits for terminal ownership before releas
   await act(async () => running.resolve({ ...initialJob, state: "cancelled" }));
   await waitFor(() => expect(s.held()).toBe(false));
   expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
 });
 
 it("a failed in-flight commit releases its stale session after the document is replaced", async () => {
@@ -531,6 +549,7 @@ it("a failed in-flight commit releases its stale session after the document is r
   expect(s.held()).toBe(false);
   expect(s.result.current.view).toBeUndefined();
   expect(s.options.onEdited).not.toHaveBeenCalled();
+  expect(s.options.onRecorded).not.toHaveBeenCalled();
   act(() => s.result.current.open(range));
   expect(s.result.current.view?.info.documentId).toBe("doc-new");
   await act(async () => s.result.current.cancel());
@@ -588,6 +607,7 @@ it.each(["normalize-peak", "normalize-loudness"] as const)(
     await act(async () => s.result.current.apply());
     expect(s.runProcess).toHaveBeenCalledOnce();
     expect(s.options.onEdited).toHaveBeenCalledOnce();
+    expect(s.options.onRecorded).toHaveBeenCalledOnce();
     expect(s.held()).toBe(false);
   },
 );
@@ -652,6 +672,7 @@ it.each(["analyzing", "processing", "verifying"] as const)(
       await closing;
     });
     expect(s.options.onEdited).not.toHaveBeenCalled();
+    expect(s.options.onRecorded).not.toHaveBeenCalled();
     expect(s.held()).toBe(false);
   },
 );
@@ -665,6 +686,7 @@ it.each(["too short", "nonfinite input", "unstable target"])(
     expect(s.call).toHaveBeenCalledWith("process.cancel", expect.anything());
     expect(s.result.current.view).toMatchObject({ phase: "idle", job: undefined });
     expect(s.options.onEdited).not.toHaveBeenCalled();
+    expect(s.options.onRecorded).not.toHaveBeenCalled();
     expect(s.held()).toBe(true);
     await act(async () => s.result.current.cancel());
   },
@@ -698,4 +720,28 @@ it("silent normalization commits the authoritative unchanged result without inve
   await act(async () => s.result.current.apply());
   expect(s.options.onEdited).toHaveBeenCalledExactlyOnceWith(unchanged, info.documentId);
   expect(s.held()).toBe(false);
+});
+
+it("records the kernel-resolved whole range when processing a cursor", async () => {
+  const s = setup("gain");
+  await act(async () => s.result.current.cancel());
+  act(() => {
+    s.result.current.open({ start: 4, end: 4, channelMask: 2 }, "gain");
+    s.result.current.setParameterText("6");
+  });
+  await act(async () => s.result.current.apply());
+  expect(s.options.onRecorded).toHaveBeenCalledExactlyOnceWith(
+    {
+      method: "process.start",
+      params: {
+        documentId: info.documentId,
+        operation: "gain",
+        gainDb: 6,
+        start: 0,
+        end: info.frames,
+        channelMask: 2,
+      },
+    },
+    info,
+  );
 });

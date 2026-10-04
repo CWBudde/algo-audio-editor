@@ -61,7 +61,11 @@ enabled; editor projects and crash recovery remain Phase 6 work.
 
 `just native-build` builds the headless `aae` CLI and `aae-mcp` stdio server.
 They share the kernel's processing and undo history, with explicit output
-directory permissions. See [native automation and MCP setup](docs/mcp.md).
+directory permissions. File → **Record new macro** records applied operations;
+File → **Macros and automation…** imports/exports the JSON and replays it with
+progress and Undo support. The CLI accepts repeated `--input` files with
+`--output-dir`, per-file JSON results and optional `--fail-fast`. See
+[native automation and MCP setup](docs/mcp.md).
 
 Browser tests start their own production preview. If port 4173 is occupied,
 choose a separate port: `AAE_E2E_PORT=44873 just e2e` (also supported by

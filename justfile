@@ -24,7 +24,7 @@ install:
 wasm-build:
     node scripts/build-wasm.mjs
 
-# Build the native single-file CLI and stdio MCP server (host OS/architecture).
+# Build the native single-file/batch CLI and stdio MCP server (host OS/architecture).
 native-build:
     mkdir -p {{kernel}}/bin
     cd {{kernel}} && go build -trimpath -o bin/ ./cmd/aae ./cmd/aae-mcp
