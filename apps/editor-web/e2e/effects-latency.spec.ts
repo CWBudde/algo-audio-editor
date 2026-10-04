@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { fixture, load, samples } from "./edit-fixture.ts";
+import { showEffectMenuItem } from "./effect-menu.ts";
 import { captureEffectTiming } from "./effect-timing-probe.ts";
 import { sourceState } from "./export-fixture.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
@@ -182,8 +183,7 @@ test.beforeEach(async ({ page }) => {
 test("effect parameter change reaches audible output within 50 ms @timing", async ({ page }) => {
   const source = Array.from({ length: 48000 }, () => 0.5);
   await load(page, [source]);
-  await page.getByRole("menuitem", { name: "Effects", exact: true }).click();
-  await page.locator('[role="menuitem"][data-command-id="effects.distortion"]').click();
+  await (await showEffectMenuItem(page, "distortion")).click();
   const dialog = page.getByRole("dialog", { name: "Effects rack" });
   await expect(dialog.getByTestId("effects-status")).toHaveText("Ready");
   await dialog.getByLabel("Mode", { exact: true }).selectOption("hardclip");
@@ -215,8 +215,7 @@ for (const effectId of ["pitch-time", "pitch-spectral"] as const)
       Math.fround(0.25 * Math.sin((2 * Math.PI * 1000 * index) / 48000)),
     );
     await load(page, [source]);
-    await page.getByRole("menuitem", { name: "Effects", exact: true }).click();
-    await page.locator(`[role="menuitem"][data-command-id="effects.${effectId}"]`).click();
+    await (await showEffectMenuItem(page, effectId)).click();
     const dialog = page.getByRole("dialog", { name: "Effects rack" });
     await expect(dialog.getByTestId("effects-status")).toHaveText("Ready");
     await dialog.getByRole("button", { name: "Preview", exact: true }).click();
@@ -243,8 +242,7 @@ for (const change of ["convolution-wet", "following-distortion"] as const)
     const source = Array.from({ length: 48000 }, () => 0.25);
     await load(page, [source, source]);
     const before = await sourceState(page);
-    await page.getByRole("menuitem", { name: "Effects", exact: true }).click();
-    await page.locator('[role="menuitem"][data-command-id="effects.reverb-conv"]').click();
+    await (await showEffectMenuItem(page, "reverb-conv")).click();
     const dialog = page.getByRole("dialog", { name: "Effects rack" });
     await expect(dialog.getByTestId("effects-status")).toHaveText("Ready");
     // Both channels have a 0.5 first tap and a dense, decaying positive tail.

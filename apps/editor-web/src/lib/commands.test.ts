@@ -396,11 +396,13 @@ describe("pure shortcut matching", () => {
 
 it("registers catalogue menu commands and fences stereo effects on incomplete selected pairs", () => {
   const id: CommandId = "effects.spatial-pan";
-  const effects = [{ id: "spatial-pan", name: "Panner", channelMode: "stereo" as const }];
+  const effects = [
+    { id: "spatial-pan", name: "Panner", category: "Spatial", channelMode: "stereo" as const },
+  ];
   const dynamic = { ...actions, [id]: vi.fn() };
   expect(
     resolveCommands({ ...context, effects }, "other", dynamic).find((command) => command.id === id),
-  ).toMatchObject({ label: "Panner…", enabled: true, menu: "Effects" });
+  ).toMatchObject({ label: "Panner…", enabled: true, menu: "Effects", submenu: "Spatial" });
   expect(
     resolveCommands(
       { ...context, effects, selection: { start: 0, end: 0, channelMask: 2 } },

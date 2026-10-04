@@ -1,4 +1,5 @@
 import type { ClipboardInfo, DocumentInfoResult, SelectionRange } from "@aae/protocol";
+import { effectMenuCategory } from "@/lib/effect-menu";
 import { stereoSelection } from "@/lib/effect-rack";
 import { desktopBridge } from "@/platform";
 
@@ -72,7 +73,12 @@ export interface CommandContext {
   playing: boolean;
   silenceFrames?: number;
   modalOpen?: boolean;
-  effects?: readonly { id: string; name: string; channelMode?: "mono" | "stereo" }[];
+  effects?: readonly {
+    id: string;
+    name: string;
+    category?: string;
+    channelMode?: "mono" | "stereo";
+  }[];
 }
 
 export type CommandActions = Partial<Record<CommandId, () => void | Promise<void>>>;
@@ -81,6 +87,7 @@ export interface ResolvedCommand {
   id: CommandId;
   label: string;
   menu: string;
+  submenu?: string;
   shortcutLabel?: string;
   ariaShortcut?: string;
   enabled: boolean;
@@ -97,6 +104,7 @@ interface Definition {
   id: CommandId;
   label: string;
   menu: string;
+  submenu?: string;
   enabled(context: CommandContext): boolean;
   shortcuts?: readonly Shortcut[];
   globalInText?: boolean;
@@ -565,6 +573,7 @@ export function resolveCommands(
     id: `effects.${effect.id}`,
     label: `${effect.name}…`,
     menu: "Effects",
+    submenu: effectMenuCategory(effect),
     enabled: (current) =>
       processAvailable(current) &&
       (effect.channelMode !== "stereo" || stereoSelection(current.selection?.channelMask ?? 0)),
@@ -573,6 +582,7 @@ export function resolveCommands(
     id: definition.id,
     label: definition.label,
     menu: definition.menu,
+    ...(definition.submenu ? { submenu: definition.submenu } : {}),
     ...(definition.shortcuts?.[0] ? shortcutLabels(definition.shortcuts[0], platform) : {}),
     enabled: Boolean(actions[definition.id] && definition.enabled(context)),
   }));

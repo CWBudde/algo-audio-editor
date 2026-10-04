@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { fixture, LEFT, load, RIGHT, samples, select } from "../../editor-web/e2e/edit-fixture.js";
+import { showEffectMenuItem } from "../../editor-web/e2e/effect-menu.js";
 import { sourceState } from "../../editor-web/e2e/export-fixture.js";
 import { captureKernelWorker } from "../../editor-web/e2e/kernel-probe.js";
 import type { DesktopBridge } from "../../editor-web/src/platform.js";
@@ -23,8 +24,7 @@ test("Electron effects rack preview, one-step apply and durable IR presets use t
     await select(page, 2, 6);
     const before = await sourceState(page);
     const open = async (id: string) => {
-      await page.getByRole("menuitem", { name: "Effects", exact: true }).click();
-      await page.locator(`[role="menuitem"][data-command-id="effects.${id}"]`).click();
+      await (await showEffectMenuItem(page, id)).click();
       const dialog = page.getByRole("dialog", { name: "Effects rack" });
       await expect(dialog.getByTestId("effects-status")).toHaveText("Ready");
       return dialog;

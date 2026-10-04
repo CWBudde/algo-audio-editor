@@ -2,6 +2,7 @@
 import type { EffectDescriptor } from "@aae/protocol";
 import { expect, type Page, test } from "@playwright/test";
 import { fixture, LEFT, load, RIGHT, samples, select } from "./edit-fixture.ts";
+import { showEffectMenuItem } from "./effect-menu.ts";
 import { sourceState } from "./export-fixture.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
 import { revealControl } from "./ui-disclosures.ts";
@@ -15,8 +16,7 @@ async function catalogue(page: Page) {
   );
 }
 async function openEffect(page: Page, id = "rack") {
-  await page.getByRole("menuitem", { name: "Effects", exact: true }).click();
-  await page.locator(`[role="menuitem"][data-command-id="effects.${id}"]`).click();
+  await (await showEffectMenuItem(page, id)).click();
   const dialog = page.getByRole("dialog", { name: "Effects rack" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByTestId("effects-status")).toHaveText("Ready");
@@ -44,6 +44,35 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
 });
+test("Effects presents compact categories with keyboard access to effect commands", async ({
+  page,
+}) => {
+  await load(page);
+  await page.getByRole("menuitem", { name: "Effects", exact: true }).click();
+  await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText([
+    "Effect rack…",
+    "Filters",
+    "Dynamics",
+    "Modulation",
+    "Time/Space",
+    "Pitch",
+    "Spatial",
+    "Color",
+    "Routing",
+  ]);
+  const color = page.getByRole("menuitem", { name: "Color", exact: true });
+  await color.focus();
+  await page.keyboard.press("ArrowRight");
+  const distortion = page.locator('[role="menuitem"][data-command-id="effects.distortion"]');
+  await expect(distortion).toBeVisible();
+  await distortion.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Effects rack" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Effects rack" })).not.toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Effects", exact: true })).toBeFocused();
+});
+
 test("every default registry effect has accessible real controls, live preview and one undoable apply", async ({
   page,
 }) => {
@@ -264,24 +293,28 @@ test("stereo descriptors remain discoverable but disabled for mono and incomplet
     (descriptor) => descriptor.channelMode === "stereo",
   );
   expect(effects.length).toBeGreaterThan(0);
-  await page.getByRole("menuitem", { name: "Effects", exact: true }).click();
-  for (const descriptor of effects)
-    await expect(
-      page.locator(`[role="menuitem"][data-command-id="effects.${descriptor.id}"]`),
-    ).toHaveAttribute("aria-disabled", "true");
-  await page.keyboard.press("Escape");
+  for (const descriptor of effects) {
+    await expect(await showEffectMenuItem(page, descriptor.id)).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+  }
   await load(page);
   await (
     await revealControl(
       page.getByRole("button", { name: "Right", exact: true, includeHidden: true }),
     )
   ).click();
-  await page.getByRole("menuitem", { name: "Effects", exact: true }).click();
-  for (const descriptor of effects)
-    await expect(
-      page.locator(`[role="menuitem"][data-command-id="effects.${descriptor.id}"]`),
-    ).toHaveAttribute("aria-disabled", "true");
-  await page.keyboard.press("Escape");
+  for (const descriptor of effects) {
+    await expect(await showEffectMenuItem(page, descriptor.id)).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+  }
   const dialog = await openEffect(page);
   for (const descriptor of effects)
     await expect(

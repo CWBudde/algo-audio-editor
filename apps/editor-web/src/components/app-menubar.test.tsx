@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { COMMAND_MENUS, type ResolvedCommand } from "@/lib/commands";
 import { AppMenubar } from "./app-menubar";
@@ -92,5 +92,50 @@ describe("AppMenubar", () => {
     ).toEqual(["file.new", "file.open", "file.save"]);
     expect(within(menu).getAllByRole("separator")).toHaveLength(1);
     expect(queryByRole("menuitem", { name: "About this editor" })).toBeNull();
+  });
+  it("groups effects into ordered submenus while retaining rack access and live availability", async () => {
+    const onExecute = vi.fn();
+    const effects: ResolvedCommand[] = [
+      {
+        id: "effects.distortion",
+        label: "Distortion…",
+        menu: "Effects",
+        submenu: "Color",
+        enabled: false,
+      },
+      {
+        id: "effects.chorus",
+        label: "Chorus…",
+        menu: "Effects",
+        submenu: "Modulation",
+        enabled: true,
+      },
+      { id: "effects.rack", label: "Effect rack…", menu: "Effects", enabled: true },
+    ];
+    const { getByRole, findByRole, queryByRole, rerender } = render(
+      <AppMenubar commands={effects} onExecute={onExecute} />,
+    );
+    fireEvent.click(getByRole("menuitem", { name: "Effects" }));
+    await findByRole("menuitem", { name: "Effect rack…" });
+    expect(
+      within(getByRole("menu"))
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Effect rack…", "Modulation", "Color"]);
+    expect(queryByRole("menuitem", { name: "Distortion…" })).toBeNull();
+    expect(queryByRole("menuitem", { name: "Filters" })).toBeNull();
+    fireEvent.click(getByRole("menuitem", { name: "Color" }));
+    const distortion = await findByRole("menuitem", { name: "Distortion…" });
+    expect(distortion.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(distortion);
+    expect(onExecute).not.toHaveBeenCalled();
+    rerender(
+      <AppMenubar
+        commands={effects.map((command) => ({ ...command, enabled: true }))}
+        onExecute={onExecute}
+      />,
+    );
+    fireEvent.click(getByRole("menuitem", { name: "Distortion…" }));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledExactlyOnceWith("effects.distortion"));
   });
 });
