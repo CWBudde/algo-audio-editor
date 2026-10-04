@@ -1,27 +1,43 @@
 /// <reference lib="dom" />
 
+import type { DocumentInfoResult } from "@aae/protocol";
 import { type Download, expect, type Page } from "@playwright/test";
 import type { HistoryListResult, TimelineResult } from "../../../packages/protocol/src/index.js";
-import { info } from "./edit-fixture.js";
 
 export async function sourceState(page: Page) {
-  const document = await info(page);
-  return page.evaluate(
-    async (document) => ({
-      document,
-      history: (await window.__aaeTest?.request("history.list", {
-        documentId: document.documentId,
-      })) as HistoryListResult,
-      timeline: (await window.__aaeTest?.request("timeline.get", {
-        documentId: document.documentId,
-      })) as TimelineResult,
-      selection: await window.__aaeTest?.request("selection.get", {
-        documentId: document.documentId,
-      }),
-    }),
-    document,
-  );
+  return page.evaluate(async () => {
+    const probe = window.__aaeTest;
+    if (!probe) throw new Error("kernel probe missing");
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const document = (await probe.request("doc.info")) as DocumentInfoResult;
+      try {
+        const snapshot = {
+          document,
+          history: (await probe.request("history.list", {
+            documentId: document.documentId,
+          })) as HistoryListResult,
+          timeline: (await probe.request("timeline.get", {
+            documentId: document.documentId,
+          })) as TimelineResult,
+          selection: await probe.request("selection.get", { documentId: document.documentId }),
+        };
+        const current = (await probe.request("doc.info")) as DocumentInfoResult;
+        if (current.documentId === document.documentId) return snapshot;
+      } catch (error) {
+        const current = (await probe.request("doc.info")) as DocumentInfoResult;
+        // Undo may replace the document between these read-only RPCs. A stable identity failure is a product error.
+        if (
+          current.documentId === document.documentId ||
+          !(error instanceof Error) ||
+          !error.message.includes("stale or invalid document identity")
+        )
+          throw error;
+      }
+    }
+    throw new Error("document kept changing while reading source state");
+  });
 }
+
 export async function openExport(page: Page) {
   await page.getByRole("menuitem", { name: "File", exact: true }).click();
   await page.locator('[role="menuitem"][data-command-id="file.export"]').click();

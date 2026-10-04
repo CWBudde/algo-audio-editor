@@ -165,6 +165,7 @@ describe("processing runner", () => {
     const bridge: KernelBridge = {
       call: calls,
       takeData: vi.fn(() => new Uint8Array()),
+      copyMeters: vi.fn(() => 0),
       render: vi.fn(() => 0),
     };
     const listener = vi.fn();
@@ -193,6 +194,7 @@ describe("processing runner", () => {
     const bridge: KernelBridge = {
       call: vi.fn(() => JSON.stringify({ ok: false, error: "process.stepBatch: source changed" })),
       takeData: vi.fn(() => new Uint8Array()),
+      copyMeters: vi.fn(() => 0),
       render: vi.fn(() => 0),
     };
     const listener = vi.fn();

@@ -1,4 +1,8 @@
 import {
+  type AnalysisJobParams,
+  type AnalysisJobResult,
+  type AnalysisSpectrumParams,
+  type AnalysisSpectrumResult,
   type BinaryDocumentParams,
   type DocumentInfoResult,
   type HelloResult,
@@ -10,6 +14,7 @@ import {
   type ResultOf,
 } from "@aae/protocol";
 import type { RingBufferInit, RingBufferStats } from "@/audio/ring-buffer";
+import { validAnalysisProgress } from "./analysis-runner";
 import type { WorkerOp, WorkerReply, WorkerRequest } from "./messages";
 import { validProcessProgress } from "./process-runner";
 
@@ -33,6 +38,12 @@ interface Pending {
   resolve(value: unknown): void;
   reject(reason: Error): void;
   timer: ReturnType<typeof setTimeout>;
+  analysis?: {
+    listener?: (progress: AnalysisJobResult) => void;
+    documentId: string;
+    jobId: string;
+    progress?: AnalysisJobResult;
+  };
   process?: {
     params: ProcessJobParams;
     progress?: ProcessJobResult;
@@ -47,6 +58,7 @@ export interface KernelClientOptions {
   timeoutMs?: number;
   bootTimeoutMs?: number;
   processTimeoutMs?: number;
+  analysisTimeoutMs?: number;
 }
 
 /** Promise-based RPC client for the kernel worker. */
@@ -59,12 +71,14 @@ export class KernelClient {
   private readonly timeoutMs: number;
   private readonly bootTimeoutMs: number;
   private readonly processTimeoutMs: number;
+  private readonly analysisTimeoutMs: number;
 
   constructor(worker: WorkerLike, options: KernelClientOptions = {}) {
     this.worker = worker;
     this.timeoutMs = options.timeoutMs ?? 5_000;
     this.bootTimeoutMs = options.bootTimeoutMs ?? 30_000;
     this.processTimeoutMs = options.processTimeoutMs ?? 15_000;
+    this.analysisTimeoutMs = options.analysisTimeoutMs ?? 60_000;
     worker.addEventListener("message", (event) => this.onMessage(event.data));
   }
 
@@ -146,6 +160,55 @@ export class KernelClient {
     return this.request({ op: "stream.stop" }) as Promise<void>;
   }
 
+  attachMeters(buffer?: SharedArrayBuffer): Promise<void> {
+    return this.request({ op: "meters.attach", buffer }) as Promise<void>;
+  }
+
+  /** Bounded worker steps yield to playback; abort discards only this job. */
+  runAnalysis(
+    params: AnalysisJobParams,
+    onProgress?: (progress: AnalysisJobResult) => void,
+    signal?: AbortSignal,
+  ): Promise<AnalysisJobResult> {
+    const abort = () => {
+      void this.call("analysis.cancel", params).catch(() => {});
+    };
+    if (signal?.aborted) {
+      abort();
+      return Promise.reject(new DOMException("Analysis cancelled", "AbortError"));
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+    return (
+      this.request(
+        { op: "analysis.run", ...params },
+        this.analysisTimeoutMs,
+        undefined,
+        undefined,
+        { ...params, listener: onProgress },
+      ) as Promise<AnalysisJobResult>
+    ).finally(() => signal?.removeEventListener("abort", abort));
+  }
+
+  /** A bounded live snapshot has its own job, independent of offline tiles. */
+  runSpectrum(
+    params: AnalysisSpectrumParams,
+    signal?: AbortSignal,
+  ): Promise<AnalysisSpectrumResult> {
+    if (signal?.aborted)
+      return Promise.reject(new DOMException("Spectrum cancelled", "AbortError"));
+    const requestId = this.nextId;
+    const abort = () => {
+      void this.request({ op: "spectrum.cancel", requestId }).catch(() => {});
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    return (
+      this.request(
+        { op: "spectrum.run", params },
+        this.analysisTimeoutMs,
+      ) as Promise<AnalysisSpectrumResult>
+    ).finally(() => signal?.removeEventListener("abort", abort));
+  }
+
   /** Called once if the kernel dies; also immediately if it already has. */
   onFatal(listener: (error: string) => void): () => void {
     if (this.fatal !== undefined) listener(this.fatal);
@@ -164,6 +227,7 @@ export class KernelClient {
     timeoutMs = this.timeoutMs,
     transfer?: Transferable[],
     process?: Pending["process"],
+    analysis?: Pending["analysis"],
   ): Promise<unknown> {
     if (this.fatal !== undefined) {
       return Promise.reject(new KernelError(`kernel unavailable: ${this.fatal}`));
@@ -172,6 +236,13 @@ export class KernelClient {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
+        if (op.op === "spectrum.run")
+          void this.request({ op: "spectrum.cancel", requestId: id }).catch(() => {});
+        if (analysis)
+          void this.call("analysis.cancel", {
+            documentId: analysis.documentId,
+            jobId: analysis.jobId,
+          }).catch(() => {});
         if (process || (op.op === "call" && op.method.startsWith("process."))) {
           this.fatalTimeout(
             id,
@@ -184,7 +255,7 @@ export class KernelClient {
         this.pending.delete(id);
         reject(new KernelTimeoutError(`${describe(op)} timed out after ${timeoutMs} ms`));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer, process });
+      this.pending.set(id, { resolve, reject, timer, process, analysis });
       try {
         this.worker.postMessage({ id, ...op }, transfer);
       } catch (err) {
@@ -204,6 +275,28 @@ export class KernelClient {
 
     const entry = this.pending.get(msg.id);
     if (!entry) return; // already timed out
+    if (msg.kind === "analysis.progress") {
+      const analysis = entry.analysis;
+      if (!analysis || !validAnalysisProgress(msg.progress, analysis, analysis.progress)) return;
+      analysis.progress = msg.progress;
+      clearTimeout(entry.timer);
+      entry.timer = setTimeout(() => {
+        this.pending.delete(msg.id);
+        void this.call("analysis.cancel", {
+          documentId: analysis.documentId,
+          jobId: analysis.jobId,
+        }).catch(() => {});
+        entry.reject(
+          new KernelTimeoutError(`analysis.run inactive for ${this.analysisTimeoutMs} ms`),
+        );
+      }, this.analysisTimeoutMs);
+      try {
+        analysis.listener?.(msg.progress);
+      } catch {
+        /* Observers do not own the RPC lifecycle. */
+      }
+      return;
+    }
     if (msg.kind === "process.progress") {
       const process = entry.process;
       if (!process || !validProcessProgress(msg.progress, process.params, process.progress)) return;
@@ -239,6 +332,19 @@ export class KernelClient {
     }
     this.pending.delete(msg.id);
     clearTimeout(entry.timer);
+    if (
+      msg.ok &&
+      entry.analysis &&
+      (!validAnalysisProgress(msg.result, entry.analysis, entry.analysis.progress) ||
+        msg.result.state === "running")
+    ) {
+      void this.call("analysis.cancel", {
+        documentId: entry.analysis.documentId,
+        jobId: entry.analysis.jobId,
+      }).catch(() => {});
+      entry.reject(new KernelError("analysis.run returned invalid terminal progress"));
+      return;
+    }
     if (
       msg.ok &&
       entry.process &&

@@ -1,4 +1,5 @@
 import {
+  type AnalysisJobResult,
   type DocumentInfoResult,
   type ExportResult,
   type PeaksGetResult,
@@ -74,6 +75,98 @@ const progress: ProcessJobResult = {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+const analysisProgress: AnalysisJobResult = {
+  documentId: "doc-1",
+  jobId: "analysis-1",
+  kind: "pitch",
+  state: "running",
+  start: 0,
+  end: 100,
+  channelMask: 1,
+  processedFrames: 0,
+  totalFrames: 100,
+  sampleRate: 48000,
+  channels: [0],
+  dataBytes: 0,
+  integratedLUFS: null,
+};
+describe("Analysis and meter transport", () => {
+  it("shares a meter SAB without putting it in a transferable list", async () => {
+    const worker = new FakeWorker((req) => ({
+      kind: "reply",
+      id: req.id,
+      ok: true,
+      result: undefined,
+    }));
+    const buffer = new SharedArrayBuffer(1600);
+    await new KernelClient(worker).attachMeters(buffer);
+    expect(worker.sent[0]).toMatchObject({ op: "meters.attach", buffer });
+    expect(worker.transfers[0]).toBeUndefined();
+  });
+  it("renews inactivity on cooperative valid progress and isolates observer exceptions", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker(),
+      client = new KernelClient(worker, { analysisTimeoutMs: 20 });
+    const observer = vi.fn(() => {
+      throw new Error("observer");
+    });
+    const pending = client.runAnalysis(analysisProgress, observer);
+    await vi.advanceTimersByTimeAsync(16);
+    worker.emit({ kind: "analysis.progress", id: worker.sent[0].id, progress: analysisProgress });
+    await vi.advanceTimersByTimeAsync(19);
+    expect(worker.sent).toHaveLength(1);
+    expect(observer).toHaveBeenCalledOnce();
+    worker.emit({
+      kind: "reply",
+      id: worker.sent[0].id,
+      ok: true,
+      result: { ...analysisProgress, state: "ready", processedFrames: 100 },
+    });
+    await expect(pending).resolves.toMatchObject({ state: "ready" });
+    expect(worker.terminated).toBe(false);
+  });
+  it("cancels only its timed-out analysis job and leaves transport alive", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker((req) =>
+      req.op === "call"
+        ? {
+            kind: "reply",
+            id: req.id,
+            ok: true,
+            result: { ...analysisProgress, state: "cancelled" },
+          }
+        : undefined,
+    );
+    const client = new KernelClient(worker, { analysisTimeoutMs: 20 });
+    const pending = expect(client.runAnalysis(analysisProgress)).rejects.toBeInstanceOf(
+      KernelTimeoutError,
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    await pending;
+    expect(worker.sent.at(-1)).toMatchObject({
+      op: "call",
+      method: "analysis.cancel",
+      params: { documentId: "doc-1", jobId: "analysis-1" },
+    });
+    expect(worker.terminated).toBe(false);
+  });
+  it("rejects unknown-worker terminal identity and cleans its own kernel slot", async () => {
+    const worker = new FakeWorker((req) => ({
+      kind: "reply",
+      id: req.id,
+      ok: true,
+      result: { ...analysisProgress, state: "ready", documentId: "stale" },
+    }));
+    await expect(new KernelClient(worker).runAnalysis(analysisProgress)).rejects.toThrow(
+      "invalid terminal progress",
+    );
+    expect(worker.sent.at(-1)).toMatchObject({
+      method: "analysis.cancel",
+      params: { documentId: "doc-1", jobId: "analysis-1" },
+    });
+  });
 });
 
 describe("KernelClient", () => {

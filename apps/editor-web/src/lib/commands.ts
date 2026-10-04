@@ -48,6 +48,14 @@ export type CommandId =
   | "process.resample"
   | "process.generate"
   | "effects.rack"
+  | "analyze.meters"
+  | "analyze.spectrum"
+  | "analyze.statistics"
+  | "analyze.pitch"
+  | "analyze.clipping"
+  | "view.waveform"
+  | "view.spectrogram"
+  | "view.split-spectral"
   | `effects.${string}`;
 
 export type ShortcutPlatform = "mac" | "other";
@@ -142,8 +150,28 @@ export const COMMAND_MENUS: readonly { label: string; items: readonly (CommandId
   },
   { label: "Effects", items: ["effects.rack"] },
   {
+    label: "Analyze",
+    items: [
+      "analyze.meters",
+      "analyze.spectrum",
+      "-",
+      "analyze.statistics",
+      "analyze.pitch",
+      "analyze.clipping",
+    ],
+  },
+  {
     label: "View",
-    items: ["view.zoom-in", "view.zoom-out", "view.zoom-fit", "view.zoom-selection"],
+    items: [
+      "view.zoom-in",
+      "view.zoom-out",
+      "view.zoom-fit",
+      "view.zoom-selection",
+      "-",
+      "view.waveform",
+      "view.spectrogram",
+      "view.split-spectral",
+    ],
   },
   {
     label: "Transport",
@@ -403,6 +431,29 @@ const definitions: readonly Definition[] = [
   },
   { id: "process.generate", label: "Generate audio…", menu: "Process", enabled: validSelection },
   { id: "effects.rack", label: "Effect rack…", menu: "Effects", enabled: processAvailable },
+  { id: "analyze.meters", label: "Playback meters", menu: "Analyze", enabled: processAvailable },
+  {
+    id: "analyze.spectrum",
+    label: "Spectrum analyzer",
+    menu: "Analyze",
+    enabled: processAvailable,
+  },
+  {
+    id: "analyze.statistics",
+    label: "Audio statistics…",
+    menu: "Analyze",
+    enabled: processAvailable,
+  },
+  { id: "analyze.pitch", label: "Pitch tracking…", menu: "Analyze", enabled: processAvailable },
+  { id: "analyze.clipping", label: "Detect clipping…", menu: "Analyze", enabled: processAvailable },
+  { id: "view.waveform", label: "Waveform lanes", menu: "View", enabled: documentAvailable },
+  { id: "view.spectrogram", label: "Spectrogram lanes", menu: "View", enabled: processAvailable },
+  {
+    id: "view.split-spectral",
+    label: "Waveform and spectrogram",
+    menu: "View",
+    enabled: processAvailable,
+  },
   {
     id: "view.zoom-in",
     label: "Zoom In",

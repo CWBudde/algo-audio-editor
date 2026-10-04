@@ -51,7 +51,19 @@ export async function load(page: Page, channels = [LEFT, RIGHT], rate = 48_000) 
     mimeType: "audio/wav",
     buffer: fixture(channels, rate),
   });
-  await expect.poll(async () => (await info(page)).documentId).not.toBe(previous);
+  await expect
+    .poll(async () => {
+      try {
+        return (await info(page)).documentId;
+      } catch (error) {
+        // File.arrayBuffer and playback shutdown finish before the first document is installed.
+        // Retry only this expected loading state; other kernel failures must remain visible.
+        if (error instanceof Error && error.message.includes("doc.info: no document is open"))
+          return previous;
+        throw error;
+      }
+    })
+    .not.toBe(previous);
   await expect(page.getByTestId("document-details")).toContainText(
     `${rate} Hz · ${channels.length} channel${channels.length === 1 ? "" : "s"} · ${channels[0].length} frames`,
   );

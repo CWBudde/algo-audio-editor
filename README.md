@@ -5,12 +5,14 @@ An audio editor that runs in the browser and as a desktop app. All audio work
 WebAssembly** on top of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp)
 family. The UI is **React + TypeScript + shadcn**.
 
-> **Status:** WAV editing, processing and effects described in [PLAN.md](PLAN.md): WAV import/export,
+> **Status:** WAV editing, processing, effects and analysis described in [PLAN.md](PLAN.md): WAV import/export,
 > interactive waveforms, playback, channel-aware selections and editing in the
 > browser and Electron, with undo/redo, persistent markers/regions, save-point
 > tracking, shared commands and a searchable command palette. Processing includes
 > gain, normalization, fades and a descriptor-driven effects rack with live
 > preview, factory/user presets and cancellable, undoable offline application.
+> Analysis adds playback metering, spectrum and spectrogram views, document
+> statistics, pitch tracking and clipping markers.
 
 ## Architecture
 
@@ -161,6 +163,46 @@ accepts a mono or stereo WAV impulse response at the document's sample rate,
 up to 30 seconds within a 32 MiB kernel resource budget. Graph preparation is
 bounded to 64 MiB of upstream-estimated workspace. Presets retain the
 original impulse file and reload it into the kernel when restored.
+
+## Analysis and metering
+
+The **Analyze** menu and command palette open output meters, a spectrum
+analyzer, spectrogram views, statistics, pitch tracking and clipping detection.
+A nonempty selection limits offline analysis to its frames and channels; a
+cursor targets the whole document with the selected channel mask.
+
+Output meters show per-channel peak, RMS, peak hold and 4× oversampled true
+peak, plus momentary, short-term and integrated loudness, loudness range and
+stereo phase correlation with a mid/side goniometer. Reset clears the holds and
+loudness measurement. Loudness range is marked provisional during the first
+60 seconds. These meters describe the kernel's rendered output, which runs
+ahead of the audio device; they are enabled while the meter panel is open.
+Loudness uses L/R/C/Ls/Rs order for five channels and L/R/C/LFE/Ls/Rs for
+six, excluding LFE and weighting surrounds. Other channel counts use equal
+weights. Subset analysis retains the original channels' weights.
+
+The spectrum analyzer can inspect the selection or live output, with FFT
+size, window, averaging and fractional-octave smoothing controls. Spectrograms
+show kernel-rendered, colored frequency tiles progressively. Both analyses
+yield between bounded worker steps so playback can continue.
+
+Statistics include peak, RMS, DC offset, crest factor, zero crossings, clipped
+samples and integrated loudness. Pitch tracking uses the upstream YIN
+detector. Clipping detection reports clipped regions and adds markers only
+when requested; adding them creates one undo step. Closing an analysis dialog
+cancels its private job. Results from an earlier document or history state
+cannot commit after an edit.
+
+Published loudness conformance tests use the original
+[EBU loudness test set v5.0](https://tech.ebu.ch/publications/ebu_loudness_test_set)
+(© EBU), extracted outside the repository. Its audio is not redistributed.
+Run `just test-ebu /absolute/path/to/extracted/set` and
+`just test-ebu-wasm /absolute/path/to/extracted/set` to check the editor's
+real WAV import, output meters and offline statistics against the published
+expectations. Ordinary tests also include generated regression signals.
+The published six-channel WAVEEX sequence understates its RIFF length by the
+12-byte `fact` chunk. Its test verifies strict rejection, then corrects only
+that length field in memory; the external file and all audio bytes stay intact.
 
 ## Undo and saving
 

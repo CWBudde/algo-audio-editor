@@ -1,4 +1,9 @@
-import type { KernelMethod, ProcessJobResult } from "@aae/protocol";
+import type {
+  AnalysisJobResult,
+  AnalysisSpectrumParams,
+  KernelMethod,
+  ProcessJobResult,
+} from "@aae/protocol";
 import type { RingBufferInit } from "@/audio/ring-buffer";
 
 /**
@@ -10,6 +15,10 @@ export type WorkerOp =
   | { op: "init"; wasmUrl: string; wasmExecUrl: string }
   | { op: "call"; method: KernelMethod; params: unknown; data?: ArrayBuffer }
   | { op: "process.run"; documentId: string; jobId: string }
+  | { op: "analysis.run"; documentId: string; jobId: string }
+  | { op: "spectrum.run"; params: AnalysisSpectrumParams }
+  | { op: "spectrum.cancel"; requestId: number }
+  | { op: "meters.attach"; buffer?: SharedArrayBuffer }
   | { op: "stream.attach"; ring: RingBufferInit }
   /** Fills the requested preview horizon, or the whole ring for normal playback. */
   | { op: "stream.start"; maxBufferedFrames?: number }
@@ -24,6 +33,7 @@ export interface WorkerResult {
 }
 
 export type WorkerReply =
+  | { kind: "analysis.progress"; id: number; progress: AnalysisJobResult }
   | { kind: "process.progress"; id: number; progress: ProcessJobResult }
   | { kind: "reply"; id: number; ok: true; result: unknown }
   | { kind: "reply"; id: number; ok: false; error: string }

@@ -23,12 +23,20 @@ export function callKernel(
     ),
   ) as KernelResponse<unknown>;
   if (!response.ok) throw new Error(response.error);
+  const analysis = method === "analysis.start" || method === "analysis.step";
+  if (
+    (analysis || method === "analysis.spectrum") &&
+    !(response.result as { dataBytes?: number }).dataBytes
+  )
+    return { result: response.result };
   if (
     method !== "peaks.get" &&
     method !== "doc.export" &&
     method !== "timeline.export" &&
     method !== "process.exportCandidate" &&
-    method !== "effects.response"
+    method !== "effects.response" &&
+    method !== "analysis.spectrum" &&
+    !analysis
   )
     return { result: response.result };
 
@@ -61,6 +69,53 @@ export function callKernel(
         throw new Error("effects.response: nonfinite curve value");
   }
   const result = { ...info, data };
+  if (analysis || method === "analysis.spectrum") validateAnalysisData(method, result);
   if (method === "peaks.get") decodePeaks({ ...(info as PeaksGetInfo), data });
   return { result, transfer: [data] };
+}
+
+function validateAnalysisData(method: string, result: unknown) {
+  const job = result as {
+    kind?: string;
+    state?: string;
+    data: ArrayBuffer;
+    channels: number[] | number;
+    bins?: number;
+    records?: number;
+    width?: number;
+    height?: number;
+  };
+  const channels = Array.isArray(job.channels) ? job.channels.length : job.channels;
+  if (!Number.isInteger(channels) || channels < 1 || channels > 8)
+    throw new Error(`${method}: invalid analysis channels`);
+  let length = 0;
+  if (job.kind === "spectrogram") {
+    if (
+      !Number.isInteger(job.width) ||
+      !Number.isInteger(job.height) ||
+      !job.width ||
+      job.width > 128 ||
+      !job.height ||
+      job.height > 512
+    )
+      throw new Error(`${method}: invalid tile geometry`);
+    length = job.width * job.height * 4;
+  } else if (job.kind === "pitch") {
+    if (!Number.isSafeInteger(job.records) || (job.records ?? -1) < 0)
+      throw new Error(`${method}: invalid pitch records`);
+    length = (job.records ?? 0) * 32;
+  } else {
+    if (!Number.isInteger(job.bins) || !job.bins || job.bins > 4097)
+      throw new Error(`${method}: invalid spectrum bins`);
+    length = channels * job.bins * 16;
+  }
+  if (job.data.byteLength !== length) throw new Error(`${method}: invalid analysis data size`);
+  if (job.kind !== "spectrogram") {
+    const values = new DataView(job.data);
+    for (let offset = 0; offset < length; offset += 8) {
+      const value = values.getFloat64(offset, true);
+      if (Number.isNaN(value) || value === Infinity)
+        throw new Error(`${method}: invalid analysis values`);
+    }
+  }
 }

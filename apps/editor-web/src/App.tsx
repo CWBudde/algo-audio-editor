@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { AudioEngine } from "@/audio/audio-engine";
 import type { RingBufferStats } from "@/audio/ring-buffer";
 import { AboutStatusDialog } from "@/components/about-status-dialog";
+import { AnalysisControls } from "@/components/analysis-controls";
+import { AnalysisDialog } from "@/components/analysis-dialog";
 import { AppMenubar } from "@/components/app-menubar";
 import { CommandPalette } from "@/components/command-palette";
 import { EditToolbar, PasteConversionDialog } from "@/components/edit-toolbar";
@@ -18,7 +20,9 @@ import { EffectsDialog } from "@/components/effects-dialog";
 import { ExportDialog } from "@/components/export-dialog";
 import { HistoryPanel } from "@/components/history-panel";
 import { IconAction } from "@/components/icon-action";
+import { PlaybackMeters } from "@/components/playback-meters";
 import { ProcessDialog } from "@/components/process-dialog";
+import { SpectrumPanel } from "@/components/spectrum-panel";
 import { StatusBar } from "@/components/status-bar";
 import {
   type PlaybackFollow,
@@ -29,6 +33,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WaveformPlaceholder } from "@/components/waveform-placeholder";
 import { WaveformView, type WaveformViewHandle } from "@/components/waveform-view";
+import { useAnalysisDialog } from "@/hooks/use-analysis-dialog";
 import { useCommands } from "@/hooks/use-commands";
 import { useDocument } from "@/hooks/use-document";
 import { useDocumentMemory } from "@/hooks/use-document-memory";
@@ -37,7 +42,9 @@ import { useEffects } from "@/hooks/use-effects";
 import { useExport } from "@/hooks/use-export";
 import { useHistory } from "@/hooks/use-history";
 import { useKernel } from "@/hooks/use-kernel";
+import { usePlaybackMeters } from "@/hooks/use-playback-meters";
 import { useProcess } from "@/hooks/use-process";
+import { DEFAULT_SPECTRAL_SETTINGS, type SpectralSettings } from "@/lib/analysis-settings";
 import {
   cancelExtractionWindow,
   openExtractedChannel,
@@ -77,6 +84,17 @@ export default function App() {
   const [pastePlan, setPastePlan] = useState<PastePlan>();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [informationOpen, setInformationOpen] = useState(false);
+  const [metersOpen, setMetersOpen] = useState(false);
+  const [spectrumOpen, setSpectrumOpen] = useState(false);
+  const [spectralView, setSpectralView] = useState<"waveform" | "spectrogram" | "split">(
+    "waveform",
+  );
+  const [spectralSettings, setSpectralSettings] = useState(DEFAULT_SPECTRAL_SETTINGS);
+  const changeSpectralSettings = useCallback(
+    (change: Partial<SpectralSettings>) =>
+      setSpectralSettings((previous) => ({ ...previous, ...change })),
+    [],
+  );
   const informationButton = useRef<HTMLButtonElement>(null);
   // Preview readiness changes without changing coordinates on pointer-up.
   // Refresh registry availability after the waveform updates its live handle.
@@ -194,6 +212,16 @@ export default function App() {
     onError: (action, error) => reportError(action)(error),
   });
   const busy = doc.busy || edit.busy || history.busy;
+  const playbackMeters = usePlaybackMeters(client, doc.info, metersOpen);
+  const analysis = useAnalysisDialog({
+    client,
+    info: doc.info,
+    busy,
+    beforeEdit,
+    withOperation: doc.withOperation,
+    onEdited,
+    stateId: history.history?.currentStateId,
+  });
   const exporting = useExport({
     client,
     info: doc.info,
@@ -399,12 +427,31 @@ export default function App() {
       silenceFrames: parseSelectionTime(silenceValue, 1, "samples"),
       effects: effects.descriptors,
       modalOpen: Boolean(
-        pastePlan || processing.view || effects.view || exporting.view || informationOpen,
+        pastePlan ||
+          processing.view ||
+          effects.view ||
+          exporting.view ||
+          informationOpen ||
+          analysis.view,
       ),
     }),
     paletteOpen,
     onError: (_id, error) => reportError("Command failed")(error),
     actions: {
+      "analyze.meters": () => setMetersOpen((open) => !open),
+      "analyze.spectrum": () => setSpectrumOpen((open) => !open),
+      "view.waveform": () => setSpectralView("waveform"),
+      "view.spectrogram": () => setSpectralView("spectrogram"),
+      "view.split-spectral": () => setSpectralView("split"),
+      ...Object.fromEntries(
+        (["statistics", "pitch", "clipping"] as const).map((kind) => [
+          `analyze.${kind}`,
+          () => {
+            const range = waveformView.current?.selectionState() ?? selection;
+            if (range) analysis.open(kind, range);
+          },
+        ]),
+      ),
       ...Object.fromEntries(
         effects.descriptors.map((descriptor) => [
           `effects.${descriptor.id}`,
@@ -646,6 +693,16 @@ export default function App() {
             if (file) doc.openFile(file);
           }}
         >
+          {doc.info && spectralView !== "waveform" && (
+            <div className="border-b p-2">
+              <AnalysisControls
+                showAveraging={false}
+                settings={spectralSettings}
+                onChange={changeSpectralSettings}
+                disabled={Boolean(analysis.view)}
+              />
+            </div>
+          )}
           {busy && (
             <p role="status" className="absolute right-3 top-3 text-sm text-muted-foreground">
               Working on document…
@@ -673,11 +730,44 @@ export default function App() {
               onSelectionChange={onSelectionChange}
               onCommandStateChange={setCommandReady}
               initialEdit={editSnapshot?.client === client ? editSnapshot.result : undefined}
+              spectralView={spectralView}
+              spectralSettings={spectralSettings}
+              analysisPaused={Boolean(
+                analysis.view || effects.view || processing.view || exporting.view || busy,
+              )}
+              analysisStateId={history.history?.currentStateId}
             />
           ) : (
             <WaveformPlaceholder />
           )}
         </main>
+        {doc.info && client && spectrumOpen && selection && (
+          <SpectrumPanel
+            client={client}
+            info={doc.info}
+            selection={selection}
+            settings={spectralSettings}
+            onSettings={changeSpectralSettings}
+            playing={playing}
+            paused={Boolean(
+              analysis.view || effects.view || processing.view || exporting.view || busy,
+            )}
+            onClose={() => setSpectrumOpen(false)}
+            stateId={history.history?.currentStateId}
+          />
+        )}
+        {doc.info && metersOpen && (
+          <PlaybackMeters
+            snapshot={playbackMeters.snapshot}
+            error={playbackMeters.error}
+            onReset={() => {
+              void client
+                ?.call("meters.configure", { reset: true })
+                .catch(reportError("Could not reset meters"));
+            }}
+            onClose={() => setMetersOpen(false)}
+          />
+        )}
         <StatusBar
           info={doc.info}
           dirty={history.history?.dirty}
@@ -689,6 +779,11 @@ export default function App() {
         />
       </div>
       <Toaster theme="dark" />
+      <AnalysisDialog
+        view={analysis.view}
+        onCancel={analysis.cancel}
+        onCommit={() => void analysis.commit()}
+      />
       <AboutStatusDialog
         open={informationOpen}
         onClose={() => setInformationOpen(false)}

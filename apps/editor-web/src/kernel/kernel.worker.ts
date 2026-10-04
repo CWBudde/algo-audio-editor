@@ -4,8 +4,11 @@
  * playback ring buffer filled.
  */
 import type { KernelBridge } from "@aae/protocol";
+import { MeterPublisher } from "@/audio/meter-data";
 import { FrameRingBuffer } from "@/audio/ring-buffer";
+import { runAnalysisJob } from "./analysis-runner";
 import { callKernel } from "./kernel-call";
+import { runLiveSpectrum } from "./live-spectrum-runner";
 import type { WorkerReply, WorkerRequest, WorkerResult } from "./messages";
 import { runProcessJob, stepProcessBatch } from "./process-runner";
 import { StreamPump, withStreamRefill } from "./stream-pump";
@@ -30,6 +33,9 @@ let ring: FrameRingBuffer | undefined;
 let pumpTimer: ReturnType<typeof setInterval> | undefined;
 let streamPump: StreamPump | undefined;
 let processRunning = false;
+let meterPublisher: MeterPublisher | undefined;
+const analyses = new Set<string>();
+const spectra = new Set<number>();
 const taskYield = createTaskYield();
 
 function post(msg: WorkerReply, transfer: Transferable[] = []) {
@@ -77,6 +83,7 @@ function pump() {
   if (!kernel || !streamPump) return false;
   try {
     streamPump.fill(kernel);
+    meterPublisher?.publish((target) => kernel?.copyMeters(target) ?? 0);
     if (streamPump.ended) stopPump();
     return !streamPump.ended;
   } catch (err) {
@@ -93,14 +100,82 @@ function stopPump() {
   }
 }
 
+async function spectrum(
+  id: number,
+  params: import("@aae/protocol").AnalysisSpectrumParams,
+): Promise<WorkerResult> {
+  spectra.add(id);
+  try {
+    return await runLiveSpectrum(params, {
+      step: (params) =>
+        withStreamRefill("analysis.spectrum", pumpTimer === undefined ? undefined : pump, () =>
+          callKernel(requireKernel(), "analysis.spectrum", params),
+        ),
+      cancel: (params) => {
+        try {
+          withStreamRefill("analysis.cancel", pumpTimer === undefined ? undefined : pump, () =>
+            callKernel(requireKernel(), "analysis.cancel", params),
+          );
+        } catch {
+          /* Preserve cancellation or snapshot error. */
+        }
+      },
+      yieldTask: taskYield.yieldTask,
+      cancelled: () => !spectra.has(id),
+    });
+  } finally {
+    spectra.delete(id);
+  }
+}
+
 async function handle(req: WorkerRequest): Promise<WorkerResult> {
   switch (req.op) {
     case "init":
       return { result: await boot(req.wasmUrl, req.wasmExecUrl) };
-    case "call":
-      return withStreamRefill(req.method, pumpTimer === undefined ? undefined : pump, () =>
+    case "call": {
+      if (req.method === "analysis.spectrum")
+        return spectrum(req.id, req.params as import("@aae/protocol").AnalysisSpectrumParams);
+      const result = withStreamRefill(req.method, pumpTimer === undefined ? undefined : pump, () =>
         callKernel(requireKernel(), req.method, req.params, req.data),
       );
+      meterPublisher?.publish((target) => requireKernel().copyMeters(target));
+      return result;
+    }
+    case "spectrum.run":
+      return spectrum(req.id, req.params);
+    case "spectrum.cancel":
+      spectra.delete(req.requestId);
+      return { result: undefined };
+    case "meters.attach":
+      meterPublisher = req.buffer ? new MeterPublisher(req.buffer) : undefined;
+      meterPublisher?.publish((target) => requireKernel().copyMeters(target));
+      return { result: undefined };
+    case "analysis.run": {
+      if (analyses.has(req.jobId)) throw new Error("Analysis runner already active");
+      const bridge = requireKernel();
+      const params = { documentId: req.documentId, jobId: req.jobId };
+      analyses.add(req.jobId);
+      try {
+        return await runAnalysisJob(params, {
+          step: (includeData) =>
+            withStreamRefill("analysis.step", pumpTimer === undefined ? undefined : pump, () =>
+              callKernel(bridge, "analysis.step", { ...params, includeData }),
+            ),
+          progress: (progress, transfer) =>
+            post({ kind: "analysis.progress", id: req.id, progress }, transfer),
+          yieldTask: taskYield.yieldTask,
+        });
+      } catch (error) {
+        try {
+          callKernel(bridge, "analysis.cancel", params);
+        } catch {
+          /* Preserve the driver error. */
+        }
+        throw error;
+      } finally {
+        analyses.delete(req.jobId);
+      }
+    }
     case "process.run": {
       if (processRunning) throw new Error("another processing runner is active");
       const bridge = requireKernel();

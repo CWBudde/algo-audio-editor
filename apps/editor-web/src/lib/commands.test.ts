@@ -88,6 +88,7 @@ describe("central command registry", () => {
       "Edit",
       "Process",
       "Effects",
+      "Analyze",
       "View",
       "Transport",
       "Markers",
@@ -412,4 +413,28 @@ it("registers catalogue menu commands and fences stereo effects on incomplete se
       (command) => command.id === id,
     )?.enabled,
   ).toBe(false);
+});
+
+it("keeps analysis discoverable while requiring a nonempty document, valid channels and no modal", () => {
+  for (const id of [
+    "analyze.meters",
+    "analyze.spectrum",
+    "analyze.statistics",
+    "analyze.pitch",
+    "analyze.clipping",
+    "view.spectrogram",
+    "view.split-spectral",
+  ] as const) {
+    expect(enabled(id)).toBe(true);
+    expect(enabled(id, { selection: { start: 0, end: 0, channelMask: 2 } })).toBe(true);
+    for (const blocked of [
+      { busy: true },
+      { modalOpen: true },
+      { ready: false },
+      { info: undefined },
+      { info: { ...info, frames: 0 }, selection: { start: 0, end: 0, channelMask: 3 } },
+      { selection: { start: 0, end: 0, channelMask: 4 } },
+    ])
+      expect(enabled(id, blocked)).toBe(false);
+  }
 });

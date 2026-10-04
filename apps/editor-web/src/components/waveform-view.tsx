@@ -28,12 +28,14 @@ import {
 import { ControlDisclosure } from "@/components/control-disclosure";
 import { IconAction } from "@/components/icon-action";
 import { SelectionBar } from "@/components/selection-bar";
+import { SpectrogramCanvas } from "@/components/spectrogram-canvas";
 import { TimelinePanel } from "@/components/timeline-panel";
 import type { PlaybackFollow } from "@/components/transport-bar";
 import { type PeaksState, usePeaks, useWaveformPeaks } from "@/hooks/use-peaks";
 import { type SelectionOptions, useSelection } from "@/hooks/use-selection";
 import type { KernelClient } from "@/kernel/client";
 import type { PeakViews } from "@/kernel/peak-data";
+import { DEFAULT_SPECTRAL_SETTINGS } from "@/lib/analysis-settings";
 import type { CommandId, ResolvedCommand } from "@/lib/commands";
 import { resolveEditorPalette } from "@/lib/editor-theme";
 import { snapSelectionFrame } from "@/lib/selection";
@@ -88,6 +90,10 @@ interface WaveformViewProps {
   onExportTimeline?(format: "csv" | "labels"): void;
   commands?: readonly ResolvedCommand[];
   onExecute?(id: CommandId): void;
+  spectralView?: "waveform" | "spectrogram" | "split";
+  spectralSettings?: import("@/lib/analysis-settings").SpectralSettings;
+  analysisPaused?: boolean;
+  analysisStateId?: string;
 }
 
 interface ViewState {
@@ -269,6 +275,10 @@ export function WaveformView({
   onExportTimeline,
   commands,
   onExecute,
+  spectralView = "waveform",
+  spectralSettings = DEFAULT_SPECTRAL_SETTINGS,
+  analysisPaused = false,
+  analysisStateId,
 }: WaveformViewProps) {
   const fullRange = useMemo(() => ({ start: 0, end: info.frames }), [info]);
   const [state, setState] = useState<ViewState>({
@@ -1049,7 +1059,13 @@ export function WaveformView({
                   style={{ height: LANE_HEIGHT }}
                   data-testid={`waveform-amplitude-ruler-${channel}`}
                 >
-                  {amplitudeTicks.map((tick) => (
+                  {(spectralView === "spectrogram"
+                    ? [
+                        { value: info.sampleRate / 2, y: 8, label: `${info.sampleRate / 2} Hz` },
+                        { value: 0, y: LANE_HEIGHT - 8, label: "0 Hz" },
+                      ]
+                    : amplitudeTicks
+                  ).map((tick) => (
                     <span
                       key={tick.value}
                       className="absolute right-1 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
@@ -1060,27 +1076,48 @@ export function WaveformView({
                   ))}
                 </div>
                 <div className="relative min-w-0 overflow-hidden" data-testid="waveform-track">
-                  <PeakCanvas
-                    client={client}
-                    info={info}
-                    channel={channel}
-                    viewport={viewport}
-                    width={width}
-                    height={LANE_HEIGHT}
-                    dpr={dpr}
-                    sampleMode={sampleMode}
-                    peaks={
-                      channel === 0 && viewport.start === 0 && viewport.end === info.frames
-                        ? fullPeaks
-                        : undefined
-                    }
-                    onPointerDown={startSelection}
-                    onPointerMove={moveSelection}
-                    onPointerUp={endSelection}
-                    onPointerCancel={cancelSelection}
-                    onLostPointerCapture={cancelSelection}
-                    onDoubleClick={selectRegion}
-                  />
+                  {spectralView !== "spectrogram" && (
+                    <PeakCanvas
+                      client={client}
+                      info={info}
+                      channel={channel}
+                      viewport={viewport}
+                      width={width}
+                      height={LANE_HEIGHT}
+                      dpr={dpr}
+                      sampleMode={sampleMode}
+                      peaks={
+                        channel === 0 && viewport.start === 0 && viewport.end === info.frames
+                          ? fullPeaks
+                          : undefined
+                      }
+                      onPointerDown={startSelection}
+                      onPointerMove={moveSelection}
+                      onPointerUp={endSelection}
+                      onPointerCancel={cancelSelection}
+                      onLostPointerCapture={cancelSelection}
+                      onDoubleClick={selectRegion}
+                    />
+                  )}
+                  {spectralView !== "waveform" && (
+                    <SpectrogramCanvas
+                      client={client}
+                      info={info}
+                      channel={channel}
+                      viewport={viewport}
+                      width={width}
+                      height={LANE_HEIGHT}
+                      settings={spectralSettings}
+                      paused={analysisPaused}
+                      stateId={analysisStateId}
+                      onPointerDown={startSelection}
+                      onPointerMove={moveSelection}
+                      onPointerUp={endSelection}
+                      onPointerCancel={cancelSelection}
+                      onLostPointerCapture={cancelSelection}
+                      onDoubleClick={selectRegion}
+                    />
+                  )}
                   {(selection.channelMask & (1 << channel)) !== 0 &&
                     selectionEnd >= selectionStart && (
                       <div

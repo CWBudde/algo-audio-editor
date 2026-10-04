@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 13
+const Version = 14
 
 // Method names accepted by the kernel's call entry point.
 const (

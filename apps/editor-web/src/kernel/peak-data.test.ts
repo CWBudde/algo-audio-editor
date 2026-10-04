@@ -16,6 +16,7 @@ function bridgeFor(result: PeaksGetResult): KernelBridge {
   return {
     call: vi.fn(() => JSON.stringify({ ok: true, result: info })),
     takeData: vi.fn(() => new Uint8Array(data)),
+    copyMeters: vi.fn(() => 0),
     render: vi.fn(() => 0),
   };
 }

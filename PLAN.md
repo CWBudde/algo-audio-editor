@@ -14,7 +14,7 @@
 >   AudioWorklet "playback"  ◀──── SharedArrayBuffer ring buffer (Atomics indices)
 >   ```
 >   The kernel never runs on the audio thread. Go's GC and runtime cannot meet real-time deadlines, so the worker renders ahead into the ring and the worklet only copies.
-> - **ABI:** `AAEKernel.call(method, json, data?) → json` for control and optional binary input, `AAEKernel.takeData()` for the preceding call's binary output, and `AAEKernel.render(u8, frames, positions?)` for audio and optional int64 document-position tags. Methods and payloads are defined in `packages/kernel/internal/protocol` and mirrored by hand in `packages/protocol`. Bulk data (audio, peaks, files) crosses as transferable `ArrayBuffer`s, never as JSON arrays.
+> - **ABI:** `AAEKernel.call(method, json, data?) → json` for control and optional binary input, `AAEKernel.takeData()` for the preceding call's binary output, `AAEKernel.render(u8, frames, positions?)` for audio and optional int64 document-position tags, and `AAEKernel.copyMeters(u8)` for the reusable binary output-meter snapshot. Methods and payloads are defined in `packages/kernel/internal/protocol` and mirrored by hand in `packages/protocol`. Bulk data (audio, peaks, files, spectra, pitch records, RGBA tiles) crosses as transferable `ArrayBuffer`s or through the SAB, never as JSON arrays.
 > - **Cross-origin isolation** (needed for SharedArrayBuffer) comes from:
 >   - COOP/COEP headers in Vite dev/preview,
 >   - `coi-serviceworker.js` on GitHub Pages,
@@ -368,7 +368,7 @@
 
 ---
 
-## Phase 5: Analysis & Metering
+## ✅ Phase 5: Analysis & Metering — COMPLETE (2026-10-04)
 
 **Goal:** Professional metering during playback and offline analysis of documents.
 
@@ -378,23 +378,27 @@
 
 ### Phase 5.1: Playback meters
 
-- [ ] Peak/RMS meters per channel with peak hold, computed in the kernel render path and published through a small SAB meter block (no RPC per frame)
-- [ ] Loudness meter (momentary, short-term, integrated, LRA) from `measure/loudness`
-- [ ] True peak
-  - [ ] **Upstream (algo-dsp):** a 4× oversampled true-peak meter. `measure/loudness/meter.go` notes "True Peak requires oversampling".
-- [ ] Phase correlation meter and goniometer (vectorscope)
+- [x] `engine/meters.go` computes per-channel peak/RMS, peak hold and true peak from the rendered device-format output without render-path allocations. `copyMeters` publishes a fixed 1536-byte binary snapshot into a seqlocked SAB; `meter-data.ts`, `use-playback-meters.ts` and `PlaybackMeters` read it at display cadence, retaining the last coherent reading during a writer overlap. Metering is enabled only while visible. Native/WASM regressions cover post-effect/post-resample output, reset, short tails, invalid samples, channel layout and zero allocations.
+- [x] Upstream `measure/loudness.StreamingMeter` supplies standards-based momentary, short-term, integrated loudness, maxima and LRA. Expensive gated-history snapshots run once per second and at EOF outside `Render`; the panel displays availability and provisional LRA for the first 60 seconds. Five/six-channel layouts retain physical surround/LFE weights, including selected-channel offline analysis. Synthetic tests and external published EBU fixtures exercise gating, maxima, resets and channel weights.
+- [x] Per-channel true-peak holds include the terminal interpolation tail at natural EOF, displayed in dBTP with explicit meter reset.
+  - [x] **Upstream (algo-dsp):** `measure/truepeak.Meter` implements the ITU-R BS.1770 Annex 2 four-phase, 12-tap interpolation filter with persistent state, float32/float64 input, bounded terminal flush and zero-allocation processing. Tests cover inter-sample overs, chunk boundaries, reset, validation and published EBU true-peak sequences.
+- [x] Upstream `measure/stereo.Analyzer` supplies rolling phase correlation and bounded mid/side points; the meter panel draws its goniometer from the binary snapshot. Regression signals cover mono, identical/opposite stereo, silence and reset.
 
 ### Phase 5.2: Spectral views
 
-- [ ] **Upstream (algo-dsp):** a public streaming STFT (window + hop + algo-fft) and its inverse, the basis for the spectrogram, spectral editing and noise reduction
-- [ ] Spectrum analyzer of the selection or playback (FFT size, window, averaging, fractional-octave smoothing via `dsp/spectrum`)
-- [ ] Spectrogram view as an alternative or split lane view: tiles rendered by the kernel as RGBA (colormap applied in Go), cached per zoom level, rendered progressively
+- [x] **Upstream (algo-dsp):** public persistent `dsp/stft` forward/inverse streams support float32/float64, configurable FFT/window/hop, borrowed bins, bounded finishing and reset. Reconstruction, overlap, terminal-tail, partition invariance and allocation regressions accompany runnable examples.
+- [x] `analysis.go` and `analysis_spectrum.go` compute selection and live-output spectra in bounded jobs. `SpectrumPanel` exposes FFT sizes 256–8192, Hann/Hamming/Blackman/rectangular windows, 1–64-frame averaging and fractional-octave smoothing. Upstream `dsp/spectrum` owns calibrated power conversion, rolling averaging and smoothing; offline windows span the selected interval, while live averages retain actual successive captures. Tests cover channel ordering, DC, normalization, averaging, stale jobs and playback refill between steps.
+- [x] `SpectrogramCanvas` provides waveform/spectrogram/split views sharing viewport and selection controls. The kernel averages every globally aligned FFT hop contributing to each pixel, retains all frequency bins in peak-preserving row bands and applies inferno/viridis/grayscale colormaps to binary RGBA tiles. Kernel/frontend caches are bounded and keyed by history state, range, zoom and settings; running snapshots and transfers are throttled to 20 Hz. Spectrum averaging controls remain spectrum-only. Regressions cover transients, narrow tones between row centers, DC/Nyquist, tile boundaries, progressive columns, same-length edits/undo, cancellation and blank EOF/zoom tails.
 
 ### Phase 5.3: Statistics & detection
 
-- [ ] Statistics dialog: peak, RMS, DC offset, crest factor, zero crossings, clipped samples, integrated loudness (`stats/time`)
-- [ ] Pitch detection and tracking display (`effects/pitch` YIN detector)
-- [ ] Clipping detection with markers at the clipped regions
+- [x] `AnalysisDialog` displays per-selected-channel peak, RMS, DC offset, crest factor, zero crossings and clipped sample counts from upstream `stats/time.Accumulator`, plus gated integrated loudness. Immutable document/history snapshots and bounded analysis steps preserve playback and reject stale results. Native/WASM, component and production shell tests cover physical channel selection, silence, invalid parameters, cancellation and unchanged audio/history.
+- [x] Upstream `dsp/effects/pitch.YINJob` makes the existing YIN calculation resumable with bounded work and no step allocations; the kernel returns binary channel/frame/frequency/confidence records. The dialog plots and lists voiced pitch tracking. Regression signals cover expected frequencies, silence/unvoiced input, limits and cancellation; production shell tests verify a 440 Hz fixture without editing audio.
+- [x] Clipping jobs merge adjacent/overlapping selected-channel runs and report marker counts. **Add clipping markers** commits through one timeline undo transaction without modifying samples. The analysis queue reserves ready clipping jobs until commit/cancel; history/source guards reject stale commits. Engine, bridge, component and browser/Electron regressions verify marker positions, one undo step and unchanged samples.
+- [x] Required algorithms are consumed from official **algo-dsp v0.9.0** (`c37f2f2`), with no replacements or pseudo-versions. The additive upstream release passes full native/race/CI, native 386, actual V8/WASM, zero-allocation fast-path tests and the exported-API release guard. Both protocol mirrors change together to **ABI 14**, including bounded analysis methods and the fixed binary meter layout; the AudioWorklet still only copies samples.
+- [x] Published **EBU test-set v5.0** sequences pass their original tolerances under native Go and actual V8/WASM: upstream checks all **66 applicable sequences**, including shifted/continuous M/S maxima, absolute/relative gating, both programme LRA vectors and true peak (**±0.1 LU loudness, ±1 LU LRA, +0.2/−0.4 dB true peak**). The editor's `ebu_test.go` additionally checks **14 sequences** through actual WAV import, rendered float32 output, the binary meter snapshot and offline statistics; `just test-ebu` / `just test-ebu-wasm` accept an external absolute fixture directory. Fixtures remain outside Git under the EBU usage terms. The original six-channel WAVEEX fixture has a RIFF length 12 bytes too short: its test first verifies strict rejection, then corrects only that length field in an owned memory copy, retaining every audio byte. Production WAV validation is unchanged.
+- [x] Final official-tag verification with `GOWORK=off` passes `just ci`: formatting, native Go lint, WASM vet, Biome, both TypeScript checks, native race/coverage, **860 frontend tests in 59 files**, tidy and production build. The complete actual V8/WASM kernel suite and current family tags pass; native coverage is **91.8% effects / 87.8% engine**. All **110 functional Chromium tests** and **5 Electron tests** pass. Electron exposed expected asynchronous file-import and undo identity transitions in test probes; bounded helper retries preserve the existing deadlines and still fail stable identity errors. Product security and generated UI components are unchanged; the existing nonfatal >500 kB bundle warning remains.
+- [x] Isolated production playback acceptance passes: the full **28,800,000-frame, ten-minute stereo** file progressively paints both channel spectrograms, observes **1209 painted columns**, and completes the measured tile-render window in **17.562 s** with live meters, advancing playback and **zero underruns** before/during/after. `spectrogram-playback.spec.ts` uses a temporary WAV path to retain the full fixture despite Playwright's 50 MB in-memory upload limit. The six existing timing gates also pass unchanged: five effect updates **40.227 / 42.228 / 44.832 / 38.453 / 47.553 ms**, and the cursor's 20 readings have maximum **7 frames** error, all with zero underruns. Timing uses the same muted Chromium output-clock estimate documented in Phase 4; meters deliberately show rendered output ahead of the device.
 
 ---
 

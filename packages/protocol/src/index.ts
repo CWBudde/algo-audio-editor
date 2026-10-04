@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -499,8 +499,102 @@ export interface EffectResponseResult {
   data: ArrayBuffer;
 }
 
+export const METERS_DATA_BYTES = 1536;
+export const METERS_FLOAT64_COUNT = 192;
+export const METERS_CHANNEL_OFFSET = 16;
+export const METERS_CHANNEL_STRIDE = 4;
+export const METERS_GONIOMETER_OFFSET = 64;
+export const METERS_GONIOMETER_CAPACITY = 64;
+export interface MetersConfigureResult {
+  enabled: boolean;
+  byteLength: number;
+  version: number;
+}
+export type AnalysisKind = "statistics" | "pitch" | "spectrum" | "spectrogram" | "clipping";
+export interface AnalysisStartParams extends SelectionResult {
+  kind: AnalysisKind;
+  fftSize?: number;
+  window?: string;
+  averaging?: number;
+  smoothing?: number;
+  hopSize?: number;
+  minHz?: number;
+  maxHz?: number;
+  threshold?: number;
+  channel?: number;
+  width?: number;
+  height?: number;
+  minDB?: number;
+  maxDB?: number;
+  colorMap?: string;
+}
+export interface AnalysisJobParams {
+  documentId: string;
+  jobId: string;
+  includeData?: boolean;
+}
+export interface ChannelStatistics {
+  channel: number;
+  peak: number;
+  rms: number;
+  dc: number;
+  crestDB: number | null;
+  zeroCrossings: number;
+  clippedSamples: number;
+}
+export interface AnalysisJobResult extends SelectionResult {
+  jobId: string;
+  kind: AnalysisKind;
+  state: "running" | "ready" | "cancelled";
+  processedFrames: number;
+  totalFrames: number;
+  sampleRate: number;
+  dataBytes: number;
+  channels: number[];
+  fftSize?: number;
+  bins?: number;
+  width?: number;
+  height?: number;
+  completedColumns?: number;
+  records?: number;
+  statistics?: ChannelStatistics[];
+  integratedLUFS: number | null;
+  markerCount?: number;
+  /** Spectrum: channel-majorFloat64(Hz,dB); pitch:(channel,frame,Hz,confidence); tiles:RGBA8. */
+  data?: ArrayBuffer;
+}
+export interface AnalysisSpectrumParams {
+  jobId?: string;
+  source: "playback";
+  fftSize?: number;
+  window?: string;
+  averaging?: number;
+  smoothing?: number;
+}
+export interface AnalysisSpectrumResult {
+  documentId: string;
+  jobId: string;
+  state: "running" | "ready";
+  source: "playback";
+  sampleRate: number;
+  channels: number;
+  fftSize: number;
+  bins: number;
+  dataBytes: number;
+  data: ArrayBuffer;
+}
+
 /** Every kernel method with its params and result types. */
 export interface KernelMethods {
+  "meters.configure": {
+    params: { enabled?: boolean; reset?: boolean } | undefined;
+    result: MetersConfigureResult;
+  };
+  "analysis.start": { params: AnalysisStartParams; result: AnalysisJobResult };
+  "analysis.step": { params: AnalysisJobParams; result: AnalysisJobResult };
+  "analysis.cancel": { params: AnalysisJobParams; result: AnalysisJobResult };
+  "analysis.commit": { params: AnalysisJobParams; result: EditResult };
+  "analysis.spectrum": { params: AnalysisSpectrumParams; result: AnalysisSpectrumResult };
   "effects.list": {
     params: { sampleRate?: number } | undefined;
     result: { effects: EffectDescriptor[] };
@@ -575,4 +669,6 @@ export interface KernelBridge {
    * EOF; unused sample bytes are zeroed. Diagnostics can omit position tags.
    */
   render(dst: Uint8Array, frames: number, positions?: Uint8Array): number;
+  /** Copies the reusable meter payload; zero means metering is disabled. */
+  copyMeters(dst: Uint8Array): number;
 }

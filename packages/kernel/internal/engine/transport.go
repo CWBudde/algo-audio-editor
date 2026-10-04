@@ -78,6 +78,7 @@ func (e *Engine) playDocument(p protocol.TransportPlayParams) (protocol.Transpor
 		}
 	}
 	e.transport, e.source = t, sourceDocument
+	e.resetMeters()
 	return t.result(), nil
 }
 
@@ -143,6 +144,9 @@ func (e *Engine) makeTransportFromDocument(document audiobuf.Document, start, en
 }
 
 func (e *Engine) stopDocument() protocol.TransportResult {
+	if e.meters != nil && e.meters.frames > 0 {
+		e.meters.flush()
+	}
 	e.source = sourceStopped
 	if e.transport == nil {
 		return protocol.TransportResult{End: e.document.Frames()}
@@ -190,6 +194,7 @@ func (e *Engine) seekDocument(p protocol.TransportSeekParams) (protocol.Transpor
 		t = &documentTransport{start: start, end: end, position: p.Frame, loop: loop}
 	}
 	e.transport, e.source = t, sourceDocument
+	e.resetMeters()
 	return t.result(), nil
 }
 
@@ -218,6 +223,7 @@ func (e *Engine) RenderWithPositions(dst []float32, positions []int64) int {
 			return 0
 		}
 		e.tone.render(output, e.channels)
+		e.recordOutput(output, frames)
 		return frames
 	}
 	t := e.transport
@@ -225,7 +231,9 @@ func (e *Engine) RenderWithPositions(dst []float32, positions []int64) int {
 		return 0
 	}
 	if t.resampled != nil {
-		return t.renderResampled(output, positions)
+		written := t.renderResampled(output, positions)
+		e.recordOutput(output, written)
+		return written
 	}
 	written := 0
 	for written < frames && t.playing {
@@ -281,5 +289,6 @@ func (e *Engine) RenderWithPositions(dst []float32, positions []int64) int {
 		}
 		written += count
 	}
+	e.recordOutput(output, written)
 	return written
 }

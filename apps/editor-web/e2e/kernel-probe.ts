@@ -5,6 +5,8 @@ declare global {
   interface Window {
     __aaeTest?: {
       workers: Worker[];
+      meterBuffer?: SharedArrayBuffer;
+      meterConfigurations: unknown[];
       transfers: { before: number; after: number }[];
       openTimings: { bytes: number; startedAt: number; endedAt: number; rpcMs: number }[];
       peakCalls: {
@@ -35,6 +37,7 @@ export async function captureKernelWorker(page: Page | BrowserContext) {
     let nextId = -100;
     window.__aaeTest = {
       workers,
+      meterConfigurations: [],
       transfers,
       openTimings,
       peakCalls,
@@ -72,10 +75,16 @@ export async function captureKernelWorker(page: Page | BrowserContext) {
       ) {
         const request = message as {
           id?: number;
+          op?: string;
+          buffer?: SharedArrayBuffer;
           method?: string;
           data?: ArrayBuffer;
           params?: { channel: number; startFrame: number; endFrame: number; buckets: number };
         };
+        if (request.op === "meters.attach" && window.__aaeTest)
+          window.__aaeTest.meterBuffer = request.buffer;
+        if (request.method === "meters.configure")
+          window.__aaeTest?.meterConfigurations.push(request.params);
         const before = request.data?.byteLength ?? 0;
         const started = performance.now();
         if (request.method === "peaks.get" && request.id !== undefined && request.params) {

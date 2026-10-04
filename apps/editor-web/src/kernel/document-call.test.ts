@@ -7,6 +7,7 @@ describe("document binary bridge", () => {
     const bridge: KernelBridge = {
       call: vi.fn(() => JSON.stringify({ ok: true, result: { name: "test.wav" } })),
       takeData: vi.fn(),
+      copyMeters: vi.fn(() => 0),
       render: vi.fn(),
     };
     const bytes = new Uint8Array([82, 73, 70, 70]).buffer;
@@ -27,6 +28,7 @@ describe("document binary bridge", () => {
     const bridge: KernelBridge = {
       call: vi.fn(() => JSON.stringify({ ok: true, result: info })),
       takeData: vi.fn(() => bytes),
+      copyMeters: vi.fn(() => 0),
       render: vi.fn(),
     };
     const reply = callKernel(bridge, "doc.export", { format: "wav", bitDepth: 16, float: false });
@@ -43,6 +45,7 @@ describe("document binary bridge", () => {
         }),
       ),
       takeData: vi.fn(() => new Uint8Array(4)),
+      copyMeters: vi.fn(() => 0),
       render: vi.fn(),
     };
     expect(() => callKernel(bridge, "doc.export", {})).toThrow(
@@ -60,6 +63,7 @@ describe("document binary bridge", () => {
     const bridge: KernelBridge = {
       call: vi.fn(() => JSON.stringify({ ok: true, result: info })),
       takeData: vi.fn(() => bytes),
+      copyMeters: vi.fn(() => 0),
       render: vi.fn(),
     };
     const reply = callKernel(bridge, "timeline.export", { documentId: "doc-1", format });
@@ -76,6 +80,7 @@ describe("document binary bridge", () => {
     const bridge: KernelBridge = {
       call: vi.fn(() => JSON.stringify({ ok: true, result: { dataBytes: 100 } })),
       takeData: vi.fn(() => new Uint8Array(4)),
+      copyMeters: vi.fn(() => 0),
       render: vi.fn(),
     };
     expect(() => callKernel(bridge, "timeline.export", {})).toThrow(
@@ -97,6 +102,7 @@ it("takes the effect curve's binary slot before another RPC can overwrite it and
       return JSON.stringify({ ok: true, result: {} });
     }),
     takeData: vi.fn(() => slot),
+    copyMeters: vi.fn(() => 0),
     render: vi.fn(),
   };
   const response = callKernel(bridge, "effects.response", { effectId: "eq-parametric" });
@@ -110,7 +116,7 @@ it("takes the effect curve's binary slot before another RPC can overwrite it and
 it("rejects bad effect bulk lengths and never takes stale data from a rejected response", () => {
   const takeData = vi.fn(() => new Uint8Array(16));
   const call = vi.fn(() => JSON.stringify({ ok: true, result: { count: 2, dataBytes: 32 } }));
-  const bridge = { call, takeData, render: vi.fn() };
+  const bridge = { call, takeData, copyMeters: vi.fn(() => 0), render: vi.fn() };
   expect(() => callKernel(bridge, "effects.response", {})).toThrow("bulk data length");
   takeData.mockClear();
   call.mockReturnValue(JSON.stringify({ ok: false, error: "invalid effect" }));

@@ -32,6 +32,8 @@ func (e *Engine) guardEffects(method string) error {
 		protocol.MethodEffectsList, protocol.MethodEffectsResponse, protocol.MethodEffectsPreviewUpdate, protocol.MethodEffectsPreviewStop,
 		protocol.MethodEffectsPreviewMeters, protocol.MethodEffectsApply, protocol.MethodEffectsIRLoad:
 		return nil
+	case protocol.MethodMetersConfigure, protocol.MethodAnalysisStart, protocol.MethodAnalysisStep, protocol.MethodAnalysisCancel, protocol.MethodAnalysisSpectrum:
+		return nil
 	default:
 		return fmt.Errorf("%s: effect preview is active", method)
 	}

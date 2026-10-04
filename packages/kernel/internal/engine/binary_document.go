@@ -109,5 +109,9 @@ func (e *Engine) importBinaryDocument(p protocol.BinaryDocumentParams, data []by
 	e.documentSequence++
 	e.sourceBitDepth, e.sourceFloat = 32, true
 	e.transport, e.source = nil, sourceStopped
+	e.resetMeters()
+	e.analysisJob = nil
+	e.analysisCache = nil
+	e.cancelledAnalysis = nil
 	return e.documentInfo()
 }

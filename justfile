@@ -75,6 +75,16 @@ test-go-wasm:
     cd {{kernel}} && GOOS=js GOARCH=wasm go test \
         -exec="env -i $(command -v node) --stack-size=8192 $(go env GOROOT)/lib/wasm/wasm_exec_node.js" ./...
 
+# Opt-in published EBU vectors, supplied externally under the EBU usage terms.
+test-ebu fixtures:
+    fixtures_path='{{fixtures}}'; test -d "$fixtures_path"; case "$fixtures_path" in /*) ;; *) echo "EBU fixture directory must be absolute" >&2; exit 1;; esac; \
+    cd {{kernel}} && GOWORK=off AAE_EBU_TEST_SET="$fixtures_path" go test ./internal/engine -run '^TestPublishedEBU' -count=1
+
+test-ebu-wasm fixtures:
+    fixtures_path='{{fixtures}}'; test -d "$fixtures_path"; case "$fixtures_path" in /*) ;; *) echo "EBU fixture directory must be absolute" >&2; exit 1;; esac; \
+    cd {{kernel}} && GOWORK=off GOOS=js GOARCH=wasm AAE_EBU_TEST_SET="$fixtures_path" go test \
+        -exec="env -i \"AAE_EBU_TEST_SET=$fixtures_path\" $(command -v node) --stack-size=8192 $(go env GOROOT)/lib/wasm/wasm_exec_node.js" ./internal/engine -run '^TestPublishedEBU' -count=1
+
 # Exercise malformed container inputs in the native, shared WAV import path.
 fuzz-wav duration="10s":
     cd {{kernel}} && go test -run '^$' -fuzz '^FuzzWAVOpen$' -fuzztime='{{duration}}' -parallel=2 ./internal/engine

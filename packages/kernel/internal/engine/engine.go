@@ -33,28 +33,36 @@ const (
 // Engine holds the kernel state. It is not safe for concurrent use; the
 // kernel runs on a single worker thread and is driven from one event loop.
 type Engine struct {
-	sampleRate        float64
-	channels          int
-	tone              *toneSource
-	document          audiobuf.Document
-	bulkData          []byte
-	sourceBitDepth    int
-	sourceFloat       bool
-	source            renderSource
-	transport         *documentTransport
-	documentSequence  uint64
-	editor            editorState
-	clipboard         ops.Clipboard
-	clipboardSequence uint64
-	history           *history.History[historySnapshot]
-	processJob        *processingJob
-	processSequence   uint64
-	cancelledProcess  *protocol.ProcessJobResult
-	effectPreview     *effectPreviewSession
-	effectSequence    uint64
-	impulseResponses  map[int]impulseResponse
-	impulseSequence   int
-	impulseBytes      int64
+	sampleRate                   float64
+	channels                     int
+	tone                         *toneSource
+	document                     audiobuf.Document
+	bulkData                     []byte
+	sourceBitDepth               int
+	sourceFloat                  bool
+	source                       renderSource
+	transport                    *documentTransport
+	documentSequence             uint64
+	editor                       editorState
+	clipboard                    ops.Clipboard
+	clipboardSequence            uint64
+	history                      *history.History[historySnapshot]
+	processJob                   *processingJob
+	processSequence              uint64
+	cancelledProcess             *protocol.ProcessJobResult
+	effectPreview                *effectPreviewSession
+	effectSequence               uint64
+	impulseResponses             map[int]impulseResponse
+	impulseSequence              int
+	impulseBytes                 int64
+	meters                       *playbackMeters
+	spectrumHistory              []float32
+	spectrumJob                  *playbackSpectrumJob
+	spectrumWrite, spectrumCount int
+	analysisJob                  *analysisJob
+	analysisSequence             uint64
+	cancelledAnalysis            *protocol.AnalysisJobResult
+	analysisCache                []analysisTileCache
 }
 
 // New returns an engine configured for 48 kHz stereo.
@@ -130,6 +138,14 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 	}
 
 	switch method {
+	case protocol.MethodMetersConfigure:
+		var p protocol.MetersConfigureParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.configureMeters(p)
+	case protocol.MethodAnalysisStart, protocol.MethodAnalysisStep, protocol.MethodAnalysisCancel, protocol.MethodAnalysisCommit, protocol.MethodAnalysisSpectrum:
+		return e.dispatchAnalysis(method, payload)
 	case protocol.MethodEffectsList, protocol.MethodEffectsResponse, protocol.MethodEffectsPreviewStart,
 		protocol.MethodEffectsPreviewUpdate, protocol.MethodEffectsPreviewStop, protocol.MethodEffectsPreviewMeters,
 		protocol.MethodEffectsApply, protocol.MethodEffectsIRLoad, protocol.MethodEffectsIRRemove:
@@ -313,6 +329,14 @@ func (e *Engine) configure(p protocol.EngineConfigureParams) (protocol.EngineCon
 			"%s: channels %d must be in [1, %d]", protocol.MethodEngineConfigure, p.Channels, MaxChannels,
 		)
 	}
+	stagedMeters := e.meters
+	if stagedMeters != nil && (stagedMeters.rate != p.SampleRate || stagedMeters.channels != p.Channels) {
+		var err error
+		stagedMeters, err = newPlaybackMeters(p.SampleRate, p.Channels)
+		if err != nil {
+			return protocol.EngineConfigureResult{}, fmt.Errorf("engine.configure: prepare meters: %w", err)
+		}
+	}
 
 	frequency := e.tone.frequency
 	if e.source != sourceTone && frequency >= p.SampleRate/2 {
@@ -325,6 +349,10 @@ func (e *Engine) configure(p protocol.EngineConfigureParams) (protocol.EngineCon
 
 	e.sampleRate = p.SampleRate
 	e.channels = p.Channels
+	e.meters = stagedMeters
+	e.spectrumHistory = nil
+	e.spectrumWrite = 0
+	e.spectrumCount = 0
 	if e.source == sourceDocument {
 		e.stopDocument()
 	}
@@ -340,6 +368,7 @@ func (e *Engine) configureTone(p protocol.ToneConfigureParams) (protocol.ToneCon
 		e.transport.playing = false
 	}
 	e.source = sourceTone
+	e.resetMeters()
 
 	return protocol.ToneConfigureResult{FrequencyHz: e.tone.frequency, Amplitude: e.tone.amplitude}, nil
 }

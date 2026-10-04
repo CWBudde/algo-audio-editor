@@ -21,6 +21,7 @@ import (
 	"syscall/js"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/engine"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
 
 const bytesPerFloat32 = 4
@@ -147,6 +148,12 @@ func newKernelAPI(eng *engine.Engine) js.Value {
 
 	api.Set("render", js.FuncOf(func(_ js.Value, args []js.Value) any {
 		return bridge.call(eng, args)
+	}))
+	api.Set("copyMeters", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		if len(args) != 1 || args[0].Type() != js.TypeObject || !args[0].InstanceOf(js.Global().Get("Uint8Array")) || args[0].Get("byteLength").Int() < protocol.MetersDataBytes {
+			return 0
+		}
+		return js.CopyBytesToJS(args[0], eng.MeterData())
 	}))
 	return api
 }

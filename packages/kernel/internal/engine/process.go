@@ -45,6 +45,8 @@ func (e *Engine) guardProcessing(method string) error {
 		return nil
 	case protocol.MethodEffectsList, protocol.MethodEffectsResponse, protocol.MethodEffectsPreviewMeters:
 		return nil
+	case protocol.MethodMetersConfigure, protocol.MethodAnalysisStart, protocol.MethodAnalysisStep, protocol.MethodAnalysisCancel, protocol.MethodAnalysisSpectrum:
+		return nil
 	default:
 		return fmt.Errorf("%s: processing job is active", method)
 	}

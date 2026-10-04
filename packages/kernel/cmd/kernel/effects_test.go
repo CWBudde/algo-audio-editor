@@ -36,7 +36,7 @@ func TestEffectsBridgeRealStereoPreviewApplyResponseAndOwnedIR(t *testing.T) {
 	}
 	hello := request("hello", nil)
 	var identity protocol.HelloResult
-	if err := json.Unmarshal(hello.Result, &identity); err != nil || identity.ProtocolVersion != 13 {
+	if err := json.Unmarshal(hello.Result, &identity); err != nil || identity.ProtocolVersion != protocol.Version {
 		t.Fatal("actual WASM effects ABI", identity, err)
 	}
 	u8 := js.Global().Get("Uint8Array")

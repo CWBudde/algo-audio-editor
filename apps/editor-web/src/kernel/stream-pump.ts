@@ -14,7 +14,16 @@ export function withStreamRefill<T>(
 ): T {
   if (
     !refill ||
-    !["effects.preview.update", "effects.preview.meters", "effects.response"].includes(method)
+    ![
+      "effects.preview.update",
+      "effects.preview.meters",
+      "effects.response",
+      "meters.configure",
+      "analysis.start",
+      "analysis.step",
+      "analysis.cancel",
+      "analysis.spectrum",
+    ].includes(method)
   )
     return call();
   refill();

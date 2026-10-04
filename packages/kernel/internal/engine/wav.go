@@ -201,6 +201,10 @@ func (e *Engine) openDocument(p protocol.DocumentOpenParams, input []byte) (prot
 	e.editor, e.history = editor, stagedHistory
 	e.impulseResponses = nil
 	e.impulseBytes = 0
+	e.resetMeters()
+	e.analysisJob = nil
+	e.analysisCache = nil
+	e.cancelledAnalysis = nil
 	return e.documentInfo()
 }
 
