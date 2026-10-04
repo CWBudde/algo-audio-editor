@@ -28,6 +28,7 @@ import {
 import { ControlDisclosure } from "@/components/control-disclosure";
 import { IconAction } from "@/components/icon-action";
 import { SelectionBar } from "@/components/selection-bar";
+import { SpectralSelectionLayer } from "@/components/spectral-selection-layer";
 import { SpectrogramCanvas } from "@/components/spectrogram-canvas";
 import { TimelinePanel } from "@/components/timeline-panel";
 import type { PlaybackFollow } from "@/components/transport-bar";
@@ -39,6 +40,7 @@ import { DEFAULT_SPECTRAL_SETTINGS } from "@/lib/analysis-settings";
 import type { CommandId, ResolvedCommand } from "@/lib/commands";
 import { resolveEditorPalette } from "@/lib/editor-theme";
 import { snapSelectionFrame } from "@/lib/selection";
+import type { SpectralSelection, SpectralTool } from "@/lib/spectral-selection";
 import { drawSampleWaveform, drawWaveform, resizeCanvas } from "@/lib/waveform-drawing";
 import {
   type AmplitudeScale,
@@ -94,6 +96,7 @@ interface WaveformViewProps {
   spectralSettings?: import("@/lib/analysis-settings").SpectralSettings;
   analysisPaused?: boolean;
   analysisStateId?: string;
+  onSpectralSelectionChange?(selection: SpectralSelection | undefined): void;
 }
 
 interface ViewState {
@@ -279,7 +282,19 @@ export function WaveformView({
   spectralSettings = DEFAULT_SPECTRAL_SETTINGS,
   analysisPaused = false,
   analysisStateId,
+  onSpectralSelectionChange,
 }: WaveformViewProps) {
+  const [spectralTool, setSpectralTool] = useState<SpectralTool>("time");
+  const [spectralSelection, setSpectralSelection] = useState<SpectralSelection>();
+  const changeSpectralSelection = (value: SpectralSelection | undefined) => {
+    setSpectralSelection(value);
+    onSpectralSelectionChange?.(value);
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Selection geometry belongs to this kernel/document session.
+  useLayoutEffect(() => {
+    setSpectralSelection(undefined);
+    onSpectralSelectionChange?.(undefined);
+  }, [client, info.documentId, onSpectralSelectionChange]);
   const fullRange = useMemo(() => ({ start: 0, end: info.frames }), [info]);
   const [state, setState] = useState<ViewState>({
     document: info,
@@ -941,6 +956,56 @@ export function WaveformView({
           />
         </fieldset>
       </div>
+      {spectralView !== "waveform" && (
+        <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1 text-xs">
+          <label>
+            Spectrogram selection{" "}
+            <select
+              aria-label="Spectrogram selection tool"
+              className="ml-2 rounded border bg-background px-2 py-1"
+              disabled={disabled}
+              value={spectralTool}
+              onChange={(event) => {
+                setSpectralTool(event.target.value as SpectralTool);
+              }}
+            >
+              <option value="time">Time range</option>
+              <option value="rectangle">Rectangle</option>
+              <option value="lasso">Lasso</option>
+            </select>
+          </label>
+          {spectralSelection?.documentId === info.documentId && (
+            <>
+              <span role="status">
+                Spectral selection: frames {spectralSelection.mask.start}–
+                {spectralSelection.mask.end}, {spectralSelection.mask.lowHz.toFixed(0)}–
+                {spectralSelection.mask.highHz.toFixed(0)} Hz
+              </span>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => changeSpectralSelection(undefined)}
+              >
+                Clear spectral selection
+              </button>
+              {(["attenuate", "remove", "heal"] as const).map((action) => (
+                <button
+                  key={action}
+                  type="button"
+                  disabled={!commands?.find((c) => c.id === `process.spectral-${action}`)?.enabled}
+                  onClick={() => onExecute?.(`process.spectral-${action}`)}
+                >
+                  {action === "attenuate"
+                    ? "Attenuate…"
+                    : action === "remove"
+                      ? "Remove…"
+                      : "Heal…"}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
       <SelectionBar
         key={info.documentId}
         selection={selection}
@@ -1100,25 +1165,42 @@ export function WaveformView({
                     />
                   )}
                   {spectralView !== "waveform" && (
-                    <SpectrogramCanvas
-                      client={client}
-                      info={info}
-                      channel={channel}
-                      viewport={viewport}
-                      width={width}
-                      height={LANE_HEIGHT}
-                      settings={spectralSettings}
-                      paused={analysisPaused}
-                      stateId={analysisStateId}
-                      onPointerDown={startSelection}
-                      onPointerMove={moveSelection}
-                      onPointerUp={endSelection}
-                      onPointerCancel={cancelSelection}
-                      onLostPointerCapture={cancelSelection}
-                      onDoubleClick={selectRegion}
-                    />
+                    <div className="relative">
+                      <SpectrogramCanvas
+                        client={client}
+                        info={info}
+                        channel={channel}
+                        viewport={viewport}
+                        width={width}
+                        height={LANE_HEIGHT}
+                        settings={spectralSettings}
+                        paused={analysisPaused}
+                        stateId={analysisStateId}
+                        onPointerDown={startSelection}
+                        onPointerMove={moveSelection}
+                        onPointerUp={endSelection}
+                        onPointerCancel={cancelSelection}
+                        onLostPointerCapture={cancelSelection}
+                        onDoubleClick={selectRegion}
+                      />
+                      <SpectralSelectionLayer
+                        key={info.documentId}
+                        documentId={info.documentId}
+                        frames={info.frames}
+                        sampleRate={info.sampleRate}
+                        channel={channel}
+                        viewport={viewport}
+                        width={width}
+                        height={LANE_HEIGHT}
+                        tool={spectralTool}
+                        selection={spectralSelection}
+                        disabled={disabled}
+                        onChange={changeSpectralSelection}
+                      />
+                    </div>
                   )}
-                  {(selection.channelMask & (1 << channel)) !== 0 &&
+                  {(spectralView === "waveform" || spectralTool === "time") &&
+                    (selection.channelMask & (1 << channel)) !== 0 &&
                     selectionEnd >= selectionStart && (
                       <div
                         aria-hidden="true"
@@ -1136,7 +1218,8 @@ export function WaveformView({
                         }}
                       />
                     )}
-                  {(selection.channelMask & (1 << channel)) !== 0 &&
+                  {(spectralView === "waveform" || spectralTool === "time") &&
+                    (selection.channelMask & (1 << channel)) !== 0 &&
                     selectedRange &&
                     (["start", "end"] as const).map(
                       (edge) =>

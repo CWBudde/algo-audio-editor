@@ -114,5 +114,24 @@ func (e *Engine) navigateHistory(method, documentID, stateID string) (protocol.E
 }
 
 func editHistoryLabel(operation string) string {
+	switch operation {
+	case "spectral-attenuate":
+		return "Attenuate spectral selection"
+	case "spectral-remove":
+		return "Remove spectral selection"
+	case "spectral-heal":
+		return "Heal spectral selection"
+	case "noise-reduce":
+		return "Noise reduction"
+	case "remove-clicks":
+		return "Remove clicks and pops"
+	case "declip":
+		return "Repair clipped audio"
+	case "time-stretch":
+		return "Time stretch"
+	case "remove-hum":
+		return "Remove mains hum"
+	}
+
 	return strings.ReplaceAll(operation, "-", " ")
 }

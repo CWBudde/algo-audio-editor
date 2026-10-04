@@ -20,6 +20,14 @@ const operations = [
   "generate",
   "effects",
   "extract-channel",
+  "spectral-attenuate",
+  "spectral-remove",
+  "spectral-heal",
+  "noise-reduce",
+  "remove-clicks",
+  "declip",
+  "time-stretch",
+  "remove-hum",
 ];
 
 function finiteNullable(value: unknown): value is number | null {
@@ -88,7 +96,9 @@ export function validProcessProgress(
   const phases =
     p.operation === "normalize-loudness"
       ? loudnessPhases
-      : p.operation === "normalize-peak" || p.operation === "remove-dc"
+      : p.operation === "normalize-peak" ||
+          p.operation === "remove-dc" ||
+          p.operation === "noise-reduce"
         ? peakPhases
         : gainPhases;
   if (
@@ -110,7 +120,21 @@ export function validProcessProgress(
       (p.target ?? -121) < (p.operation === "normalize-peak" ? -120 : -69))
   )
     return false;
-  if (!legacy && (p.target !== undefined || !p.gainResolved || p.gainDb !== 0)) return false;
+  if (p.operation === "spectral-attenuate" && ((p.gainDb ?? 1) > 0 || (p.gainDb ?? -121) < -120))
+    return false;
+  if (
+    !legacy &&
+    (p.target !== undefined ||
+      !p.gainResolved ||
+      (p.operation !== "spectral-attenuate" && p.gainDb !== 0))
+  )
+    return false;
+  if (
+    p.operation === "noise-reduce" &&
+    p.phase === "processing" &&
+    p.totalFrames !== (p.end ?? 0) - (p.start ?? 0)
+  )
+    return false;
   const candidate = p.candidate;
   if (!candidate) return false;
   if (candidate) {
@@ -196,12 +220,21 @@ export function validProcessProgress(
       "start",
       "end",
       "channelMask",
-      "totalFrames",
       "operation",
       "target",
       "phaseCount",
     ] as const)
       if (p[field] !== previous[field]) return false;
+    if (
+      p.totalFrames !== previous.totalFrames &&
+      !(
+        p.operation === "noise-reduce" &&
+        previous.phase === "analyzing" &&
+        p.phase === "processing" &&
+        p.phaseIndex === previous.phaseIndex + 1
+      )
+    )
+      return false;
     for (const field of ["inputLufs", "predictedLufs", "outputLufs"] as const)
       if (previous[field] !== null && p[field] !== previous[field]) return false;
     if (JSON.stringify(candidate) !== JSON.stringify(previous.candidate)) return false;

@@ -48,6 +48,15 @@ export type CommandId =
   | "process.extract-channel"
   | "process.resample"
   | "process.generate"
+  | "process.capture-noise-profile"
+  | "process.noise-reduce"
+  | "process.spectral-attenuate"
+  | "process.spectral-remove"
+  | "process.spectral-heal"
+  | "process.remove-clicks"
+  | "process.declip"
+  | "process.time-stretch"
+  | "process.remove-hum"
   | "effects.rack"
   | "analyze.meters"
   | "analyze.spectrum"
@@ -73,6 +82,9 @@ export interface CommandContext {
   playing: boolean;
   silenceFrames?: number;
   modalOpen?: boolean;
+  noiseProfileReady?: boolean;
+  hasSpectralSelection?: boolean;
+  spectralHealAvailable?: boolean;
   effects?: readonly {
     id: string;
     name: string;
@@ -152,8 +164,24 @@ export const COMMAND_MENUS: readonly { label: string; items: readonly (CommandId
       "process.stereo-to-mono",
       "process.extract-channel",
       "process.resample",
+      "process.time-stretch",
       "-",
       "process.generate",
+    ],
+  },
+  {
+    label: "Restore",
+    items: [
+      "process.capture-noise-profile",
+      "process.noise-reduce",
+      "-",
+      "process.remove-clicks",
+      "process.declip",
+      "process.remove-hum",
+      "-",
+      "process.spectral-attenuate",
+      "process.spectral-remove",
+      "process.spectral-heal",
     ],
   },
   { label: "Effects", items: ["effects.rack"] },
@@ -286,6 +314,63 @@ function pasteAvailable(c: CommandContext, mode: "insert" | "replace" | "mix"): 
 
 const mod = (key: string, shift = false): Shortcut => ({ key, mod: true, shift });
 const definitions: readonly Definition[] = [
+  {
+    id: "process.capture-noise-profile",
+    label: "Capture noise profile",
+    menu: "Restore",
+    enabled: (c) =>
+      rangeAvailable(c) && Boolean(c.selection && c.selection.end - c.selection.start >= 1024),
+  },
+  {
+    id: "process.noise-reduce",
+    label: "Noise reduction…",
+    menu: "Restore",
+    enabled: (c) => processAvailable(c) && Boolean(c.noiseProfileReady),
+  },
+  {
+    id: "process.spectral-attenuate",
+    label: "Attenuate spectral selection…",
+    menu: "Restore",
+    enabled: (c) => processAvailable(c) && Boolean(c.hasSpectralSelection),
+  },
+  {
+    id: "process.spectral-remove",
+    label: "Remove spectral selection…",
+    menu: "Restore",
+    enabled: (c) => processAvailable(c) && Boolean(c.hasSpectralSelection),
+  },
+  {
+    id: "process.spectral-heal",
+    label: "Heal spectral selection…",
+    menu: "Restore",
+    enabled: (c) =>
+      processAvailable(c) && Boolean(c.hasSpectralSelection && c.spectralHealAvailable),
+  },
+  {
+    id: "process.remove-clicks",
+    label: "Remove clicks and pops…",
+    menu: "Restore",
+    enabled: processAvailable,
+  },
+  {
+    id: "process.declip",
+    label: "Repair clipped audio…",
+    menu: "Restore",
+    enabled: processAvailable,
+  },
+  {
+    id: "process.remove-hum",
+    label: "Remove mains hum…",
+    menu: "Restore",
+    enabled: processAvailable,
+  },
+  {
+    id: "process.time-stretch",
+    label: "Time stretch…",
+    menu: "Process",
+    enabled: (c) =>
+      processAvailable(c) && c.selection?.channelMask === 2 ** (c.info?.channels ?? 0) - 1,
+  },
   { id: "file.new", label: "New…", menu: "File", enabled: () => false },
   {
     id: "file.open",

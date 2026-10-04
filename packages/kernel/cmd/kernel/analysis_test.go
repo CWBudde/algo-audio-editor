@@ -13,7 +13,7 @@ import (
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
 
-func TestAnalysisBridgeABI14ReusableMeterAndAtomicValidation(t *testing.T) {
+func TestAnalysisBridgeReusableMeterAndAtomicValidation(t *testing.T) {
 	api := newKernelAPI(engine.New())
 	request := func(method string, params any) protocol.Response {
 		payload, err := json.Marshal(params)
@@ -28,7 +28,7 @@ func TestAnalysisBridgeABI14ReusableMeterAndAtomicValidation(t *testing.T) {
 	}
 	hello := request(protocol.MethodHello, nil)
 	var info protocol.HelloResult
-	if err := json.Unmarshal(hello.Result, &info); err != nil || info.ProtocolVersion != 14 {
+	if err := json.Unmarshal(hello.Result, &info); err != nil || info.ProtocolVersion != protocol.Version {
 		t.Fatal(info, err)
 	}
 	dst := js.Global().Get("Uint8Array").New(protocol.MetersDataBytes)

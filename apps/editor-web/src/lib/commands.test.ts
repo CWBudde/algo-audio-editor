@@ -87,6 +87,7 @@ describe("central command registry", () => {
       "File",
       "Edit",
       "Process",
+      "Restore",
       "Effects",
       "Analyze",
       "View",
@@ -438,5 +439,41 @@ it("keeps analysis discoverable while requiring a nonempty document, valid chann
       { selection: { start: 0, end: 0, channelMask: 4 } },
     ])
       expect(enabled(id, blocked)).toBe(false);
+  }
+});
+
+it("fences restoration by profile, spectral geometry, channel layout and modal state", () => {
+  expect(enabled("process.noise-reduce")).toBe(false);
+  expect(enabled("process.noise-reduce", { noiseProfileReady: true })).toBe(true);
+  expect(
+    enabled("process.capture-noise-profile", {
+      info: { ...info, frames: 5000 },
+      selection: { start: 0, end: 1024, channelMask: 3 },
+    }),
+  ).toBe(true);
+  expect(enabled("process.capture-noise-profile")).toBe(false);
+  expect(enabled("process.spectral-attenuate")).toBe(false);
+  expect(enabled("process.spectral-remove", { hasSpectralSelection: true })).toBe(true);
+  expect(enabled("process.spectral-heal", { hasSpectralSelection: true })).toBe(false);
+  expect(
+    enabled("process.spectral-heal", { hasSpectralSelection: true, spectralHealAvailable: true }),
+  ).toBe(true);
+  expect(
+    enabled("process.time-stretch", { selection: { start: 0, end: 50, channelMask: 1 } }),
+  ).toBe(false);
+  for (const id of [
+    "process.noise-reduce",
+    "process.spectral-remove",
+    "process.remove-clicks",
+    "process.declip",
+    "process.remove-hum",
+    "process.time-stretch",
+  ] as const) {
+    expect(enabled(id, { busy: true, noiseProfileReady: true, hasSpectralSelection: true })).toBe(
+      false,
+    );
+    expect(
+      enabled(id, { modalOpen: true, noiseProfileReady: true, hasSpectralSelection: true }),
+    ).toBe(false);
   }
 });

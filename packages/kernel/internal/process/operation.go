@@ -28,6 +28,7 @@ type Settings struct {
 	Quality, Generator               string
 	Frequency, EndFrequency, LevelDB float64
 	Seed                             uint64
+	Restoration                      RestorationSettings
 }
 
 // NewOperation prepares a private result without reading or rendering a full
@@ -38,6 +39,8 @@ func NewOperation(document audiobuf.Document, selected ops.Range, settings Setti
 		return NewBuilder(document, selected, Gain{DB: settings.GainDB}, limits)
 	case "normalize-peak", "normalize-loudness":
 		return NewNormalizer(document, selected, settings.Operation, settings.TargetDB, limits)
+	case "spectral-attenuate", "spectral-remove", "spectral-heal", "noise-reduce", "remove-clicks", "declip", "time-stretch", "remove-hum":
+		return newRestorationOperation(document, selected, settings, limits)
 	case "resample":
 		return newRateOperation(document, selected, settings, limits)
 	default:
@@ -520,6 +523,9 @@ func (b *blockOperation) assemble() (audiobuf.Document, error) {
 		}
 		channels[i] = left.Concat(middles[packed]).Concat(right)
 		packed++
+	}
+	if op == "time-stretch" {
+		stretchTimeline(&metadata.Timeline, b.selected, b.renderFrames)
 	}
 	if (op == "crossfade" || op == "generate") && b.selected.ChannelMask == (1<<b.source.Channels())-1 {
 		var err error

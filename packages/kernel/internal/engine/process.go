@@ -132,7 +132,12 @@ func validateProcessParameters(p protocol.ProcessStartParams) error {
 	case "normalize-peak":
 	case "normalize-loudness":
 		minimum = -69
-	case "fade-in", "fade-out", "crossfade", "reverse", "invert", "remove-dc", "mono-to-stereo", "stereo-to-mono", "extract-channel", "resample", "generate":
+	case "spectral-attenuate":
+		if p.Target != nil || math.IsNaN(p.GainDB) || math.IsInf(p.GainDB, 0) || p.GainDB < -120 || p.GainDB > 0 {
+			return fmt.Errorf("%s: attenuation must be in [-120,0] dB", method)
+		}
+		return nil
+	case "spectral-remove", "spectral-heal", "noise-reduce", "remove-clicks", "declip", "time-stretch", "remove-hum", "fade-in", "fade-out", "crossfade", "reverse", "invert", "remove-dc", "mono-to-stereo", "stereo-to-mono", "extract-channel", "resample", "generate":
 		if p.Target != nil || p.GainDB != 0 {
 			return fmt.Errorf("%s: operation does not accept gain or normalization target", method)
 		}
@@ -164,8 +169,12 @@ func (e *Engine) prepareProcess(p protocol.ProcessStartParams, selection protoco
 	if p.Operation == "mono-to-stereo" || p.Operation == "stereo-to-mono" || p.Operation == "resample" {
 		selected = ops.Range{Start: p.Start, End: p.End, ChannelMask: p.ChannelMask}
 	}
+	restorationSettings, err := e.prepareRestorationSettings(p, selected)
+	if err != nil {
+		return nil, err
+	}
 	return processing.NewOperation(e.document, selected, processing.Settings{
-		Operation: p.Operation, Curve: p.Curve, DurationFrames: p.DurationFrames,
+		Operation: p.Operation, Curve: p.Curve, DurationFrames: p.DurationFrames, Restoration: restorationSettings,
 		ChannelMode: p.ChannelMode, Channel: p.Channel, SampleRate: p.SampleRate, Quality: p.Quality,
 		Generator: p.Generator, Frequency: p.Frequency, EndFrequency: p.EndFrequency, LevelDB: p.LevelDB, Seed: p.Seed,
 	}, limits)

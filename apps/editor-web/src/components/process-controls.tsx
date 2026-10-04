@@ -32,6 +32,115 @@ export function ProcessControls({ view, disabled, onOperationChange, onSettingsC
   const generator = settings.generator;
   return (
     <>
+      {operation.startsWith("spectral-") && (
+        <p className="mt-3 text-sm">
+          {settings.spectralMask
+            ? `${settings.spectralMask.lowHz.toFixed(1)}–${settings.spectralMask.highHz.toFixed(1)} Hz · ${settings.spectralMask.points?.length ? "lasso" : "rectangle"}`
+            : "Draw a spectral selection first."}
+          {operation === "spectral-heal" &&
+            " Heal supports short damage up to 256 samples with intact audio on both sides."}
+        </p>
+      )}
+      {operation.startsWith("spectral-") &&
+        settings.spectralMask &&
+        !settings.spectralMask.points?.length &&
+        (["lowHz", "highHz"] as const).map((field) => (
+          <label key={field} className="mt-3 block text-sm">
+            {field === "lowHz" ? "Lower frequency (Hz)" : "Upper frequency (Hz)"}
+            <input
+              type="number"
+              step="any"
+              min="0"
+              max={view.info.sampleRate / 2}
+              disabled={disabled}
+              className={fieldClass}
+              value={
+                Number.isFinite(settings.spectralMask?.[field])
+                  ? settings.spectralMask?.[field]
+                  : ""
+              }
+              onChange={(event) => {
+                if (settings.spectralMask)
+                  onSettingsChange({
+                    spectralMask: {
+                      ...settings.spectralMask,
+                      [field]: event.target.valueAsNumber,
+                    },
+                  });
+              }}
+            />
+          </label>
+        ))}
+      {operation === "noise-reduce" && (
+        <>
+          <p className="mt-3 text-sm">
+            Noise profile: frames {settings.noiseProfile?.start}–{settings.noiseProfile?.end}.
+            Capture a noise-only selection before processing.
+          </p>
+          {input("Maximum reduction (dB)", settings.reductionText, "reductionText")}
+          <label className="mt-3 block text-sm">
+            Method
+            <select
+              aria-label="Noise reduction method"
+              className={fieldClass}
+              disabled={disabled}
+              value={settings.noiseMethod}
+              onChange={(event) =>
+                onSettingsChange({
+                  noiseMethod: event.target.value as ProcessSettings["noiseMethod"],
+                })
+              }
+            >
+              <option value="wiener">Wiener (smooth)</option>
+              <option value="subtraction">Spectral subtraction</option>
+              <option value="gate">Spectral gate</option>
+            </select>
+          </label>
+        </>
+      )}
+      {operation === "remove-clicks" &&
+        input("Click sensitivity", settings.sensitivityText, "sensitivityText")}
+      {operation === "declip" &&
+        input("Clipping threshold (linear)", settings.thresholdText, "thresholdText")}
+      {(operation === "remove-clicks" || operation === "declip") && (
+        <>
+          {input("Maximum repair length (samples)", settings.maxGapText, "maxGapText")}
+          <p className="mt-2 text-xs text-muted-foreground">
+            Repair interior damage with intact context. Long or edge damage stays unchanged. Preview
+            to check intentional transients.
+          </p>
+        </>
+      )}
+      {operation === "time-stretch" && (
+        <>
+          {input("Duration multiplier", settings.ratioText, "ratioText")}
+          <p className="mt-2 text-xs text-muted-foreground">
+            1.25 makes the selected audio 25% longer while retaining pitch. All channels move
+            together; markers and regions follow the new timing.
+          </p>
+        </>
+      )}
+      {operation === "remove-hum" && (
+        <>
+          <label className="mt-3 block text-sm">
+            Mains frequency
+            <select
+              aria-label="Mains frequency"
+              className={fieldClass}
+              disabled={disabled}
+              value={settings.humHz}
+              onChange={(event) =>
+                onSettingsChange({ humHz: Number(event.target.value) as 50 | 60 })
+              }
+            >
+              <option value="50">50 Hz</option>
+              <option value="60">60 Hz</option>
+            </select>
+          </label>
+          {input("Harmonics", settings.harmonicsText, "harmonicsText")}
+          {input("Notch Q", settings.humQText, "humQText")}
+        </>
+      )}
       {fade && (
         <>
           {operation !== "crossfade" && (

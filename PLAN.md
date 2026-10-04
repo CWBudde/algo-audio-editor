@@ -451,19 +451,25 @@
 
 ---
 
-## Phase 8: Restoration & Advanced Editing
+## Phase 8: Restoration & Advanced Editing — IMPLEMENTED (2026-10-04)
 
 **Goal:** The tools that set a serious editor apart.
 
 **Acceptance criterion:** Spectral repair of a click is inaudible on the reference fixtures, and noise reduction achieves ≥ 15 dB on the stationary-noise fixture without audible musical noise at default settings.
 
-- [ ] Spectral editing: rectangle/lasso selection in the spectrogram; attenuate, remove or heal (interpolate) through the inverse STFT
-- [ ] Noise reduction (profile-based spectral subtraction / Wiener)
-  - [ ] **Upstream (algo-dsp):** port the legacy Delphi `FFT Effects/{Noise Reduction, Spectral Noise Gate}` into `dsp/effects/restoration`
-- [ ] Click/pop removal and clip repair (declip by interpolation)
-- [ ] Time-stretch without pitch change
-  - [ ] **Upstream (algo-dsp):** expose the time-stretch currently private inside `pitch_shifter.go` / `pitch_shift_spectral.go` as a public API
-- [ ] Hum removal (notch comb at 50/60 Hz plus harmonics)
+- [x] `SpectralSelectionLayer` and `spectral-selection.ts` add bounded rectangle/lasso geometry to the shared spectrogram, with preview outlines, channel-specific masks, exact rectangle frequency bounds, Escape/capture cancellation and source/viewport invalidation. Restore menu, palette and selection actions attenuate, remove or heal selected bins through upstream normalized inverse STFT. Component, registry, parameter and production shell tests cover drawing, focus and unchanged source before Apply.
+- [x] Profile-based noise reduction uses a noise-only range captured through Restore → Capture noise profile. Source identity and channel coverage guard reuse; each job captures mean powers in bounded analysis steps, then applies default Wiener filtering (2048-point FFT, 24 dB maximum reduction), spectral subtraction or a spectral gate. Engine/worker tests retain fixed job/candidate identity while allowing phase-local profile/target progress totals; edits/imports/kernel changes invalidate the profile.
+  - [x] **Upstream (algo-dsp):** released `dsp/effects/restoration` in official **v0.10.0** (`e9f844f`), derived from legacy `FFT Effects/{Noise Reduction,Spectral Noise Gate}` and `DAV_DspSpectralNoiseReduction.pas`. Mean power capture and smoothed per-bin gains are retained; the legacy DC capture typo is corrected, normalized overlap-add replaces its filter/crossfade path, and Wiener filtering adds decision-directed SNR estimation. `docs/restoration.md` in that repository records lineage, differences and limits. Native/race/386/WASM tests, examples, 92.7% restoration coverage, zero-allocation noise/hum benchmarks, full upstream CI and the exported-API release guard pass before the editor dependency bump; no replacement or pseudo-version is used.
+- [x] Click/pop removal and declipping use upstream two-sided autoregressive interpolation with a Hermite fallback for short/singular contexts. Sensitivity, saturation threshold and maximum gap controls are previewable. Healing supports ≤256 samples with intact two-sided context; automatic repair leaves longer/edge damage unchanged. `restorationOperation.Step` bounds work and packs output into immutable storage blocks, preserving every untouched frame/channel. Engine and processing tests cover budgets, cancellation, nonfinite rejection, candidate playback and one exact undo transaction for all eight new operations.
+- [x] Time stretch preserves pitch with shared WSOLA alignment across all channels, exact rounded duration and a 0.25–4 multiplier. Ratio 1 is an exact no-op. `stretchTimeline` scales interior markers/regions, shifts later anchors and uses integer arithmetic for long frame coordinates; regressions cover stereo phase, pitch, partial-range geometry, collapsed regions and rounding above 2⁵².
+  - [x] **Upstream (algo-dsp):** `PitchShifter.TimeStretch` publicly exposes its existing private WSOLA stage without pitch resampling; `NewStretchStream` adds bounded, cancellable, stereo-coherent processing. Native/386/V8-WASM regressions cover duration, pitch, exact identity and stereo phase.
+- [x] Hum removal uses an upstream 50/60 Hz notch comb with configurable harmonic count (1–16) and Q (5–100). Reference tests reject mains harmonics while retaining wanted audio; browser regression checks actual stored output.
+- [x] Both protocol mirrors advance together to **ABI 15** for restoration controls and geometric masks; samples stay binary and the AudioWorklet still only copies. `docs/restoration.md` documents workflows, controls, quality evidence and bounded repair limits. Kernel and browser fixtures measure **22.65 dB** default stationary-noise reduction after float32 storage, unchanged noise-profile audio and click residual below **−80 dBFS**. Upstream tests separately bound residual-power variation/isolated lines as musical-noise proxies and wanted-tone loss.
+- [ ] **Perceptual acceptance:** audition the reference fixtures for click inaudibility and musical noise at default settings. Numerical criteria and artifact proxies pass; subjective listening is not claimed by automated tests.
+
+**Validation:** `just ci`, actual V8/WASM kernel tests and `just check-deps` pass. Frontend: 869 unit tests. Chromium: 116 scenarios pass in the full parallel run; the existing YIN analysis scenario hits its 5-second result timeout during concurrent Electron testing and passes on an isolated rerun. Electron: all six scenarios pass. Processing coverage is 90.3%; engine coverage is 87.8%.
+
+**Playback timing:** six of seven existing gates pass, including the isolated effects reruns (audible changes <50 ms, zero underruns). The ten-minute spectrogram gate reports underruns on this machine in both Phase 8 (1025 dropped samples on the isolated rerun) and an unchanged production build of `9cf7988` / `algo-dsp v0.9.0` (6914). This pre-existing gate remains unresolved; no timing threshold is relaxed.
 
 ---
 

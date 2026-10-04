@@ -142,3 +142,69 @@ it("bounds extracted channel index independently of the selected channel mask", 
 function fail(): never {
   throw new Error("Expected valid parameters");
 }
+
+it("requires a current noise profile and spectral geometry, and keys every restoration setting", () => {
+  const selected = { start: 4000, end: 4004, channelMask: 2 };
+  const spectralMask = { start: 4000, end: 4004, lowHz: 300, highHz: 600 };
+  expect(
+    processParams(info, selected, "spectral-heal", "", { ...settings, spectralMask }),
+  ).toMatchObject({ operation: "spectral-heal", spectralMask });
+  expect(
+    processParams(info, range, "spectral-heal", "", { ...settings, spectralMask }),
+  ).toBeUndefined();
+  expect(
+    processParams(info, selected, "spectral-attenuate", "1", { ...settings, spectralMask }),
+  ).toBeUndefined();
+  expect(
+    processParams(info, selected, "spectral-attenuate", "-12", { ...settings, spectralMask }),
+  ).toMatchObject({ gainDb: -12 });
+  expect(
+    processParams(info, selected, "spectral-remove", "", { ...settings, spectralMask, fftSize: 3 }),
+  ).toBeUndefined();
+  const noiseProfile = { documentId: info.documentId, start: 0, end: 4800, channelMask: 3 };
+  const p = processParams(info, range, "noise-reduce", "", { ...settings, noiseProfile });
+  expect(p).toMatchObject({ reductionDb: 24, noiseMethod: "wiener", noiseProfile });
+  for (const profile of [
+    undefined,
+    { ...noiseProfile, documentId: "stale" },
+    { ...noiseProfile, channelMask: 1 },
+    { ...noiseProfile, end: 3 },
+  ])
+    expect(
+      processParams(info, range, "noise-reduce", "", { ...settings, noiseProfile: profile }),
+    ).toBeUndefined();
+  const changed = processParams(info, range, "noise-reduce", "", {
+    ...settings,
+    noiseProfile,
+    reductionText: "12",
+  });
+  expect(processSettingsKey(p ?? fail())).not.toBe(processSettingsKey(changed ?? fail()));
+});
+it("validates duration, hum and short-gap limits before submitting restoration", () => {
+  expect(
+    processParams(info, { ...range, channelMask: 3 }, "time-stretch", "", settings),
+  ).toMatchObject({ durationRatio: 1.25 });
+  expect(processParams(info, range, "time-stretch", "", settings)).toBeUndefined();
+  for (const ratioText of ["", "0.24", "4.01", "NaN"])
+    expect(
+      processParams(info, { ...range, channelMask: 3 }, "time-stretch", "", {
+        ...settings,
+        ratioText,
+      }),
+    ).toBeUndefined();
+  expect(processParams(info, range, "remove-hum", "", settings)).toMatchObject({
+    humHz: 50,
+    humQ: 30,
+    harmonics: 8,
+  });
+  expect(processParams(info, range, "remove-clicks", "", settings)).toMatchObject({
+    sensitivity: 8,
+    maxGap: 64,
+  });
+  expect(processParams(info, range, "declip", "", settings)).toMatchObject({ clipThreshold: 0.99 });
+  for (const maxGapText of ["0", "257", "1.5", "NaN"])
+    expect(processParams(info, range, "declip", "", { ...settings, maxGapText })).toBeUndefined();
+  expect(
+    processParams(info, range, "remove-hum", "", { ...settings, harmonicsText: "17" }),
+  ).toBeUndefined();
+});

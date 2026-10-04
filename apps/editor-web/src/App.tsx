@@ -4,6 +4,7 @@ import type {
   HistoryListResult,
   PastePlan,
   SelectionRange,
+  SelectionResult,
 } from "@aae/protocol";
 import { Redo2, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -51,6 +52,7 @@ import {
   prepareExtractionWindow,
 } from "@/lib/extraction-window";
 import { parseSelectionTime } from "@/lib/selection";
+import type { SpectralSelection } from "@/lib/spectral-selection";
 
 const STATS_INTERVAL_MS = 200;
 
@@ -89,6 +91,8 @@ export default function App() {
   const [spectralView, setSpectralView] = useState<"waveform" | "spectrogram" | "split">(
     "waveform",
   );
+  const [spectralSelection, setSpectralSelection] = useState<SpectralSelection>();
+  const [noiseProfile, setNoiseProfile] = useState<SelectionResult>();
   const [spectralSettings, setSpectralSettings] = useState(DEFAULT_SPECTRAL_SETTINGS);
   const changeSpectralSettings = useCallback(
     (change: Partial<SpectralSettings>) =>
@@ -413,6 +417,23 @@ export default function App() {
     [engine, doc.info, busy],
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Source changes invalidate document-local restoration controls.
+  useLayoutEffect(() => {
+    setSpectralSelection(undefined);
+    setNoiseProfile(undefined);
+  }, [client, doc.info?.documentId]);
+  const currentSpectralSelection =
+    spectralSelection?.documentId === doc.info?.documentId && spectralView !== "waveform"
+      ? spectralSelection
+      : undefined;
+  const currentNoiseProfile =
+    noiseProfile?.documentId === doc.info?.documentId ? noiseProfile : undefined;
+  const profileCovers = (range: SelectionRange | undefined) =>
+    Boolean(
+      currentNoiseProfile &&
+        range &&
+        (currentNoiseProfile.channelMask & range.channelMask) === range.channelMask,
+    );
   const { commands, execute } = useCommands({
     getContext: () => ({
       ready: Boolean(client),
@@ -421,6 +442,14 @@ export default function App() {
       info: doc.info,
       selection: waveformView.current ? waveformView.current.selectionState() : selection,
       clipboard: edit.clipboard,
+      hasSpectralSelection: Boolean(currentSpectralSelection),
+      spectralHealAvailable: Boolean(
+        currentSpectralSelection &&
+          currentSpectralSelection.mask.end - currentSpectralSelection.mask.start <= 256 &&
+          currentSpectralSelection.mask.start >= 2 &&
+          currentSpectralSelection.mask.end <= (doc.info?.frames ?? 0) - 2,
+      ),
+      noiseProfileReady: profileCovers(waveformView.current?.selectionState() ?? selection),
       canUndo: history.history?.canUndo ?? false,
       canRedo: history.history?.canRedo ?? false,
       playing,
@@ -438,6 +467,31 @@ export default function App() {
     paletteOpen,
     onError: (_id, error) => reportError("Command failed")(error),
     actions: {
+      "process.capture-noise-profile": () => {
+        const range = waveformView.current?.selectionState() ?? selection;
+        if (range && doc.info) {
+          setNoiseProfile({ documentId: doc.info.documentId, ...range });
+          toast.success("Noise profile set from selection");
+        }
+      },
+      "process.noise-reduce": () => {
+        const range = waveformView.current?.selectionState() ?? selection;
+        if (range && currentNoiseProfile)
+          processing.open(range, "noise-reduce", { noiseProfile: currentNoiseProfile });
+      },
+      ...Object.fromEntries(
+        (["spectral-attenuate", "spectral-remove", "spectral-heal"] as const).map((operation) => [
+          `process.${operation}`,
+          () => {
+            if (!currentSpectralSelection) return;
+            const { mask, channelMask } = currentSpectralSelection;
+            processing.open({ start: mask.start, end: mask.end, channelMask }, operation, {
+              spectralMask: mask,
+              fftSize: spectralSettings.fftSize,
+            });
+          },
+        ]),
+      ),
       "analyze.meters": () => setMetersOpen((open) => !open),
       "analyze.spectrum": () => setSpectrumOpen((open) => !open),
       "view.waveform": () => setSpectralView("waveform"),
@@ -534,6 +588,10 @@ export default function App() {
           ["process.extract-channel", "extract-channel"],
           ["process.resample", "resample"],
           ["process.generate", "generate"],
+          ["process.remove-clicks", "remove-clicks"],
+          ["process.declip", "declip"],
+          ["process.time-stretch", "time-stretch"],
+          ["process.remove-hum", "remove-hum"],
         ].map(([id, operation]) => [
           id,
           () => {
@@ -731,6 +789,7 @@ export default function App() {
               onCommandStateChange={setCommandReady}
               initialEdit={editSnapshot?.client === client ? editSnapshot.result : undefined}
               spectralView={spectralView}
+              onSpectralSelectionChange={setSpectralSelection}
               spectralSettings={spectralSettings}
               analysisPaused={Boolean(
                 analysis.view || effects.view || processing.view || exporting.view || busy,

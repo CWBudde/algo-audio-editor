@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -230,6 +230,27 @@ export type GeneratorKind =
   | "pink-noise"
   | "linear-sweep"
   | "log-sweep";
+/** Geometry in document sample-frame/Hz coordinates. */
+export interface SpectralPoint {
+  frame: number;
+  hz: number;
+}
+export interface SpectralMask {
+  start: number;
+  end: number;
+  lowHz: number;
+  highHz: number;
+  points?: SpectralPoint[];
+}
+export type RestorationOperation =
+  | "spectral-attenuate"
+  | "spectral-remove"
+  | "spectral-heal"
+  | "noise-reduce"
+  | "remove-clicks"
+  | "declip"
+  | "time-stretch"
+  | "remove-hum";
 export type ProcessOperation =
   | "gain"
   | "normalize-peak"
@@ -245,10 +266,28 @@ export type ProcessOperation =
   | "resample"
   | "generate"
   | "extract-channel"
+  | RestorationOperation
   | "effects";
 export type ProcessStartParams = SelectionResult &
   (
     | { operation: "gain"; gainDb: number }
+    | {
+        operation: "spectral-attenuate" | "spectral-remove" | "spectral-heal";
+        spectralMask: SpectralMask;
+        fftSize: number;
+        gainDb?: number;
+      }
+    | {
+        operation: "noise-reduce";
+        noiseProfile: SelectionResult;
+        fftSize: number;
+        reductionDb: number;
+        noiseMethod: "wiener" | "subtraction" | "gate";
+      }
+    | { operation: "remove-clicks"; sensitivity: number; maxGap: number }
+    | { operation: "declip"; clipThreshold: number; maxGap: number }
+    | { operation: "time-stretch"; durationRatio: number }
+    | { operation: "remove-hum"; humHz: 50 | 60; humQ: number; harmonics: number }
     | { operation: "normalize-peak" | "normalize-loudness"; target: number }
     | { operation: "fade-in" | "fade-out"; curve: FadeCurve }
     | { operation: "crossfade"; curve: FadeCurve; durationFrames: number }

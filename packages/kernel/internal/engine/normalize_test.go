@@ -33,7 +33,7 @@ func finishEngineNormalization(t testing.TB, e *Engine, result protocol.ProcessJ
 		if result.PhaseIndex == before.PhaseIndex && result.ProcessedFrames < before.ProcessedFrames {
 			t.Fatal("same-phase progress regressed")
 		}
-		if result.Operation != before.Operation || result.DocumentID != before.DocumentID || result.JobID != before.JobID || result.TotalFrames != before.TotalFrames {
+		if result.Operation != before.Operation || result.DocumentID != before.DocumentID || result.JobID != before.JobID || (result.TotalFrames != before.TotalFrames && (result.Operation != "noise-reduce" || result.PhaseIndex <= before.PhaseIndex)) {
 			t.Fatal("fixed processing identity changed")
 		}
 	}

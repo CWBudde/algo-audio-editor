@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 14
+const Version = 15
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -297,21 +297,49 @@ type EditResult struct {
 // publishes it; preview playback and cancellation leave the document unchanged.
 type ProcessStartParams struct {
 	SelectionResult
-	Operation      string   `json:"operation"`
-	GainDB         float64  `json:"gainDb"`
-	Target         *float64 `json:"target,omitempty"`
-	Curve          string   `json:"curve,omitempty"`
-	DurationFrames int64    `json:"durationFrames,omitempty"`
-	ChannelMode    string   `json:"channelMode,omitempty"`
-	Channel        int      `json:"channel,omitempty"`
-	SampleRate     int      `json:"sampleRate,omitempty"`
-	Quality        string   `json:"quality,omitempty"`
-	Generator      string   `json:"generator,omitempty"`
-	Frequency      float64  `json:"frequency,omitempty"`
-	EndFrequency   float64  `json:"endFrequency,omitempty"`
-	LevelDB        float64  `json:"levelDb,omitempty"`
-	Seed           uint64   `json:"seed,omitempty"`
+	Operation      string           `json:"operation"`
+	GainDB         float64          `json:"gainDb"`
+	Target         *float64         `json:"target,omitempty"`
+	Curve          string           `json:"curve,omitempty"`
+	DurationFrames int64            `json:"durationFrames,omitempty"`
+	ChannelMode    string           `json:"channelMode,omitempty"`
+	Channel        int              `json:"channel,omitempty"`
+	SampleRate     int              `json:"sampleRate,omitempty"`
+	Quality        string           `json:"quality,omitempty"`
+	Generator      string           `json:"generator,omitempty"`
+	Frequency      float64          `json:"frequency,omitempty"`
+	EndFrequency   float64          `json:"endFrequency,omitempty"`
+	LevelDB        float64          `json:"levelDb,omitempty"`
+	Seed           uint64           `json:"seed,omitempty"`
+	FFTSize        int              `json:"fftSize,omitempty"`
+	SpectralMask   *SpectralMask    `json:"spectralMask,omitempty"`
+	NoiseProfile   *SelectionResult `json:"noiseProfile,omitempty"`
+	ReductionDB    float64          `json:"reductionDb,omitempty"`
+	NoiseMethod    string           `json:"noiseMethod,omitempty"`
+	Sensitivity    float64          `json:"sensitivity,omitempty"`
+	ClipThreshold  float64          `json:"clipThreshold,omitempty"`
+	MaxGap         int              `json:"maxGap,omitempty"`
+	DurationRatio  float64          `json:"durationRatio,omitempty"`
+	HumHz          float64          `json:"humHz,omitempty"`
+	HumQ           float64          `json:"humQ,omitempty"`
+	Harmonics      int              `json:"harmonics,omitempty"`
 }
+
+// SpectralPoint is selection geometry, never audio data.
+type (
+	SpectralPoint struct {
+		Frame float64 `json:"frame"`
+		Hz    float64 `json:"hz"`
+	}
+	// SpectralMask bounds a rectangle or a polygon in document-frame/Hz coordinates.
+	SpectralMask struct {
+		Start  int64           `json:"start"`
+		End    int64           `json:"end"`
+		LowHz  float64         `json:"lowHz"`
+		HighHz float64         `json:"highHz"`
+		Points []SpectralPoint `json:"points,omitempty"`
+	}
+)
 
 // ProcessCandidate describes output geometry independently of source coordinates.
 type ProcessCandidate struct {

@@ -510,3 +510,41 @@ describe("processing runner", () => {
     expect(validProcessProgress({ ...loudnessAnalysis, ...changes }, params)).toBe(false);
   });
 });
+
+it("accepts ABI 15 restoration phases while fencing profile/target progress and attenuation gain", () => {
+  const capture: ProcessJobResult = {
+    ...progress,
+    operation: "noise-reduce",
+    gainDb: 0,
+    phase: "analyzing",
+    phaseIndex: 0,
+    phaseCount: 2,
+    processedFrames: 2048,
+    totalFrames: 4096,
+  };
+  const render: ProcessJobResult = {
+    ...capture,
+    phase: "processing",
+    phaseIndex: 1,
+    processedFrames: 0,
+    totalFrames: 20,
+  };
+  expect(validProcessProgress(capture, params)).toBe(true);
+  expect(validProcessProgress(render, params, capture)).toBe(true);
+  expect(validProcessProgress({ ...capture, totalFrames: 8192 }, params, capture)).toBe(false);
+  expect(validProcessProgress({ ...render, totalFrames: 21 }, params, capture)).toBe(false);
+  expect(validProcessProgress({ ...render, phaseIndex: 0 }, params, capture)).toBe(false);
+  const attenuated = { ...progress, operation: "spectral-attenuate" as const, gainDb: -12 };
+  expect(validProcessProgress(attenuated, params)).toBe(true);
+  expect(validProcessProgress({ ...attenuated, gainDb: 1 }, params)).toBe(false);
+  expect(validProcessProgress({ ...attenuated, gainDb: -121 }, params)).toBe(false);
+  for (const operation of [
+    "spectral-remove",
+    "spectral-heal",
+    "remove-clicks",
+    "declip",
+    "time-stretch",
+    "remove-hum",
+  ] as const)
+    expect(validProcessProgress({ ...progress, operation, gainDb: 0 }, params)).toBe(true);
+});

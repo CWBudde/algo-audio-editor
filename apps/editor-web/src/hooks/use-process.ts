@@ -85,6 +85,10 @@ export function parseProcessParameter(
   text: string,
 ): number | undefined {
   if (operation === "gain") return parseGain(text);
+  if (operation === "spectral-attenuate") {
+    const value = parseGain(text);
+    return value !== undefined && value <= 0 ? value : undefined;
+  }
   if (operation !== "normalize-peak" && operation !== "normalize-loudness") return 0;
   if (!text.trim()) return;
   const value = Number(text);
@@ -93,6 +97,7 @@ export function parseProcessParameter(
 }
 
 export function defaultProcessParameter(operation: ProcessOperation): string {
+  if (operation === "spectral-attenuate") return "-12";
   return operation === "gain"
     ? "0"
     : operation === "normalize-peak"
@@ -204,7 +209,11 @@ export function useProcess(options: ProcessOptions) {
   }, [options.client, options.info?.documentId, cancel]);
 
   const open = useCallback(
-    (selection: SelectionRange, operation: ProcessOperation = "gain") => {
+    (
+      selection: SelectionRange,
+      operation: ProcessOperation = "gain",
+      initialSettings: Partial<ProcessSettings> = {},
+    ) => {
       const initial = latest.current;
       const { client, info } = initial;
       if (
@@ -226,7 +235,7 @@ export function useProcess(options: ProcessOptions) {
           ? { ...selection, start: 0, end: info.frames }
           : { ...selection };
       const seed = crypto.getRandomValues(new Uint32Array(1))[0] ?? 1;
-      const settings = defaultProcessSettings(info, seed);
+      const settings = { ...defaultProcessSettings(info, seed), ...initialSettings };
       if (operation === "crossfade") settings.durationText = "0.01";
       const s: Session = {
         client,

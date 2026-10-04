@@ -1,4 +1,10 @@
-import type { DocumentInfoResult, ProcessStartParams, SelectionRange } from "@aae/protocol";
+import type {
+  DocumentInfoResult,
+  ProcessStartParams,
+  SelectionRange,
+  SelectionResult,
+  SpectralMask,
+} from "@aae/protocol";
 
 export interface ProcessSettings {
   curve: "linear" | "equal-power" | "logarithmic" | "s-curve";
@@ -12,9 +18,29 @@ export interface ProcessSettings {
   levelText: string;
   seed: number;
   channel: number;
+  spectralMask?: SpectralMask;
+  noiseProfile?: SelectionResult;
+  fftSize: number;
+  reductionText: string;
+  noiseMethod: "wiener" | "subtraction" | "gate";
+  sensitivityText: string;
+  thresholdText: string;
+  maxGapText: string;
+  ratioText: string;
+  humHz: 50 | 60;
+  humQText: string;
+  harmonicsText: string;
 }
 
 export const PROCESS_TITLES: Record<ProcessStartParams["operation"], string> = {
+  "spectral-attenuate": "Attenuate spectral selection",
+  "spectral-remove": "Remove spectral selection",
+  "spectral-heal": "Heal spectral selection",
+  "noise-reduce": "Noise reduction",
+  "remove-clicks": "Remove clicks and pops",
+  declip: "Repair clipped audio",
+  "time-stretch": "Time stretch",
+  "remove-hum": "Remove mains hum",
   gain: "Amplify",
   "normalize-peak": "Normalize",
   "normalize-loudness": "Normalize",
@@ -44,6 +70,16 @@ export function defaultProcessSettings(info: DocumentInfoResult, seed = 1): Proc
     levelText: "-12",
     seed,
     channel: 0,
+    fftSize: 2048,
+    reductionText: "24",
+    noiseMethod: "wiener",
+    sensitivityText: "8",
+    thresholdText: "0.99",
+    maxGapText: "64",
+    ratioText: "1.25",
+    humHz: 50,
+    humQText: "30",
+    harmonicsText: "8",
   };
 }
 
@@ -63,6 +99,90 @@ export function processParams(
 ): ProcessStartParams | undefined {
   const base = { documentId: info.documentId, ...selection, operation };
   switch (operation) {
+    case "spectral-attenuate":
+    case "spectral-remove":
+    case "spectral-heal": {
+      const mask = settings.spectralMask;
+      if (![256, 512, 1024, 2048, 4096, 8192].includes(settings.fftSize)) return;
+      const gainDb = operation === "spectral-attenuate" ? finite(parameterText, -120, 0) : 0;
+      if (
+        !mask ||
+        ![mask.start, mask.end, mask.lowHz, mask.highHz].every(Number.isFinite) ||
+        !Number.isSafeInteger(mask.start) ||
+        !Number.isSafeInteger(mask.end) ||
+        (mask.points &&
+          (mask.points.length < 3 ||
+            mask.points.length > 128 ||
+            mask.points.some((p) => !Number.isFinite(p.frame) || !Number.isFinite(p.hz)))) ||
+        mask.start !== selection.start ||
+        mask.end !== selection.end ||
+        mask.end <= mask.start ||
+        mask.end > info.frames ||
+        mask.lowHz < 0 ||
+        mask.highHz > info.sampleRate / 2 ||
+        mask.highHz <= mask.lowHz ||
+        gainDb === undefined
+      )
+        return;
+      if (
+        operation === "spectral-heal" &&
+        (mask.end - mask.start > 256 || mask.start < 2 || mask.end > info.frames - 2)
+      )
+        return;
+      return { ...base, operation, spectralMask: mask, fftSize: settings.fftSize, gainDb };
+    }
+    case "noise-reduce": {
+      const noiseProfile = settings.noiseProfile;
+      if (![256, 512, 1024, 2048, 4096, 8192].includes(settings.fftSize)) return;
+      const reductionDb = finite(settings.reductionText, 0, 60);
+      if (
+        !noiseProfile ||
+        !Number.isSafeInteger(noiseProfile.start) ||
+        !Number.isSafeInteger(noiseProfile.end) ||
+        noiseProfile.start < 0 ||
+        noiseProfile.end > info.frames ||
+        noiseProfile.documentId !== info.documentId ||
+        noiseProfile.end - noiseProfile.start < settings.fftSize / 2 ||
+        (noiseProfile.channelMask & selection.channelMask) !== selection.channelMask ||
+        reductionDb === undefined
+      )
+        return;
+      return {
+        ...base,
+        operation,
+        noiseProfile,
+        fftSize: settings.fftSize,
+        reductionDb,
+        noiseMethod: settings.noiseMethod,
+      };
+    }
+    case "remove-clicks": {
+      const sensitivity = finite(settings.sensitivityText, 3, 30),
+        maxGap = finite(settings.maxGapText, 1, 256);
+      return sensitivity === undefined || maxGap === undefined || !Number.isInteger(maxGap)
+        ? undefined
+        : { ...base, operation, sensitivity, maxGap };
+    }
+    case "declip": {
+      const clipThreshold = finite(settings.thresholdText, 0.1, 1),
+        maxGap = finite(settings.maxGapText, 1, 256);
+      return clipThreshold === undefined || maxGap === undefined || !Number.isInteger(maxGap)
+        ? undefined
+        : { ...base, operation, clipThreshold, maxGap };
+    }
+    case "time-stretch": {
+      const durationRatio = finite(settings.ratioText, 0.25, 4);
+      return durationRatio === undefined || selection.channelMask !== 2 ** info.channels - 1
+        ? undefined
+        : { ...base, operation, durationRatio };
+    }
+    case "remove-hum": {
+      const humQ = finite(settings.humQText, 5, 100),
+        harmonics = finite(settings.harmonicsText, 1, 16);
+      return humQ === undefined || harmonics === undefined || !Number.isInteger(harmonics)
+        ? undefined
+        : { ...base, operation, humHz: settings.humHz, humQ, harmonics };
+    }
     case "gain": {
       const gainDb = finite(parameterText, -120, 60);
       return gainDb === undefined ? undefined : { ...base, operation, gainDb };

@@ -63,7 +63,8 @@ export function ProcessDialog({
   const value = view ? parseProcessParameter(view.operation, view.parameterText) : undefined;
   const normalize =
     view?.operation === "normalize-peak" || view?.operation === "normalize-loudness";
-  const numeric = view?.operation === "gain" || normalize;
+  const numeric =
+    view?.operation === "gain" || view?.operation === "spectral-attenuate" || normalize;
   const valid = Boolean(
     view &&
       processParams(
@@ -136,7 +137,7 @@ export function ProcessDialog({
           {numeric && (
             <>
               <label className="mt-3 block text-sm" htmlFor={`${id}-gain`}>
-                {view.operation === "gain"
+                {view.operation === "gain" || view.operation === "spectral-attenuate"
                   ? "Gain (dB)"
                   : view.operation === "normalize-peak"
                     ? "Target peak (dBFS)"
@@ -156,16 +157,24 @@ export function ProcessDialog({
               />
               {value === undefined && (
                 <p id={`${id}-error`} role="alert" className="mt-1 text-sm text-destructive">
-                  {view.operation === "gain"
-                    ? "Enter a finite gain between −120 and 60 dB."
-                    : view.operation === "normalize-peak"
-                      ? "Enter a finite target between −120 and 0 dBFS."
-                      : "Enter a finite target between −69 and 0 LUFS."}
+                  {view.operation === "spectral-attenuate"
+                    ? "Enter a finite attenuation between −120 and 0 dB."
+                    : view.operation === "gain"
+                      ? "Enter a finite gain between −120 and 60 dB."
+                      : view.operation === "normalize-peak"
+                        ? "Enter a finite target between −120 and 0 dBFS."
+                        : "Enter a finite target between −69 and 0 LUFS."}
                 </p>
               )}
             </>
           )}
-          {!numeric && (
+          {view.operation === "spectral-attenuate" && value !== undefined && !valid && (
+            <p role="alert" className="mt-2 text-sm text-destructive">
+              Choose finite frequency bounds from 0 Hz to half the sample rate, with the upper bound
+              above the lower bound.
+            </p>
+          )}
+          {(!numeric || view.operation === "spectral-attenuate") && (
             <ProcessControls
               view={view}
               disabled={working}
@@ -177,7 +186,17 @@ export function ProcessDialog({
             <p role="alert" className="mt-2 text-sm text-destructive">
               {view.operation === "crossfade"
                 ? "Choose a cursor with enough audio on both sides and an overlap of at least two frames."
-                : "Enter valid settings. Frequencies must be positive and at most half the sample rate; sample rates must be whole hertz from 8000 to 384000."}
+                : view.operation === "spectral-heal"
+                  ? "Select at most 256 samples with intact audio on both sides."
+                  : view.operation === "noise-reduce"
+                    ? "Choose a valid profile for these channels and reduction from 0 to 60 dB."
+                    : view.operation === "time-stretch"
+                      ? "Choose all channels and a duration multiplier from 0.25 to 4."
+                      : view.operation === "remove-clicks" ||
+                          view.operation === "declip" ||
+                          view.operation === "remove-hum"
+                        ? "Enter valid restoration settings within the supported ranges."
+                        : "Enter valid settings. Frequencies must be positive and at most half the sample rate; sample rates must be whole hertz from 8000 to 384000."}
             </p>
           )}
           <div className="mt-4" aria-live="polite">
