@@ -1,0 +1,44 @@
+name: test-lint
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go (golangci-lint, vet, tidy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          bun: "false"
+      - name: go vet (native + js/wasm)
+        working-directory: packages/kernel
+        run: |
+          go vet ./...
+          GOOS=js GOARCH=wasm go vet ./...
+      - run: just check-tidy
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          working-directory: packages/kernel
+
+  web:
+    name: Web (Biome, types)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          go: "false"
+      - name: Biome
+        run: bunx biome ci apps packages/protocol
+      - name: Typecheck
+        run: |
+          bun run --cwd apps/editor-web typecheck
+          bun run --cwd apps/desktop typecheck

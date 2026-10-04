@@ -205,14 +205,24 @@ test("normal window bounds survive relaunch", async () => {
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].setBounds({ x: 20, y: 30, width: 1000, height: 650 }),
     );
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
-    await closeEditor(app);
+    // X11 applies bounds asynchronously, so wait until the window reports
+    // them before closing; otherwise the close-time save can record the old
+    // size on a loaded runner.
     await expect
-      .poll(
-        async () =>
-          JSON.parse(await readFile(path.join(directory, "window-state.json"), "utf8")).width,
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getNormalBounds()),
       )
-      .toBe(1000);
+      .toMatchObject({ width: 1000, height: 650 });
+    // Closing the only window quits the app, which flushes the state file
+    // before exiting. Wait for that exit rather than racing it.
+    const exited = app.waitForEvent("close");
+    await app
+      .evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close())
+      .catch(() => {});
+    await exited;
+    expect(
+      JSON.parse(await readFile(path.join(directory, "window-state.json"), "utf8")),
+    ).toMatchObject({ width: 1000, height: 650 });
     app = await electron.launch(options);
     await app.firstWindow();
     expect(
