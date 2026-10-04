@@ -3,6 +3,7 @@ node_modules/
 *.tsbuildinfo
 
 # ── Build output ─────────────────────────────────────────────────────────────
+packages/kernel/bin/
 apps/editor-web/dist/
 apps/editor-web/dist-pages/
 apps/desktop/dist/

@@ -532,15 +532,15 @@
 
 ---
 
-## Phase 12: Batch & Automation
+## Phase 12: Batch & Automation — IN PROGRESS (2026-10-04)
 
 **Goal:** Apply the same processing to many files, from the UI or headless.
 
 **Acceptance criterion:** A batch job (normalize to −16 LUFS, fade the edges, convert to 44.1 kHz/16-bit FLAC) processes 100 files from the UI and gives an identical result through the native CLI.
 
-- [ ] Operation chains serialized as JSON (the same `Operation` values as Phase 2/3)
+- [x] Version 1 JSON operation chains (`internal/automation.Chain` / `Operation`, mirrored as TypeScript `OperationChain` / `RecordedOperation`) record the existing UI `edit.apply`, `process.start` and `effects.apply` payloads. Strict decoding rejects unknown fields/methods; the runner follows kernel identity changes, resolves omitted range fields from the current selection and reports a completed prefix on failure. Maximum 64 operations; cross-document extraction remains excluded.
 - [ ] Batch dialog: file list, chain, output naming and format, progress per file
-- [ ] Native CLI (`packages/kernel/cmd/aae`): the same engine compiled for desktop OSes, running chains on files without the UI
+- [x] Native single-file CLI (`packages/kernel/cmd/aae`, built alongside MCP by `just native-build`) imports through the Go codecs, runs recorded chains and exports WAV/FLAC/AIFF through the same engine. Explicit `--allow-write`, atomic publication and no overwrite without `--overwrite`; no output after a failed chain. Linux execution and CLI/MCP/UI-protocol exact float-WAV parity are tested. Native Windows/macOS execution and the 100-file batch acceptance remain pending.
 - [ ] Macros: record the user's operations into a chain
 
 ---
@@ -551,14 +551,14 @@
 
 **Acceptance criterion:** `https://cwbudde.github.io/algo-audio-editor/` (or the chosen Pages URL) loads from a cold cache, reports `crossOriginIsolated === true`, imports a local WAV, plays it without underruns and exports it again — verified by a Playwright smoke run against the deployed URL in CI.
 
-**Status (2026-10-04):** Pages already publishes CI-tested `main`. The remaining deployment/presentation implementation now includes a bundled demo, build stamps, hashed kernel/runtime assets, headerless subpath tests and post-deploy/daily live verification. The existing public build passes cold WAV import/playback/sample-preserving Save; the new workflow and UI await the next push/deploy. The strict CDN cache-policy gate below remains open. See [deployment details and browser support](docs/web-deployment.md).
+**Status (2026-10-04):** Pages publishes CI-tested `main`, including the bundled demo, build stamps, hashed kernel/runtime assets and post-deploy/daily live verification. CI run 37221340035 and deploy run 37221802092 succeeded for `37f1cbd`; the deploy's `verify / smoke` job passed against the public site. The strict CDN cache-policy gate below remains open. See [deployment details and browser support](docs/web-deployment.md).
 
 ### Enablement & verification
 
 - [x] GitHub API confirms Pages source `workflow`, HTTPS URL `https://cwbudde.github.io/algo-audio-editor/` and a `github-pages` environment policy restricted to `main`; existing deploy run 37218337572 succeeded for `e8a373a`.
 - [x] The adapted `coi-serviceworker.js` registers with explicit repository scope and `updateViaCache: none`, reloads once after control, and avoids reloads on active-session worker updates. `App` provides actionable isolation guidance. `pages.spec.ts` verifies cold/warm scope, isolation, SharedArrayBuffer and blocked-worker guidance against a gzip static server without COOP/COEP; the existing live WAV smoke passes too.
 - [x] `vite.config.ts` emits SHA-256 kernel/runtime filenames and `%BASE_URL%` assets under the repository path; `runtime.ts` boots the matched pair. `e2e-pages` verifies real WASM boot, zero-underrun worklet playback and exact exported PCM under `/algo-audio-editor/`.
-- [x] `pages-smoke.yml` accepts `PLAYWRIGHT_BASE_URL`, runs after deploy and daily at 07:23 UTC, checks the deployed commit, and retains failure traces. `pages.yml` retains its successful-CI gate and uses shared pinned setup. The new workflow will first execute after this work is pushed/deployed; local/live evidence is recorded separately above.
+- [x] `pages-smoke.yml` accepts `PLAYWRIGHT_BASE_URL`, runs after deploy and daily at 07:23 UTC, checks the deployed commit, and retains failure traces. `pages.yml` retains its successful-CI gate and uses shared pinned setup. The first post-deploy `verify / smoke` job passed in run 37221802092 for `37f1cbd`.
 - [x] Vite copies the processed index to `404.html`; a production subpath regression boots the editor on `/shared/example`. Unknown paths retain HTTP 404 and do not restore a saved document.
 
 ### Delivery quality
@@ -577,11 +577,11 @@
 - [x] `index.html` includes description, Open Graph and Twitter summary metadata with the canonical cwbudde Pages URL and existing app icon.
 - [x] Pages follows CI-tested `main`; the web header visibly says **Development build**, and README/landing metadata/deployment docs describe this policy. Release-tag desktop publishing remains separate.
 
-**Validation (2026-10-04):** full `just ci` passes: native Go race/coverage, actual V8/WASM tests, both fuzz smokes, formatting/lint/typechecks/tidy, 910 frontend tests, 134 browser tests, four gzip/headerless Pages tests (including expected commit/UTC stamp), 16 Electron tests and one packaged-runtime test. Pages tests build into separate `dist-pages`, preserving the root-path browser/Electron output. `actionlint`, `check-deps` and `git diff --check` pass. The current live site's cold WAV import/playback/exact-PCM Save passes in 11.8 s on a fresh retry; an earlier cold load exceeded the readiness timeout, so propagation/network failures remain visible and CI retains traces/retries. The updated UI and post-deploy/daily workflow await the next push/deploy; strict CDN cache controls remain pending above.
+**Validation (2026-10-04):** full `just ci` passes: native Go race/coverage, actual V8/WASM tests, both fuzz smokes, formatting/lint/typechecks/tidy, 910 frontend tests, 134 browser tests, four gzip/headerless Pages tests (including expected commit/UTC stamp), 16 Electron tests and one packaged-runtime test. Pages tests build into separate `dist-pages`, preserving the root-path browser/Electron output. `actionlint`, `check-deps` and `git diff --check` pass. The earlier live site's cold WAV import/playback/exact-PCM Save passed in 11.8 s on a fresh retry; an earlier cold load exceeded the readiness timeout, so propagation/network failures remain visible and CI retains traces/retries. After the user's push, CI run 37221340035 and Pages run 37221802092 passed, including all four live post-deploy smoke cases and the expected `37f1cbd` build stamp. Strict CDN cache controls remain pending above.
 
 ---
 
-## Phase 14: MCP Support (drive the editor from an LLM)
+## Phase 14: MCP Support (drive the editor from an LLM) — IN PROGRESS (2026-10-04)
 
 **Goal:** Expose the kernel's operation model over the Model Context Protocol, so an LLM agent can inspect and edit audio with the same `Operation` values the UI uses — "normalize this to −16 LUFS, trim the silence at both ends and export 44.1 kHz/16-bit FLAC" as tool calls, not as DSP written by the model.
 
@@ -589,28 +589,30 @@
 
 **Depends on:** Phase 3 (processing infrastructure), Phase 5 (analysis), Phase 12's `Operation` serialization and native CLI — the MCP server is a third front-end over the same engine, next to the web UI and the CLI.
 
+**First increment (2026-10-04):** `cmd/aae-mcp` and `internal/mcpserver` use the official Go MCP SDK v1.8.0 over stdio. Seventeen tools, independent kernel sessions, shared CLI chains, summary resources and workflow prompts are implemented; `[ ]` rows below retain their unfinished parts. See [setup, tool reference and limits](docs/mcp.md). No live desktop connection or HTTP listener is exposed.
+
 ### Server
 
-- [ ] `packages/kernel/cmd/aae-mcp`: a native Go MCP server (stdio transport first) linking `internal/engine` directly — no browser, no WASM, same code path as the CLI. HTTP/SSE transport behind a flag for remote use.
-- [ ] Session model: documents are opened by path and addressed by id; a session holds several documents, their selections and their undo history
-- [ ] Rule 5 holds: the MCP layer is a thin adapter: tool schema ⇄ `protocol` payloads. No DSP and no audio state in the adapter.
-- [ ] Tool schemas generated from or checked against `internal/protocol`, so an ABI change cannot silently skew the MCP surface (test that every exposed method exists)
+- [ ] `cmd/aae-mcp` now links `internal/engine` through the shared `internal/automation` runner, with official SDK stdio negotiation/cancellation and stderr-only diagnostics. Native stdio subprocess acceptance passes. HTTP transport remains pending; legacy SSE is deferred in favor of evaluating Streamable HTTP.
+- [x] Up to eight path-opened documents have stable MCP routing IDs, separate kernel instances, selections, clipboards and undo histories. The adapter follows changing kernel publication IDs; close removes the document and its summary resource. Isolation/resource regressions in `internal/mcpserver/server_test.go`.
+- [x] `internal/mcpserver` maps tool schemas and routing IDs to protocol payloads; `internal/automation` steps/commits/cancels kernel jobs. No DSP or sample storage in either adapter; binary import/export stays outside control JSON. Native-only files are excluded from JS builds; ABI 18 unchanged.
+- [x] SDK tool schemas derive from Go input types; `list_operations` generates edit/process/effect parameter schemas directly from `internal/protocol`. Tests snapshot all 17 advertised input schemas, check ABI/version fields and dispatch recognition, and exercise the actual edit/process/effect/analysis/history paths.
 
 ### Tool surface
 
-- [ ] **Read:** `open_document`, `document_info` (duration, rate, channels, format, metadata), `list_documents`, `get_statistics` (peak, true peak, RMS, LUFS, DC, clipping), `get_peaks` (downsampled, for a textual or image overview), `detect_silence`/`detect_clipping`
-- [ ] **Edit:** `select_range` (seconds or samples, per channel), `apply_operation` (the Phase 2/3 `Operation` union: trim, cut, insert, silence, fade, gain, normalize, resample, reverse, dc-offset), `apply_chain`, `undo`/`redo`, `history`
-- [ ] **Effects:** `apply_effect` with the Phase 4 effect descriptors, so parameters and ranges are discoverable instead of guessed
-- [ ] **Write:** `export_document` (format, bit depth, rate, dither), `save_document`, `render_region`
-- [ ] **Resources:** documents exposed as MCP resources (a waveform PNG the kernel rendered, plus a JSON summary), so a vision-capable model can *see* the waveform
-- [ ] **Prompts:** a few canned workflows (mastering check, podcast cleanup, batch convert) as MCP prompts
+- [ ] **Read:** open/info/list, peak/RMS/DC/crest/clipped-sample statistics with available integrated LUFS and read-only clipping-region counts are implemented. Offline true peak, peak overview and silence detection remain pending.
+- [ ] **Edit:** sample-frame/channel-mask `select_range`, recorded UI `apply_operation` / `apply_chain`, undo/redo and history are implemented. Each changing step uses kernel history; structural/processing failures report the completed prefix. Seconds-based selection and cross-document extraction remain pending; chain payloads use existing operation names (`crop`, `mute`, `remove-dc`, etc.).
+- [x] **Effects:** `list_effects` supplies paginated descriptors, parameters and presets with optional document-rate context; `apply_effect` and recorded `effects.apply` use private kernel jobs and commit one undo entry. Actual ringmod apply/dry-run/undo regression; convolution IR loading remains a separate follow-up.
+- [ ] **Write:** export/save support native WAV/FLAC/AIFF, bit depth, float, selection scope, dither/noise shaping/seed and explicit overwrite. Rate conversion uses a preceding kernel `resample` operation. Save marks history clean only after successful publication; failed/read-only exports are tested. Dedicated `render_region` and browser-only codec exports remain pending.
+- [ ] **Resources:** current JSON summaries at `aae://documents/<id>/summary` are implemented and removed on close. Waveform PNG/peak resources remain pending.
+- [x] **Prompts:** `mastering_check`, `podcast_cleanup`, `batch_convert` guide schema discovery, inspection and explicit output choices. Client protocol tests discover/get prompts; prompts do not automatically execute work.
 
 ### Safety & ergonomics
 
-- [ ] Read-only by default: writing outside an explicitly allowed root requires `--allow-write <dir>`; exports never overwrite without an explicit flag in the call
-- [ ] Every operation is dry-runnable: return the predicted change (new duration, resulting peak/LUFS) without mutating
-- [ ] Deterministic, token-frugal responses: numbers rounded sensibly, no sample arrays in JSON (Rule 4), long results paginated
-- [ ] Errors carry the kernel's wrapped message and a suggested correction (e.g. "selection exceeds document length (3.2 s > 2.8 s)")
+- [x] Filesystem writes are disabled by default. Repeatable `--allow-write` opens existing roots through traversal-resistant `os.Root`; temporary/synced publication refuses existing files unless explicitly overwritten. Regression covers path escape, symlink escape, original preservation, explicit overwrite and temporary cleanup. Input paths use OS read permissions; in-memory edits remain enabled.
+- [ ] Processing/effect dry runs evaluate the real private candidate and cancel it, preserving history; return geometry/peak and available normalization loudness fields. Structural edits, whole-chain dry runs and general output-LUFS prediction remain pending.
+- [ ] Compact operation/chain results omit repeated annotation/history lists; documents are bounded to eight and effects paginate (default 10, maximum 20). Bulk audio/peaks never enter JSON arrays. Sensible numeric rounding and additional long-control-result pagination remain pending.
+- [x] Tool errors preserve wrapped kernel messages plus inspection/retry guidance; unknown identities/methods/fields and unauthorized writes provide specific corrections. Partial-chain errors carry failed index, completed count/results and undo guidance. SDK validation errors remain standard MCP tool errors.
 
 ### Optional: the running editor as an MCP endpoint
 
@@ -619,9 +621,11 @@
 
 ### Tests & docs
 
-- [ ] Go tests driving the server through the MCP protocol (golden tool schemas, a full open → chain → export round-trip against the Phase 3 golden vectors)
-- [ ] Parity test: the same chain via MCP, via `cmd/aae` and via the UI operation path produces identical output
-- [ ] `docs/mcp.md`: install snippet for Claude Code (`claude mcp add`) and the Claude Desktop config, the tool reference, and the permission flags
+- [x] `internal/mcpserver/server_test.go` drives SDK client/server messages and a native stdio child: golden input schemas, open/statistics/gain+reverse/export, resources/prompts/descriptors, dry-run/effect/undo, session isolation, partial failures and save points. `internal/automation/files_test.go` covers file permissions, strict chains, bounds and cancellation/retry.
+- [x] A gain/reverse chain via MCP, the `cmd/aae` runner and an independently driven UI protocol sequence produces byte-identical float WAV output; binary PCM is checked against Phase 3.2's reviewed IEEE-754 half-gain vectors. Interactive browser/Claude-host acceptance remains pending; this test verifies the shared operation path.
+- [x] `docs/mcp.md` documents native build, official-source Claude Code/Desktop configuration examples, all tools, JSON chains/CLI, write permissions, cancellation/partial commits, resources/prompts and unfinished surface. README/AGENTS link the new native command. Actual interactive Claude configuration has not been tested.
+
+**Validation (2026-10-04):** full `just ci` passes (native race/coverage, actual V8/WASM, both fuzz smokes, formatting/lint/typechecks/tidy, 910 frontend, 134 browser, four Pages, 16 Electron and one packaged Linux smoke). The final native MCP/automation race tests and Go lint pass after schema-discovery/structural-save regressions were added. `just native-build`, `actionlint`, `check-deps` and `git diff --check` pass. A separate real stdio client drove the compiled `aae-mcp` binary through demo open/statistics → normalize to −16 LUFS → resample to 44.1 kHz → 16-bit FLAC export. The compiled `aae` binary ran the same chain: both outputs are identical, 176,400 stereo frames / 162,976 encoded bytes (SHA-256 `a74f893f5d46f0c36cb9b9bbceb8abe3ef561ff6d6ac340b6460dbdeeb48c8d5`). Native adapters are excluded from the WASM executable; raw kernel size remains 11,063,065 bytes.
 
 ---
 

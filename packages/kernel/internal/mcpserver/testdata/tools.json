@@ -1,0 +1,473 @@
+[
+  {
+    "name": "apply_chain",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "chain": {
+          "additionalProperties": false,
+          "properties": {
+            "operations": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "method": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  }
+                },
+                "required": ["method", "params"],
+                "type": "object"
+              },
+              "type": ["null", "array"]
+            },
+            "version": {
+              "type": "integer"
+            }
+          },
+          "required": ["version", "operations"],
+          "type": "object"
+        },
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        }
+      },
+      "required": ["documentId", "chain"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "apply_effect",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bypass": {
+          "type": "boolean"
+        },
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "graph": {
+          "additionalProperties": false,
+          "properties": {
+            "connections": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "from": {
+                    "type": "string"
+                  },
+                  "fromPortIndex": {
+                    "type": "integer"
+                  },
+                  "to": {
+                    "type": "string"
+                  },
+                  "toPortIndex": {
+                    "type": "integer"
+                  }
+                },
+                "required": ["from", "to"],
+                "type": "object"
+              },
+              "type": ["null", "array"]
+            },
+            "nodes": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "bypassed": {
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": {
+                    "type": "string"
+                  }
+                },
+                "required": ["id", "type", "params"],
+                "type": "object"
+              },
+              "type": ["null", "array"]
+            }
+          },
+          "required": ["nodes", "connections"],
+          "type": "object"
+        },
+        "range": {
+          "additionalProperties": false,
+          "description": "optional range in sample frames; omit to use the current selection",
+          "properties": {
+            "channelMask": {
+              "type": "integer"
+            },
+            "end": {
+              "type": "integer"
+            },
+            "start": {
+              "type": "integer"
+            }
+          },
+          "required": ["start", "end", "channelMask"],
+          "type": ["null", "object"]
+        },
+        "wet": {
+          "type": ["null", "number"]
+        }
+      },
+      "required": ["documentId", "graph"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "apply_operation",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        },
+        "dryRun": {
+          "description": "process/effects only; evaluates then discards the candidate",
+          "type": "boolean"
+        },
+        "operation": {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": ["method", "params"],
+          "type": "object"
+        }
+      },
+      "required": ["documentId", "operation"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "close_document",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        }
+      },
+      "required": ["documentId"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "detect_clipping",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        },
+        "range": {
+          "additionalProperties": false,
+          "description": "optional range in sample frames; omit to use the current selection",
+          "properties": {
+            "channelMask": {
+              "type": "integer"
+            },
+            "end": {
+              "type": "integer"
+            },
+            "start": {
+              "type": "integer"
+            }
+          },
+          "required": ["start", "end", "channelMask"],
+          "type": ["null", "object"]
+        },
+        "threshold": {
+          "description": "linear amplitude threshold, normally 1",
+          "type": "number"
+        }
+      },
+      "required": ["documentId", "threshold"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "document_info",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        }
+      },
+      "required": ["documentId"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "export_document",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bitDepth": {
+          "type": "integer"
+        },
+        "dither": {
+          "description": "none or tpdf",
+          "type": "string"
+        },
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        },
+        "float": {
+          "type": "boolean"
+        },
+        "format": {
+          "description": "wav, flac or aiff; browser-only codecs are unavailable",
+          "type": "string"
+        },
+        "noiseShaping": {
+          "type": "string"
+        },
+        "overwrite": {
+          "description": "explicit permission to replace an existing destination",
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "scope": {
+          "description": "document (default) or selection",
+          "type": "string"
+        },
+        "seed": {
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": ["null", "integer"]
+        }
+      },
+      "required": ["documentId", "path", "format", "bitDepth"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_statistics",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        },
+        "range": {
+          "additionalProperties": false,
+          "description": "optional range in sample frames; omit to use the current selection",
+          "properties": {
+            "channelMask": {
+              "type": "integer"
+            },
+            "end": {
+              "type": "integer"
+            },
+            "start": {
+              "type": "integer"
+            }
+          },
+          "required": ["start", "end", "channelMask"],
+          "type": ["null", "object"]
+        }
+      },
+      "required": ["documentId"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "history",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        }
+      },
+      "required": ["documentId"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_documents",
+    "inputSchema": {
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_effects",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "optional session document id for sample-rate-specific parameter limits",
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "offset": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_operations",
+    "inputSchema": {
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  {
+    "name": "open_document",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": ["path"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "redo",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        }
+      },
+      "required": ["documentId"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "save_document",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bitDepth": {
+          "type": "integer"
+        },
+        "dither": {
+          "description": "none or tpdf",
+          "type": "string"
+        },
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        },
+        "float": {
+          "type": "boolean"
+        },
+        "format": {
+          "description": "wav, flac or aiff; browser-only codecs are unavailable",
+          "type": "string"
+        },
+        "noiseShaping": {
+          "type": "string"
+        },
+        "overwrite": {
+          "description": "explicit permission to replace an existing destination",
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "scope": {
+          "description": "document (default) or selection",
+          "type": "string"
+        },
+        "seed": {
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": ["null", "integer"]
+        }
+      },
+      "required": ["documentId", "path", "format", "bitDepth"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "select_range",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        },
+        "range": {
+          "additionalProperties": false,
+          "properties": {
+            "channelMask": {
+              "type": "integer"
+            },
+            "end": {
+              "type": "integer"
+            },
+            "start": {
+              "type": "integer"
+            }
+          },
+          "required": ["start", "end", "channelMask"],
+          "type": "object"
+        }
+      },
+      "required": ["documentId", "range"],
+      "type": "object"
+    }
+  },
+  {
+    "name": "undo",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        }
+      },
+      "required": ["documentId"],
+      "type": "object"
+    }
+  }
+]

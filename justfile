@@ -24,6 +24,11 @@ install:
 wasm-build:
     node scripts/build-wasm.mjs
 
+# Build the native single-file CLI and stdio MCP server (host OS/architecture).
+native-build:
+    mkdir -p {{kernel}}/bin
+    cd {{kernel}} && go build -trimpath -o bin/ ./cmd/aae ./cmd/aae-mcp
+
 # ── Development ──────────────────────────────────────────────────────────────
 
 # Regenerate checked-in desktop/web icons (requires ImageMagick).
@@ -215,5 +220,6 @@ check: check-formatted lint test-go-race test-web check-tidy build
 ci: check-formatted lint test-go-race test-go-wasm fuzz-wav fuzz-codecs test-web check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
 
 clean:
+    rm -rf {{kernel}}/bin
     rm -rf {{web}}/dist {{web}}/dist-pages {{desktop}}/dist {{web}}/public/kernel.wasm {{web}}/public/wasm_exec.js
     rm -f {{kernel}}/coverage.out

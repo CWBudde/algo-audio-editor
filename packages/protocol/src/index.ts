@@ -521,6 +521,25 @@ export interface EffectPreviewResult extends SelectionResult {
   wet: number;
   bypass: boolean;
 }
+
+/** Version 1 native CLI/MCP chains reuse the UI's control payloads.
+ * Selection fields are optional and default to the current kernel selection.
+ * The native session supplies documentId and follows identity changes.
+ */
+type RecordedParams<T extends SelectionResult> = T extends unknown
+  ? Omit<T, keyof SelectionResult> & Partial<SelectionRange>
+  : never;
+export type RecordedOperation =
+  | { method: "edit.apply"; params: RecordedParams<EditApplyParams> }
+  | {
+      method: "process.start";
+      params: RecordedParams<Exclude<ProcessStartParams, { operation: "extract-channel" }>>;
+    }
+  | { method: "effects.apply"; params: RecordedParams<EffectPreviewParams> };
+export interface OperationChain {
+  version: 1;
+  operations: RecordedOperation[];
+}
 export interface EffectSessionParams {
   documentId: string;
   previewId: string;

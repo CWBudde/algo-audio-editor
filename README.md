@@ -59,6 +59,10 @@ Desktop menus, file dialogs, close protection and packaging are described in
 [docs/desktop.md](docs/desktop.md). WAV, FLAC, AIFF/AIFC and MP3 associations are
 enabled; editor projects and crash recovery remain Phase 6 work.
 
+`just native-build` builds the headless `aae` CLI and `aae-mcp` stdio server.
+They share the kernel's processing and undo history, with explicit output
+directory permissions. See [native automation and MCP setup](docs/mcp.md).
+
 Browser tests start their own production preview. If port 4173 is occupied,
 choose a separate port: `AAE_E2E_PORT=44873 just e2e` (also supported by
 `just bench-import-browser` and `just bench-process-browser`).

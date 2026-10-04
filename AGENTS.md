@@ -34,6 +34,7 @@ Everything goes through `just` (`just --list` shows all recipes):
 ```bash
 just install        # bun install + Electron binary + git hooks
 just dev            # build kernel.wasm, start Vite on :5173
+just native-build   # build native aae CLI and aae-mcp stdio server
 just desktop-dev    # production build in the Electron shell
 just desktop-hot    # Electron against the running `just dev` server
 just test           # Go tests + Vitest
