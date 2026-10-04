@@ -14,6 +14,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read # manual dispatch looks up the commit's CI runs
 
 concurrency:
   group: pages
@@ -21,8 +22,9 @@ concurrency:
 
 jobs:
   build:
-    # Manual dispatch is an explicit override; otherwise only a successful CI
-    # run for a push to main (not a pull request whose head branch is "main").
+    # Only a successful CI run for a push to main (not a pull request whose
+    # head branch is "main"). A manual dispatch redeploys, but the commit must
+    # still have a successful CI run; the first step checks that.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
@@ -33,6 +35,17 @@ jobs:
       # Pages serves the site from /<repo>/.
       VITE_BASE: /${{ github.event.repository.name }}/
     steps:
+      - name: CI passed for the dispatched commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          passed=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --status success --json databaseId --jq length)
+          if [[ "$passed" -eq 0 ]]; then
+            echo "::error::No successful CI run for $GITHUB_SHA; refusing to deploy"
+            exit 1
+          fi
       - uses: actions/checkout@v7
         with:
           # Build exactly the commit CI tested, not whatever main is now.

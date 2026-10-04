@@ -49,19 +49,34 @@ jobs:
           GH_REPO: ${{ github.repository }}
           SHA: ${{ steps.commit.outputs.sha }}
         run: |
-          # A tag pushed right behind its commit races CI; wait for it.
-          pending=$(gh run list --workflow ci.yml --commit "$SHA" --json databaseId,status \
-            --jq '[.[] | select(.status != "completed")][0].databaseId // empty')
-          if [[ -n "$pending" ]]; then
-            echo "Waiting for CI run $pending on $SHA"
-            gh run watch "$pending" --interval 30 > /dev/null
-          fi
-          passed=$(gh run list --workflow ci.yml --commit "$SHA" --status success --json databaseId --jq length)
-          if [[ "$passed" -eq 0 ]]; then
-            echo "::error::No successful CI run for $SHA; refusing to release"
-            exit 1
-          fi
-          echo "CI passed for $SHA ($passed successful run(s))"
+          # A tag pushed right behind its commit races CI: the run may not be
+          # registered yet, or still be running. Poll until a run for this
+          # commit succeeds, every run finished without success, or the
+          # deadline (inside the job timeout) passes.
+          deadline=$((SECONDS + 50 * 60))
+          while :; do
+            runs=$(gh run list --workflow ci.yml --commit "$SHA" --json databaseId,status,conclusion)
+            if jq -e 'any(.[]; .conclusion == "success")' <<<"$runs" > /dev/null; then
+              echo "CI passed for $SHA"
+              exit 0
+            fi
+            pending=$(jq -r '[.[] | select(.status != "completed")][0].databaseId // empty' <<<"$runs")
+            if [[ -z "$pending" && $(jq length <<<"$runs") -gt 0 ]]; then
+              echo "::error::CI finished without success for $SHA; refusing to release"
+              exit 1
+            fi
+            if ((SECONDS >= deadline)); then
+              echo "::error::No successful CI run for $SHA within 50 minutes; refusing to release"
+              exit 1
+            fi
+            if [[ -n "$pending" ]]; then
+              echo "Waiting for CI run $pending on $SHA"
+              gh run watch "$pending" --interval 30 > /dev/null || true
+            else
+              echo "No CI run registered for $SHA yet; polling"
+              sleep 30
+            fi
+          done
 
   build:
     name: Installer (${{ matrix.os }})
