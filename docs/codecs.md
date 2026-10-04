@@ -1,6 +1,6 @@
 # Audio codecs
 
-Phase 6.1 and the lossless portion of Phase 6.2 are implemented. All file bytes and PCM cross the worker/kernel boundary as transferred ArrayBuffers. Decoding and encoding for the portable formats run in Go; browser fallback only decodes and copies planar samples into the kernel.
+Phase 6.1 and Phase 6.2 are implemented with the platform and format limits below. All file bytes and PCM cross the worker/kernel boundary as transferred ArrayBuffers. Decoding and encoding for the portable formats run in Go; browser fallback decodes into the kernel, and WebCodecs encodes bounded PCM copies returned by the kernel.
 
 | Format | Import | Export | Notes |
 | --- | --- | --- | --- |
@@ -8,10 +8,10 @@ Phase 6.1 and the lossless portion of Phase 6.2 are implemented. All file bytes 
 | FLAC | Go, cwbudde/flac v0.1.0 | Go, integer 8/16/24 | Input may use 4–32 bits; the editor stores float32, so full 32-bit integer precision is not retained. Export rejects empty documents. |
 | AIFF/AIFC | Go, cwbudde/aiff v0.1.0 | Go, AIFF integer 8/16/24/32 | Signed PCM AIFF; uncompressed AIFC NONE/twos/sowt. Compressed/floating AIFC is rejected. |
 | MP3 | Go, hajimehoshi/go-mp3 v0.3.4 | Pending | MPEG Layer III, decoded 16-bit stereo; mono input is duplicated by the decoder. Encoder delay/padding is retained. The upstream decoder can treat truncated final frames as EOF. |
-| Ogg Vorbis / Ogg Opus | Browser decodeAudioData | Pending | Availability and decoded padding depend on the browser (Chromium returns 128 fewer frames for the short Vorbis fixture). Vorbis keeps its header rate; Opus decodes at 48 kHz. |
-| M4A/AAC | Browser decodeAudioData | Pending | ISO BMFF AAC DecoderSpecificInfo (including a 96 kHz regression), ALAC sample entries and ADTS AAC headers supply the context rate. Codec availability depends on the browser/OS. |
+| Ogg Vorbis / Ogg Opus | Browser decodeAudioData | WebCodecs Opus, mono/stereo at 48 kHz | Availability and decoded padding depend on the browser (Chromium returns 128 fewer frames for the short Vorbis fixture). Vorbis keeps its header rate; Opus decodes at 48 kHz. |
+| M4A/AAC | Browser decodeAudioData | WebCodecs AAC-LC in M4A where available | ISO BMFF AAC DecoderSpecificInfo (including a 96 kHz regression), ALAC sample entries and ADTS AAC headers supply the context rate. Codec availability depends on the browser/OS. |
 
-Format routing uses magic bytes, including a validated leading ID3 tag, not filename extensions. Known Go containers never retry through browser decoding after a structural failure. Browser codecs decode using an OfflineAudioContext at the container rate; this avoids decodeAudioData's default resampling. The fallback recognizes the supported container headers; other containers fail with a visible error. It does not provide a general demuxer or WebCodecs export.
+Format routing uses magic bytes, including a validated leading ID3 tag, not filename extensions. Known Go containers never retry through browser decoding after a structural failure. Browser codecs decode using an OfflineAudioContext at the container rate; this avoids decodeAudioData's default resampling. The fallback recognizes the supported container headers; other containers fail with a visible error. It does not provide a general demuxer.
 
 The float32 document model retains exact integer PCM through 24 bits; 32-bit integer imports may lose low bits. FLAC imports verify frame CRCs, declared length and a nonzero STREAMINFO decoded MD5.
 
@@ -33,4 +33,16 @@ The archived MP3 decoder is sufficient for the initial import path; no MP3 fork 
 
 Frontend tests verify magic/ID3 routing, original rates, binary planar ownership, failed/stale browser imports, output extensions and FLAC format limits. `codecs.spec.ts` imports FLAC/AIFF/MP3/Vorbis/Opus/AAC through the production UI and exports/reopens lossless copies. Desktop tests cover the actual launch/open/save path and existing capability/dirty-close guards.
 
-Metadata editing, lossy encoding/muxing, project files, autosave and application-owned recent-file persistence remain unfinished Phase 6 work.
+Metadata editing, project files, autosave and application-owned recent-file persistence remain unfinished Phase 6 work.
+
+## Lossy export
+
+Export offers Ogg Opus and M4A AAC-LC, with 64, 96, 128, 192 and 256 kbps choices. Both are mono/stereo only, with browser/OS availability checked for the actual sample rate, channel count and bitrate. A selected channel subset is packed in ascending physical order. Unavailable choices are disabled and rechecked when range or bitrate changes. Lossy export makes a copy; it does not acknowledge a save or modify source audio, selection, metadata or history. Markers/regions are omitted with an explanation in the dialog. Save continues to use a lossless container.
+
+Opus export requires a 48 kHz document. Use **Process → Resample…** in the Go kernel for other input rates. Raw WebCodecs packets at 48 kHz carry the encoder's OpusHead; our narrow single-stream Ogg writer preserves pre-skip, writes CRCs and trims the last granule to the exact source duration, including a one-frame document. It supports mapping family 0 (mono/stereo), zero header gain and packets that fit one page. Chromium rejects the optional WebCodecs `ogg` format; its raw low-rate Opus header also writes native-rate `OPUS_GET_LOOKAHEAD` directly into pre-skip. The 16 kHz acceptance experiment produced shifted audio despite a correct frame count, so that rate is not advertised. See [Chromium's encoder source](https://github.com/chromium/chromium/blob/main/media/audio/audio_opus_encoder.cc) and the required [48 kHz granule/pre-skip clock](https://www.rfc-editor.org/rfc/rfc7845.html#section-4.2).
+
+M4A uses raw AAC-LC packets plus the encoder's AudioSpecificConfig, muxed by exact dependency `mp4-muxer 5.2.2` (MIT), loaded only for AAC export. This upstream is archived/deprecated in favor of Mediabunny; its successor uses MPL-2.0, outside the current roadmap's bundled-code allowlist. The pinned muxer is an explicit maintenance limitation, covered by independent AAC container/decoder regressions. No source is vendored. AAC delay/padding is retained rather than claiming gapless/sample-exact duration. Native AAC encoder availability/quality on supported Windows/macOS browsers remains to be verified; Linux Chromium and Electron have no AAC encoder and show the format as unavailable. [WebCodecs](https://www.w3.org/TR/webcodecs/) does not require any particular codec.
+
+`doc.readPCM` (ABI 17) returns at most 8192 frames as planar little-endian float32, checks document/history identity, validates channel/range bounds and rejects nonfinite selected samples. It copies the stored source without effects or resampling. The frontend transfers each page into AudioData, closes it after encode, limits outstanding encoder requests, times out stalled encoding and closes the encoder on cancellation/error. It checks the history again before returning a file. Encoded output has a 128 MiB budget and is assembled in memory; export is not a Phase 10 streaming large-file implementation. Cancellation discards the copy before writing; destination writes retain the existing fenced, atomic desktop flow.
+
+Validation includes native/WASM PCM pages across block boundaries and sparse channels, exact signed-zero bits, invalid ranges, stale history and nonfinite rejection; unit tests for capability races, binary ownership, cancellation, callback failures and budgets; actual browser Opus duration/quality/reimport checks; and native Opus disk output. M4A's independently named Linux regression replaces only AudioEncoder with the FFmpeg fixture packets, then compares real browser-decoded output against ADTS. It establishes muxing correctness, not a working Linux AAC encoder.

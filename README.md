@@ -1,9 +1,10 @@
 # algo-audio-editor
 
-An audio editor that runs in the browser and as a desktop app. All audio work
-(editing, effects, analysis, codecs) happens in a **Go kernel compiled to
+An audio editor that runs in the browser and as a desktop app. All sample
+processing (editing, effects and analysis) happens in a **Go kernel compiled to
 WebAssembly** on top of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp)
-family. The UI is **React + TypeScript + shadcn**.
+family. Portable codecs run in Go; browser codec APIs extend format support.
+The UI is **React + TypeScript + shadcn**.
 
 > **Status:** WAV editing, processing, effects and analysis described in [PLAN.md](PLAN.md): WAV import/export,
 > interactive waveforms, playback, channel-aware selections and editing in the
@@ -13,6 +14,9 @@ family. The UI is **React + TypeScript + shadcn**.
 > preview, factory/user presets and cancellable, undoable offline application.
 > Analysis adds playback metering, spectrum and spectrogram views, document
 > statistics, pitch tracking and clipping markers.
+> Audio import supports WAV, FLAC, AIFF/AIFC, MP3 and available browser codecs.
+> Export adds FLAC, AIFF, 48 kHz Ogg Opus and browser-supported M4A AAC.
+> See [codec support and limits](docs/codecs.md).
 
 ## Architecture
 
@@ -43,8 +47,8 @@ just desktop-package  # local installers, no publishing
 ```
 
 Desktop menus, file dialogs, close protection and packaging are described in
-[docs/desktop.md](docs/desktop.md). WAV associations are enabled; additional
-formats await Phase 6.
+[docs/desktop.md](docs/desktop.md). WAV, FLAC, AIFF/AIFC and MP3 associations are
+enabled; editor projects and crash recovery remain Phase 6 work.
 
 Browser tests start their own production preview. If port 4173 is occupied,
 choose a separate port: `AAE_E2E_PORT=44873 just e2e` (also supported by

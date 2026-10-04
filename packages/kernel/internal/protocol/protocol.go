@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 16
+const Version = 17
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -31,6 +31,8 @@ const (
 	MethodDocumentInfo = "doc.info"
 	// MethodDocumentExport encodes audio bytes retrieved via takeData.
 	MethodDocumentExport = "doc.export"
+	// MethodDocumentReadPCM copies a bounded planar float32 page for browser codecs.
+	MethodDocumentReadPCM = "doc.readPCM"
 	// MethodTransportPlay starts document playback over a frame range.
 	MethodTransportPlay = "transport.play"
 	// MethodTransportStop preserves the cursor and stops rendering audio.
@@ -367,6 +369,23 @@ type BinaryDocumentParams struct {
 type BinaryDocumentInfo struct {
 	BinaryDocumentParams
 	DataBytes int `json:"dataBytes"`
+}
+
+// PCMReadParams requires a current history state and explicit source geometry.
+// Frames is limited to 8192; channels are packed in ascending physical order.
+type PCMReadParams struct {
+	DocumentID  string `json:"documentId"`
+	StateID     string `json:"stateId"`
+	Start       int64  `json:"start"`
+	Frames      int    `json:"frames"`
+	ChannelMask int    `json:"channelMask"`
+}
+
+type PCMReadInfo struct {
+	SampleRate int `json:"sampleRate"`
+	Channels   int `json:"channels"`
+	Frames     int `json:"frames"`
+	DataBytes  int `json:"dataBytes"`
 }
 
 type ProcessJobParams struct {

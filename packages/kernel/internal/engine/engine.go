@@ -244,6 +244,12 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 		}
 
 		return e.exportDocument(p)
+	case protocol.MethodDocumentReadPCM:
+		var p protocol.PCMReadParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.readPCM(p)
 	case protocol.MethodTransportPlay:
 		var p protocol.TransportPlayParams
 		if err := decode(method, payload, &p); err != nil {

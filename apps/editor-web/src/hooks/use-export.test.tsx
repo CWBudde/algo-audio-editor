@@ -3,11 +3,17 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { KernelClient } from "@/kernel/client";
 import { chooseSaveTarget } from "@/lib/file-access";
+import { encoderSupport, exportLossy } from "@/lib/lossy-export";
 import { useExport } from "./use-export";
 
 vi.mock("@/lib/file-access", async (original) => ({
   ...(await original<typeof import("@/lib/file-access")>()),
   chooseSaveTarget: vi.fn(),
+}));
+vi.mock("@/lib/lossy-export", async (original) => ({
+  ...(await original<typeof import("@/lib/lossy-export")>()),
+  encoderSupport: vi.fn(async () => ({ opus: false, m4a: false })),
+  exportLossy: vi.fn(),
 }));
 const info: DocumentInfoResult = {
   documentId: "doc-1",
@@ -61,7 +67,10 @@ function fixture() {
     locked: () => locked,
   };
 }
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(encoderSupport).mockResolvedValue({ opus: false, m4a: false });
+});
 afterEach(cleanup);
 
 it("opens without a chooser or lock, and keeps the lock through writing a copy without marking saved", async () => {
@@ -222,4 +231,77 @@ it("cancels an idle dialog without choosing a file and rejects cursor selection 
   expect(chooseSaveTarget).not.toHaveBeenCalled();
   await act(async () => f.result.current.cancel());
   expect(f.result.current.view).toBeUndefined();
+});
+
+it("exports lossy copies under the same write fence without changing the save point", async () => {
+  vi.mocked(encoderSupport).mockResolvedValue({ opus: true, m4a: false });
+  vi.mocked(exportLossy).mockResolvedValue({
+    ...exported,
+    name: "song.opus",
+    mimeType: "audio/ogg",
+  });
+  const f = fixture();
+  await act(async () => f.result.current.open(range));
+  act(() => f.result.current.setSettings({ format: "opus" }));
+  await act(async () => f.result.current.submit());
+  expect(chooseSaveTarget).toHaveBeenCalledWith("song.opus", [
+    { description: "OPUS audio", accept: { "audio/ogg": [".opus"] } },
+  ]);
+  expect(exportLossy).toHaveBeenCalledWith(
+    f.options.client,
+    info,
+    range,
+    "document",
+    "opus",
+    128,
+    expect.any(AbortSignal),
+  );
+  expect(f.write).toHaveBeenCalledOnce();
+  expect(f.call).not.toHaveBeenCalled();
+  expect(f.locked()).toBe(false);
+});
+
+it("cancels native encoding before writing and releases the destination and fence", async () => {
+  vi.mocked(encoderSupport).mockResolvedValue({ opus: true, m4a: false });
+  vi.mocked(exportLossy).mockImplementation(
+    async (...args) =>
+      new Promise((_, reject) =>
+        args[6].addEventListener(
+          "abort",
+          () => reject(new DOMException("cancelled", "AbortError")),
+          { once: true },
+        ),
+      ),
+  );
+  const f = fixture(),
+    dispose = vi.fn();
+  vi.mocked(chooseSaveTarget).mockResolvedValue({ write: f.write, dispose });
+  await act(async () => f.result.current.open(range));
+  act(() => f.result.current.setSettings({ format: "opus" }));
+  act(() => {
+    void f.result.current.submit();
+  });
+  await act(async () => Promise.resolve());
+  expect(f.result.current.view?.canCancel).toBe(true);
+  await act(async () => f.result.current.cancel());
+  expect(f.write).not.toHaveBeenCalled();
+  expect(dispose).toHaveBeenCalledOnce();
+  expect(f.onError).not.toHaveBeenCalled();
+  expect(f.result.current.view).toBeUndefined();
+  expect(f.locked()).toBe(false);
+});
+
+it("ignores stale capability checks after range/bitrate changes and refuses unavailable export", async () => {
+  const stale = deferred<{ opus: boolean; m4a: boolean }>();
+  vi.mocked(encoderSupport).mockReturnValueOnce(stale.promise);
+  const f = fixture();
+  act(() => f.result.current.open(range));
+  await act(async () =>
+    f.result.current.setSettings({ format: "opus", scope: "selection", bitrate: 64 }),
+  );
+  await act(async () => stale.resolve({ opus: true, m4a: true }));
+  expect(f.result.current.view?.support).toEqual({ opus: false, m4a: false });
+  expect(encoderSupport).toHaveBeenLastCalledWith(48000, 1, 64);
+  await act(async () => f.result.current.submit());
+  expect(chooseSaveTarget).not.toHaveBeenCalled();
 });

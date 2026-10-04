@@ -32,6 +32,7 @@ export function callKernel(
   if (
     method !== "peaks.get" &&
     method !== "doc.export" &&
+    method !== "doc.readPCM" &&
     method !== "timeline.export" &&
     method !== "process.exportCandidate" &&
     method !== "effects.response" &&

@@ -19,7 +19,7 @@ native Quit/Window shortcuts; macOS ignores `registerAccelerator: false`.
 Open and Save use native dialogs. The main process grants an opaque capability
 for one exact path to one renderer; the renderer cannot request arbitrary paths.
 `files.ts` validates the sender's main frame and origin for every IPC request.
-Open supports WAV, FLAC, AIFF/AIFC and MP3 through the Go codecs; Ogg/Opus and AAC/M4A use available browser codecs. The chooser also permits renamed files; the importer detects their container bytes. Save permits WAV, FLAC, AIFF and marker sidecars (`csv`, `txt`). Reads and
+Open supports WAV, FLAC, AIFF/AIFC and MP3 through the Go codecs; Ogg/Opus and AAC/M4A use available browser codecs. The chooser also permits renamed files; the importer detects their container bytes. Save/export permits WAV, FLAC, AIFF, browser-supported Opus/M4A copies and marker sidecars (`csv`, `txt`). Reads and
 writes have a 1 GiB file limit, independently of the kernel's memory budget.
 A read is bounded by its checked regular-file size. Saving writes a sibling
 exclusive temporary file, flushes it, and atomically renames it over the selected

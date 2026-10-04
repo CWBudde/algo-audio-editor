@@ -20,7 +20,7 @@ export const OPEN_EXTENSIONS = new Set([
   "m4a",
   "aac",
 ]);
-const SAVE_EXTENSIONS = new Set(["wav", "flac", "aiff", "csv", "txt"]);
+const SAVE_EXTENSIONS = new Set(["wav", "flac", "aiff", "opus", "m4a", "csv", "txt"]);
 interface Grant {
   owner: number;
   file: string;

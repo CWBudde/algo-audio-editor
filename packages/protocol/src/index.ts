@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 16;
+export const PROTOCOL_VERSION = 17;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -87,6 +87,22 @@ export interface DocumentInfoResult {
   frames: number;
   bitDepth: number;
   float: boolean;
+}
+
+/** Bounded source copy; channels packed in ascending order, planar LE float32. */
+export interface PCMReadParams {
+  documentId: string;
+  stateId: string;
+  start: number;
+  frames: number;
+  channelMask: number;
+}
+export interface PCMReadResult {
+  sampleRate: number;
+  channels: number;
+  frames: number;
+  dataBytes: number;
+  data: ArrayBuffer;
 }
 
 /** Equal endpoints form a cursor; bit zero selects the first channel. */
@@ -658,6 +674,7 @@ export interface KernelMethods {
   "doc.open": { params: DocumentOpenParams; result: DocumentInfoResult };
   "doc.info": { params: undefined; result: DocumentInfoResult };
   "doc.export": { params: DocumentExportParams; result: ExportResult };
+  "doc.readPCM": { params: PCMReadParams; result: PCMReadResult };
   "transport.play": { params: TransportPlayParams; result: TransportResult };
   "transport.stop": { params: undefined; result: TransportResult };
   "transport.seek": { params: TransportSeekParams; result: TransportResult };

@@ -7,8 +7,14 @@ import type {
   SelectionRange,
 } from "@aae/protocol";
 
+export type LossyFormat = "opus" | "m4a";
+export type ExportFormat = DocumentExportParams["format"] | LossyFormat;
+export function isLossyFormat(format: ExportFormat | undefined): format is LossyFormat {
+  return format === "opus" || format === "m4a";
+}
 export interface ExportSettings {
-  format?: DocumentExportParams["format"];
+  format?: ExportFormat;
+  bitrate?: number;
   encoding: "pcm" | "float";
   bitDepth: number;
   scope: ExportScope;
@@ -39,6 +45,11 @@ export function updateExportSettings(
   change: Partial<ExportSettings>,
 ): ExportSettings {
   const settings = { ...previous, ...change };
+  if (isLossyFormat(settings.format)) {
+    settings.bitrate ??= 128;
+    settings.dither = "none";
+    settings.noiseShaping = "none";
+  }
   if (settings.format && settings.format !== "wav") settings.encoding = "pcm";
   const depths: readonly number[] = exportDepths(settings);
   if (!depths.includes(settings.bitDepth))
@@ -68,6 +79,7 @@ export function exportParams(
   selection: SelectionRange,
   settings: ExportSettings,
 ): DocumentExportParams | undefined {
+  if (isLossyFormat(settings.format)) return;
   const depths: readonly number[] = exportDepths(settings);
   if (
     !depths.includes(settings.bitDepth) ||
@@ -92,15 +104,17 @@ export function exportDepths(settings: ExportSettings): readonly number[] {
       ? FLOAT_DEPTHS
       : PCM_DEPTHS;
 }
-export function exportName(
-  name: string,
-  format: DocumentExportParams["format"],
-  selection = false,
-): string {
+export function exportName(name: string, format: ExportFormat, selection = false): string {
   if (!selection && name.toLowerCase().endsWith(`.${format}`)) return name;
   return `${name.replace(/\.[^./]*$/, "") || "Untitled"}${selection ? "-selection" : ""}.${format}`;
 }
-export function exportFileTypes(format: DocumentExportParams["format"]) {
-  const mime = { wav: "audio/wav", flac: "audio/flac", aiff: "audio/aiff" }[format];
+export function exportFileTypes(format: ExportFormat) {
+  const mime = {
+    wav: "audio/wav",
+    flac: "audio/flac",
+    aiff: "audio/aiff",
+    opus: "audio/ogg",
+    m4a: "audio/mp4",
+  }[format];
   return [{ description: `${format.toUpperCase()} audio`, accept: { [mime]: [`.${format}`] } }];
 }

@@ -4,8 +4,10 @@ import {
   type ExportSettings,
   exportDepths,
   exportParams,
+  isLossyFormat,
   validExportSelection,
 } from "@/lib/export-settings";
+import { LOSSY_BITRATES } from "@/lib/lossy-export";
 
 interface Props {
   view?: ExportView;
@@ -43,7 +45,15 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
   }, [open]);
   const working = view?.phase !== "idle";
   const settings = view?.settings;
-  const valid = Boolean(view && exportParams(view.info, view.selection, view.settings));
+  const lossy = isLossyFormat(settings?.format);
+  const valid = Boolean(
+    view &&
+      (isLossyFormat(view.settings.format)
+        ? view.support?.[view.settings.format] &&
+          view.info.frames > 0 &&
+          (view.settings.scope !== "selection" || validExportSelection(view.selection, view.info))
+        : exportParams(view.info, view.selection, view.settings)),
+  );
   return (
     <dialog
       ref={dialog}
@@ -53,7 +63,7 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
       className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl backdrop:bg-black/50"
       onCancel={(event) => {
         event.preventDefault();
-        if (!working) onCancel();
+        if (!working || view?.canCancel) onCancel();
       }}
     >
       <h2 id={`${id}-title`} className="text-lg font-medium">
@@ -107,7 +117,7 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
             id={`${id}-format`}
             className={fieldClass}
             value={
-              settings.format === "flac" || settings.format === "aiff"
+              settings.format === "flac" || settings.format === "aiff" || lossy
                 ? settings.format
                 : settings.encoding
             }
@@ -115,7 +125,10 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
             onChange={(event) =>
               onSettingsChange({
                 format:
-                  event.target.value === "flac" || event.target.value === "aiff"
+                  event.target.value === "flac" ||
+                  event.target.value === "aiff" ||
+                  event.target.value === "opus" ||
+                  event.target.value === "m4a"
                     ? event.target.value
                     : "wav",
                 encoding: event.target.value === "float" ? "float" : "pcm",
@@ -126,30 +139,68 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
             <option value="float">WAV float</option>
             <option value="flac">FLAC</option>
             <option value="aiff">AIFF PCM</option>
+            <option value="opus" disabled={!view.support?.opus}>
+              Ogg Opus{view.support?.opus ? "" : view.support ? " (unavailable)" : " (checking…)"}
+            </option>
+            <option value="m4a" disabled={!view.support?.m4a}>
+              M4A AAC{view.support?.m4a ? "" : view.support ? " (unavailable)" : " (checking…)"}
+            </option>
           </select>
-          {settings.format && settings.format !== "wav" && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Lossy formats require browser support for this sample rate and mono/stereo channel
+            count.
+            {view.info.sampleRate !== 48000 && " For Ogg Opus, resample to 48000 Hz first."}
+          </p>
+          {(settings.format === "flac" || settings.format === "aiff") && (
             <p className="mt-1 text-xs text-muted-foreground">
               Use WAV to preserve markers and regions. FLAC and AIFF metadata mapping is not yet
               available.
             </p>
           )}
-          <label className="mt-3 block text-sm" htmlFor={`${id}-depth`}>
-            Bit depth
-          </label>
-          <select
-            id={`${id}-depth`}
-            className={fieldClass}
-            value={settings.bitDepth}
-            disabled={working}
-            onChange={(event) => onSettingsChange({ bitDepth: Number(event.target.value) })}
-          >
-            {exportDepths(settings).map((depth) => (
-              <option key={depth} value={depth}>
-                {depth}-bit
-              </option>
-            ))}
-          </select>
-          {settings.encoding === "pcm" && (
+          {lossy ? (
+            <>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Lossy export creates a compressed copy without markers or regions. Keep a lossless
+                file for further editing.
+              </p>
+              <label className="mt-3 block text-sm" htmlFor={`${id}-bitrate`}>
+                Bitrate
+              </label>
+              <select
+                id={`${id}-bitrate`}
+                className={fieldClass}
+                value={settings.bitrate ?? 128}
+                disabled={working}
+                onChange={(event) => onSettingsChange({ bitrate: Number(event.target.value) })}
+              >
+                {LOSSY_BITRATES.map((bitrate) => (
+                  <option key={bitrate} value={bitrate}>
+                    {bitrate} kbps
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : (
+            <>
+              <label className="mt-3 block text-sm" htmlFor={`${id}-depth`}>
+                Bit depth
+              </label>
+              <select
+                id={`${id}-depth`}
+                className={fieldClass}
+                value={settings.bitDepth}
+                disabled={working}
+                onChange={(event) => onSettingsChange({ bitDepth: Number(event.target.value) })}
+              >
+                {exportDepths(settings).map((depth) => (
+                  <option key={depth} value={depth}>
+                    {depth}-bit
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          {!lossy && settings.encoding === "pcm" && (
             <>
               <label className="mt-3 block text-sm" htmlFor={`${id}-dither`}>
                 Dither
@@ -208,7 +259,7 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
             <button
               type="button"
               className="rounded border px-3 py-2 text-sm disabled:opacity-50"
-              disabled={working}
+              disabled={working && !view.canCancel}
               onClick={onCancel}
             >
               Cancel

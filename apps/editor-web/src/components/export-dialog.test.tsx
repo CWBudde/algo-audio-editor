@@ -100,3 +100,49 @@ it("renders errors inside the dialog and restores opener focus on close and unmo
   expect(document.activeElement).toBe(opener);
   opener.remove();
 });
+it("offers supported lossy formats with bitrate controls and cancellation while encoding", () => {
+  const callbacks = actions();
+  const ui = render(
+    <ExportDialog
+      view={{
+        ...view,
+        support: { opus: true, m4a: false },
+        settings: { ...view.settings, format: "opus", bitrate: 128 },
+      }}
+      {...callbacks}
+    />,
+  );
+  expect(ui.getByLabelText("Bitrate")).toBeTruthy();
+  expect(ui.queryByLabelText("Bit depth")).toBeNull();
+  expect(ui.queryByLabelText("Dither")).toBeNull();
+  expect(
+    (ui.getByRole("option", { name: "M4A AAC (unavailable)" }) as HTMLOptionElement).disabled,
+  ).toBe(true);
+  fireEvent.change(ui.getByLabelText("Bitrate"), { target: { value: "192" } });
+  expect(callbacks.onSettingsChange).toHaveBeenCalledWith({ bitrate: 192 });
+  ui.rerender(
+    <ExportDialog
+      view={{
+        ...view,
+        support: { opus: true, m4a: false },
+        settings: { ...view.settings, format: "opus" },
+        phase: "exporting",
+        canCancel: true,
+      }}
+      {...callbacks}
+    />,
+  );
+  expect((ui.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent(ui.getByRole("dialog"), new Event("cancel", { cancelable: true }));
+  expect(callbacks.onCancel).toHaveBeenCalledOnce();
+});
+it("prevents submitting a selected lossy format while support is being checked or unavailable", () => {
+  const callbacks = actions(),
+    lossy = { ...view, settings: { ...view.settings, format: "m4a" as const } };
+  const ui = render(<ExportDialog view={lossy} {...callbacks} />);
+  expect((ui.getByRole("button", { name: "Export" }) as HTMLButtonElement).disabled).toBe(true);
+  ui.rerender(
+    <ExportDialog view={{ ...lossy, support: { opus: true, m4a: false } }} {...callbacks} />,
+  );
+  expect((ui.getByRole("button", { name: "Export" }) as HTMLButtonElement).disabled).toBe(true);
+});
