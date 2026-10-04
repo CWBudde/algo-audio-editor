@@ -5,7 +5,9 @@ import type {
   ProcessStartParams,
   SelectionRange,
 } from "@aae/protocol";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
+import { deferred, holdJobLock, releaseJobLock, runCandidate } from "@/hooks/job-runner";
+import { useKernelSession } from "@/hooks/use-kernel-session";
 import type { KernelClient } from "@/kernel/client";
 import type { AppliedOperation } from "@/lib/operation-chain";
 import {
@@ -45,14 +47,6 @@ export interface ProcessView {
   phase: ProcessPhase;
   job?: ProcessJobResult;
   previewing: boolean;
-}
-
-function deferred() {
-  let resolve = () => {};
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
 }
 
 interface Session {
@@ -129,18 +123,27 @@ export function matchesProcessSettings(
 
 /** Own a shared document lock until a candidate is committed or discarded. */
 export function useProcess(options: ProcessOptions) {
-  const latest = useRef(options);
-  latest.current = options;
-  const mounted = useRef(false);
-  const session = useRef<Session | undefined>(undefined);
+  const {
+    latest,
+    mounted,
+    token: session,
+    active: sessionActive,
+  } = useKernelSession<ProcessOptions, Session>(
+    options,
+    options.client,
+    options.info?.documentId,
+    () => {
+      const s = session.current;
+      if (s && !s.committed) void cancel();
+    },
+  );
   const [view, setView] = useState<ProcessView>();
   const owns = useCallback(
     (s: Session) =>
-      mounted.current &&
-      session.current === s &&
+      sessionActive(s) &&
       latest.current.client === s.client &&
       latest.current.info?.documentId === s.info.documentId,
-    [],
+    [sessionActive, latest],
   );
   const update = useCallback(
     (s: Session, change: Partial<ProcessView>) => {
@@ -152,16 +155,18 @@ export function useProcess(options: ProcessOptions) {
     (s: Session, error: unknown) => {
       if (owns(s)) latest.current.onError("Could not process audio", error);
     },
-    [owns],
+    [owns, latest],
   );
-  const finish = useCallback(async (s: Session) => {
-    if (session.current === s) {
-      session.current = undefined;
-      if (mounted.current) setView(undefined);
-    }
-    s.done.resolve();
-    await s.released.promise;
-  }, []);
+  const finish = useCallback(
+    async (s: Session) => {
+      if (session.current === s) {
+        session.current = undefined;
+        if (mounted.current) setView(undefined);
+      }
+      await releaseJobLock(s);
+    },
+    [session, mounted],
+  );
   const discard = useCallback(async (s: Session) => {
     const job = s.job;
     if (!job || job.state === "cancelled") return;
@@ -197,19 +202,7 @@ export function useProcess(options: ProcessOptions) {
       await finish(s);
     })();
     return s.cancellation;
-  }, [update, discard, report, finish]);
-
-  useLayoutEffect(() => {
-    const client = options.client;
-    const documentId = options.info?.documentId;
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      const s = session.current;
-      if (s && !s.committed && s.client === client && s.info.documentId === documentId)
-        void cancel();
-    };
-  }, [options.client, options.info?.documentId, cancel]);
+  }, [update, discard, report, finish, session]);
 
   const open = useCallback(
     (
@@ -268,12 +261,11 @@ export function useProcess(options: ProcessOptions) {
         phase: "idle",
         previewing: false,
       });
-      void initial
-        .withOperation(async () => {
-          s.acquired.resolve();
-          await s.done.promise;
-        })
-        .catch((error) => {
+      holdJobLock(
+        s,
+        initial.withOperation,
+        () => s.acquired.resolve(),
+        (error) => {
           report(s, error);
           s.closing = true;
           s.acquired.resolve();
@@ -281,10 +273,10 @@ export function useProcess(options: ProcessOptions) {
             session.current = undefined;
             if (mounted.current) setView(undefined);
           }
-        })
-        .finally(() => s.released.resolve());
+        },
+      );
     },
-    [report],
+    [report, latest, mounted, session],
   );
 
   const setParameterText = useCallback(
@@ -300,7 +292,7 @@ export function useProcess(options: ProcessOptions) {
           Boolean(params && processSettingsKey(params) === s.preparedKey),
       });
     },
-    [update],
+    [update, session],
   );
 
   const setSettings = useCallback(
@@ -316,7 +308,7 @@ export function useProcess(options: ProcessOptions) {
           Boolean(params && processSettingsKey(params) === s.preparedKey),
       });
     },
-    [update],
+    [update, session],
   );
 
   const setOperation = useCallback(
@@ -333,7 +325,7 @@ export function useProcess(options: ProcessOptions) {
       s.parameterText = defaultProcessParameter(operation);
       update(s, { operation, parameterText: s.parameterText, ready: false });
     },
-    [update],
+    [update, session],
   );
 
   const run = useCallback(
@@ -376,13 +368,9 @@ export function useProcess(options: ProcessOptions) {
               return;
             }
             update(s, { job: s.job });
-            s.job = await s.client.runProcess(
-              { documentId: s.info.documentId, jobId: s.job.jobId },
-              (job) => {
-                if (job.jobId !== s.job?.jobId || job.documentId !== s.info.documentId) return;
-                if (!s.closing) update(s, { job });
-              },
-            );
+            s.job = await runCandidate(s.client, s.info, s.job, (job) => {
+              if (!s.closing) update(s, { job });
+            });
             s.preparedKey = key;
           }
           if (s.closing || !owns(s)) return;
@@ -464,7 +452,7 @@ export function useProcess(options: ProcessOptions) {
       s.pending = work();
       return s.pending;
     },
-    [owns, update, report, discard, finish],
+    [owns, update, report, discard, finish, session, latest, mounted],
   );
 
   const stopPreview = useCallback(() => {
@@ -484,16 +472,18 @@ export function useProcess(options: ProcessOptions) {
       }
     })();
     return s.pending;
-  }, [update, report]);
+  }, [update, report, session]);
 
+  const preview = useCallback(() => run("preview"), [run]);
+  const apply = useCallback((allowClipping = false) => run("apply", allowClipping), [run]);
   return {
     view,
     open,
     setParameterText,
     setSettings,
     setOperation,
-    preview: () => run("preview"),
-    apply: (allowClipping = false) => run("apply", allowClipping),
+    preview,
+    apply,
     stopPreview,
     cancel,
   };

@@ -239,3 +239,36 @@ test("reopening an identically named file resets its viewport and selection", as
   await expect.poll(() => viewport(page)).toEqual({ start: 0, end: FRAMES });
   await expect(page.getByTestId("waveform-channel-0")).toHaveAttribute("data-rendered", "true");
 });
+
+test("retains actual canvas pixels until delayed replacement peaks arrive after zoom and pan", async ({
+  page,
+}) => {
+  await openWaveform(page);
+  const canvas = page.getByTestId("waveform-channel-0");
+  for (const action of ["zoom", "pan"] as const) {
+    const painted = await canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL());
+    await page.evaluate(() => {
+      const worker = window.__aaeTest?.workers[0];
+      const probe = window.__aaeProcessProbe;
+      if (!worker || !probe) throw new Error("kernel probe missing");
+      Object.assign(window, { __r7ResumePeaks: probe.holdCalls(worker, ["peaks.get"]) });
+    });
+    if (action === "zoom") await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+    else {
+      const bounds = await canvas.boundingBox();
+      if (!bounds) throw new Error("canvas bounds missing");
+      await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      await page.mouse.wheel(180, 0);
+    }
+    await expect(canvas).toHaveAttribute("aria-busy", "true");
+    await expect(canvas).toHaveAttribute("data-rendered", "false");
+    expect(await canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL())).toBe(
+      painted,
+    );
+    await page.evaluate(() => (window as unknown as { __r7ResumePeaks(): void }).__r7ResumePeaks());
+    await expect(canvas).toHaveAttribute("data-rendered", "true");
+    expect(await canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL())).not.toBe(
+      painted,
+    );
+  }
+});

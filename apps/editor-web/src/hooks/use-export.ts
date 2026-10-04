@@ -1,5 +1,6 @@
 import type { DocumentInfoResult, ExportResult, SelectionRange } from "@aae/protocol";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
+import { useKernelSession } from "@/hooks/use-kernel-session";
 import type { KernelClient } from "@/kernel/client";
 import {
   defaultExportSettings,
@@ -46,18 +47,32 @@ interface Session extends ExportView {
 
 /** Export fences the document through its chooser, kernel export and destination write. */
 export function useExport(options: ExportOptions) {
-  const latest = useRef(options);
-  latest.current = options;
-  const mounted = useRef(false);
-  const session = useRef<Session | undefined>(undefined);
+  const {
+    latest,
+    mounted,
+    token: session,
+    active: sessionActive,
+  } = useKernelSession<ExportOptions, Session>(
+    options,
+    options.client,
+    options.info?.documentId,
+    () => {
+      const s = session.current;
+      if (s) {
+        s.closing = true;
+        s.abort?.abort();
+        session.current = undefined;
+      }
+      setView(undefined);
+    },
+  );
   const [view, setView] = useState<ExportView>();
   const owns = useCallback(
     (s: Session) =>
-      mounted.current &&
-      session.current === s &&
+      sessionActive(s) &&
       latest.current.client === s.client &&
       latest.current.info?.documentId === s.info.documentId,
-    [],
+    [sessionActive, latest],
   );
   const update = useCallback(
     (s: Session, change: Partial<ExportView>) => {
@@ -72,14 +87,17 @@ export function useExport(options: ExportOptions) {
         latest.current.onError("Could not export audio", error);
       }
     },
-    [owns, update],
+    [owns, update, latest],
   );
-  const finish = useCallback((s: Session) => {
-    if (session.current === s) {
-      session.current = undefined;
-      if (mounted.current) setView(undefined);
-    }
-  }, []);
+  const finish = useCallback(
+    (s: Session) => {
+      if (session.current === s) {
+        session.current = undefined;
+        if (mounted.current) setView(undefined);
+      }
+    },
+    [session, mounted],
+  );
   const cancel = useCallback(async () => {
     const s = session.current;
     if (!s || s.closing) return;
@@ -88,21 +106,7 @@ export function useExport(options: ExportOptions) {
     update(s, { phase: "cancelling" });
     await s.pending?.catch(() => {});
     finish(s);
-  }, [update, finish]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a replaced client or document invalidates the entire modal session.
-  useLayoutEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      const s = session.current;
-      if (s) {
-        s.closing = true;
-        s.abort?.abort();
-        session.current = undefined;
-      }
-      setView(undefined);
-    };
-  }, [options.client, options.info?.documentId]);
+  }, [update, finish, session]);
 
   const refreshSupport = useCallback(
     (s: Session) => {
@@ -138,7 +142,7 @@ export function useExport(options: ExportOptions) {
       setView({ info, selection: s.selection, settings: s.settings, phase: "idle" });
       refreshSupport(s);
     },
-    [refreshSupport],
+    [refreshSupport, latest, mounted, session],
   );
   const setSettings = useCallback(
     (change: Partial<ExportSettings>) => {
@@ -151,7 +155,7 @@ export function useExport(options: ExportOptions) {
         refreshSupport(s);
       }
     },
-    [update, refreshSupport],
+    [update, refreshSupport, session],
   );
   const submit = useCallback(() => {
     const s = session.current;
@@ -233,6 +237,6 @@ export function useExport(options: ExportOptions) {
       }
     })();
     return s.pending;
-  }, [owns, update, report, finish]);
+  }, [owns, update, report, finish, session, latest]);
   return { view, open, setSettings, submit, cancel };
 }

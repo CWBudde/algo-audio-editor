@@ -746,21 +746,16 @@ Validation: kernel lint/native and WASM vet, all native race tests, actual V8/WA
 
 Validation (2026-10-04): the full frontend suite passes (1,061 tests), with the subsequently added App/protocol/ring regressions also passing. `just lint-web`, scoped formatting, Go schema-tool vet and `just build` pass. Production Chromium checks pass 52/53; `edits.spec.ts:211` still expects the old 512 MiB mix rejection, while the concurrent R.2 shared budget allows that fixture. That R.2 expectation is left unchanged.
 
-### R.7 Frontend structure and performance
+### R.7 Frontend structure and performance — DONE (2026-10-05)
 
-- [ ] A shared `useKernelSession` helper (latest ref, mounted, epoch, token, `active()`) to replace the six hand-written copies. One job runner shared by `use-process` and `use-effects`
-- [ ] Split `App.tsx` into a controller/store plus layout. Split `WaveformView` into viewport, pointer interaction, rulers and markers/regions
-- [ ] Playback performance:
-  - move playback stats into the About dialog's own subscription, so there's no 5 Hz whole-tree `setStats`
-  - no per-frame `setState` in follow mode
-  - memoize `resolveCommands` and inline props
-- [ ] Keep the previous peaks snapshot drawn until the new one arrives, so pan, zoom and follow don't blank the waveform
-- [ ] Size:
-  - code-split dialogs and effects UI
-  - serve `kernel.wasm` with a content hash
-  - add `wasm-opt`
-  - set JS and WASM size budgets in CI
-- [ ] Move the wire-format parsing in `e2e/process-benchmark.spec.ts` into a probe module owned next to `messages.ts`
+- [x] `use-kernel-session.ts` shares latest options, mounted/epoch/token refs and identity guards across document, edit, history, process, effects, selection and export hooks. `job-runner.ts` shares document-lock leases and candidate progress routing between process and effects. StrictMode, client/document replacement, token and unmount regressions cover the shared lifetime fence; existing late-mutation recovery tests still pass.
+- [x] `App.tsx` composes `use-app-controller.ts` and `app-layout.tsx`. `WaveformView` delegates viewport/follow state, pointer interaction, rulers, timeline anchors and peak painting to modules in `components/waveform/`; App and waveform interaction regressions pass.
+- [x] About owns its 200 ms stats polling and playback meters own their updates, eliminating root playback timers. Continuous follow updates the viewport at most 10 Hz; page follow avoids state calls while the cursor stays visible. Commands memoize stable context/action availability, and layout callbacks stay stable. Regressions verify isolated stats updates, follow render counts and current command enablement.
+- [x] `usePeaks` retains the completed snapshot while replacements load; `PeakCanvas` preserves the previous same-document pixels even when switching from shared fitted peaks to zoom queries. Hook, canvas and production-browser regressions cover delayed/coalesced replacements and retained pixels during pan/zoom, with document/client invalidation preserved.
+- [x] Layout lazily loads dialogs/effects and Vite separates React into a reusable chunk. The existing content-hashed kernel path now hashes the output of pinned portable Binaryen `wasm-opt -Oz`. `check-web-budget.mjs` gates hashed WASM raw/gzip size, every JS chunk, entry gzip and total JS gzip after production builds and in CI; regression tests reject missing hashes and oversized WASM/lazy chunks. Deployment docs describe the limits. The final entry is 432,051 bytes (134,905 gzip), total JS is 255,484 gzip, and optimized WASM is 10,154,994 bytes (2,838,285 gzip), all within budget.
+- [x] `kernel/process-probe.ts`, next to `messages.ts`, owns typed process-wire observation, packed-peak summaries and delayed-call controls. `process-benchmark.spec.ts` uses this probe instead of duplicating worker parsing; unit tests cover progress identity, transfer forwarding, errors/disposal, 64-bit peak offsets and ordered delayed calls.
+
+Validation (2026-10-05): the full frontend suite passed (1,072 tests), followed by the five probe/budget tests including three additional regressions. Web lint/typecheck, formatting, workflow lint, optimized WASM/web/desktop builds and production size gates pass. Production Chromium checks passed 58 tests, then 33 checks against the final bundle, including retained waveform pixels; all four Pages loading checks and the Electron smoke test pass. Hardware timing gates and full CI were not run.
 
 ### R.8 Accessibility
 

@@ -20,6 +20,8 @@ jobs:
         working-directory: apps/editor-web
         run: bunx playwright install --with-deps chromium
       - run: just e2e
+      - name: JS and WASM size budgets
+        run: just check-web-budget
       - name: Headerless Pages subpath and service-worker tests
         env:
           VITE_BASE: /algo-audio-editor/

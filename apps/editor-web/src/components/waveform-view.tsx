@@ -12,10 +12,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import {
-  type MouseEvent,
-  type PointerEvent,
   type Ref,
-  type RefObject,
   useCallback,
   useEffect,
   useId,
@@ -32,29 +29,28 @@ import { SpectralSelectionLayer } from "@/components/spectral-selection-layer";
 import { SpectrogramCanvas } from "@/components/spectrogram-canvas";
 import { TimelinePanel } from "@/components/timeline-panel";
 import type { PlaybackFollow } from "@/components/transport-bar";
-import { type PeaksState, usePeaks, useWaveformPeaks } from "@/hooks/use-peaks";
+import { PeakCanvas } from "@/components/waveform/peak-canvas";
+import { AmplitudeRuler, TimeRuler } from "@/components/waveform/rulers";
+import { TimelineAnchors } from "@/components/waveform/timeline-anchors";
+import { useWaveformPointer } from "@/components/waveform/use-waveform-pointer";
+import { useWaveformViewport } from "@/components/waveform/use-waveform-viewport";
+import { usePeaks } from "@/hooks/use-peaks";
 import { type SelectionOptions, useSelection } from "@/hooks/use-selection";
 import type { KernelClient } from "@/kernel/client";
-import type { PeakViews } from "@/kernel/peak-data";
 import { DEFAULT_SPECTRAL_SETTINGS } from "@/lib/analysis-settings";
 import type { CommandId, ResolvedCommand } from "@/lib/commands";
-import { resolveEditorPalette } from "@/lib/editor-theme";
-import { snapSelectionFrame } from "@/lib/selection";
 import type { SpectralSelection, SpectralTool } from "@/lib/spectral-selection";
-import { drawSampleWaveform, drawWaveform, resizeCanvas } from "@/lib/waveform-drawing";
 import {
   type AmplitudeScale,
   clampViewport,
   type FrameRange,
   frameToX,
   generateAmplitudeTicks,
-  generateTimeTicks,
   panViewport,
   type TimeFormat,
-  xToFrame,
   zoomViewport,
 } from "@/lib/waveform-geometry";
-import { type SampleDisplayMode, sampleViewportRange } from "@/lib/waveform-samples";
+import type { SampleDisplayMode } from "@/lib/waveform-samples";
 
 const RULER_WIDTH = 56;
 const LANE_HEIGHT = 160;
@@ -98,168 +94,6 @@ interface WaveformViewProps {
   analysisPaused?: boolean;
   analysisStateId?: string;
   onSpectralSelectionChange?(selection: SpectralSelection | undefined): void;
-}
-
-interface ViewState {
-  document: DocumentInfoResult;
-  viewport: FrameRange;
-}
-
-/** CSS geometry and backing-store resolution are tracked independently. */
-function useViewSize(tracks: RefObject<HTMLDivElement | null>) {
-  const host = useRef<HTMLElement>(null);
-  const [width, setWidth] = useState(1);
-  const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
-
-  useLayoutEffect(() => {
-    const element = host.current;
-    if (!element) return;
-    const measure = () => {
-      setWidth(Math.max(1, tracks.current?.clientWidth || element.getBoundingClientRect().width));
-      setDpr(window.devicePixelRatio || 1);
-    };
-    measure();
-    const observer =
-      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
-    observer?.observe(element);
-    if (tracks.current) observer?.observe(tracks.current);
-    const resolution = window.matchMedia?.(`(resolution: ${dpr}dppx)`);
-    resolution?.addEventListener("change", measure);
-    window.addEventListener("resize", measure);
-    return () => {
-      observer?.disconnect();
-      resolution?.removeEventListener("change", measure);
-      window.removeEventListener("resize", measure);
-    };
-  }, [dpr, tracks]);
-
-  return { host, width: Math.max(1, width - RULER_WIDTH), dpr };
-}
-
-interface PeakCanvasProps {
-  client: KernelClient | undefined;
-  info: DocumentInfoResult;
-  channel: number;
-  viewport: FrameRange;
-  width: number;
-  height: number;
-  dpr: number;
-  overview?: boolean;
-  peaks?: PeaksState;
-  sampleMode?: SampleDisplayMode;
-  onPointerDown?: (event: PointerEvent<HTMLCanvasElement>) => void;
-  onPointerMove?: (event: PointerEvent<HTMLCanvasElement>) => void;
-  onPointerUp?: (event: PointerEvent<HTMLCanvasElement>) => void;
-  onPointerCancel?: (event: PointerEvent<HTMLCanvasElement>) => void;
-  onLostPointerCapture?: (event: PointerEvent<HTMLCanvasElement>) => void;
-  onDoubleClick?: (event: MouseEvent<HTMLCanvasElement>) => void;
-}
-
-function PeakCanvas({
-  client,
-  info,
-  channel,
-  viewport,
-  width,
-  height,
-  dpr,
-  overview = false,
-  peaks,
-  sampleMode = "linear",
-  ...events
-}: PeakCanvasProps) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const sampleRange = overview ? undefined : sampleViewportRange(viewport, info.frames, width);
-  const ownPeaks = useWaveformPeaks(
-    client,
-    info,
-    sampleRange
-      ? { channel, startFrame: sampleRange.start, endFrame: sampleRange.end, buckets: 1 }
-      : !peaks && info.frames > 0
-        ? {
-            channel,
-            startFrame: viewport.start,
-            endFrame: viewport.end,
-            buckets: Math.max(1, Math.min(8192, Math.ceil(width * dpr))),
-          }
-        : undefined,
-    Boolean(sampleRange),
-  );
-  const data = sampleRange ? undefined : (peaks?.data ?? ownPeaks.pages?.[0]);
-  const pages = sampleRange ? ownPeaks.pages : undefined;
-  const { loading, error } = !sampleRange && peaks ? peaks : ownPeaks;
-  const source = pages ?? data;
-  const displayMode = sampleRange ? sampleMode : "envelope";
-  const [paint, setPaint] = useState<{
-    source: PeakViews | readonly PeakViews[];
-    mode: typeof displayMode;
-    start: number;
-    end: number;
-    width: number;
-    dpr: number;
-  }>();
-
-  useLayoutEffect(() => {
-    // Paint bookkeeping must not keep obsolete sample pages alive after a request clears.
-    if (!source) setPaint(undefined);
-    const element = canvas.current;
-    if (!element) return;
-    const context = resizeCanvas(element, width, height, dpr);
-    if (!context) return;
-    const palette = resolveEditorPalette(element);
-    const colors = {
-      background: palette.waveformBackground,
-      peakColor: palette.waveformPeak,
-      sampleColor: palette.waveformSample,
-      rmsColor: palette.waveformRms,
-      showRMS: !overview,
-    };
-    if (displayMode === "envelope") {
-      drawWaveform(context, data ?? null, viewport, width, height, colors);
-    } else {
-      drawSampleWaveform(context, pages, viewport, width, height, displayMode, colors);
-    }
-    if (source)
-      setPaint({ source, mode: displayMode, start: viewport.start, end: viewport.end, width, dpr });
-  }, [source, data, pages, displayMode, viewport, width, height, dpr, overview]);
-
-  const rendered = Boolean(
-    source &&
-      paint?.source === source &&
-      paint.mode === displayMode &&
-      paint.start === viewport.start &&
-      paint.end === viewport.end &&
-      paint.width === width &&
-      paint.dpr === dpr,
-  );
-
-  return (
-    <>
-      <canvas
-        ref={canvas}
-        className="block w-full touch-none"
-        style={{ height }}
-        role="img"
-        aria-label={
-          overview ? "Full document waveform overview" : `Channel ${channel + 1} waveform`
-        }
-        aria-busy={loading}
-        data-testid={overview ? "waveform-overview" : `waveform-channel-${channel}`}
-        data-rendered={String(rendered)}
-        data-display-mode={displayMode}
-        data-sample-start={sampleRange?.start}
-        data-sample-end={sampleRange?.end}
-        {...events}
-      >
-        {overview ? "Document overview" : `Channel ${channel + 1} waveform`}
-      </canvas>
-      {error && (
-        <p role="alert" className="absolute left-2 top-2 text-xs text-destructive">
-          {error}
-        </p>
-      )}
-    </>
-  );
 }
 
 export function WaveformView(props: WaveformViewProps) {
@@ -312,13 +146,6 @@ function WaveformContent({
     setSpectralSelection(undefined);
     onSpectralSelectionChange?.(undefined);
   }, [client, info.documentId, onSpectralSelectionChange]);
-  const fullRange = useMemo(() => ({ start: 0, end: info.frames }), [info]);
-  const [state, setState] = useState<ViewState>({
-    document: info,
-    viewport: fullRange,
-  });
-  const current = state.document === info ? state : { document: info, viewport: fullRange };
-  const { viewport } = current;
   const { selection, timeline } = editor;
   const selectedRange = selection.end > selection.start ? selection : undefined;
   useLayoutEffect(() => onSelectionChange?.(selection), [selection, onSelectionChange]);
@@ -326,7 +153,17 @@ function WaveformContent({
   const cursorLines = useRef<(HTMLDivElement | null)[]>([]);
   const overviewCursor = useRef<HTMLDivElement>(null);
   const lanesId = useId();
-  const { host, width, dpr } = useViewSize(lanes);
+  const {
+    fullRange,
+    viewport,
+    currentViewport,
+    updateViewport,
+    followPlayback,
+    host,
+    width,
+    dpr,
+    resetViewport,
+  } = useWaveformViewport(info, lanes, playing, follow);
   // The overview and a fitted first lane draw the same kernel summaries.
   // Keep one bounded full-range result; zoomed lanes retain their own requests.
   const fullPeaks = usePeaks(
@@ -345,20 +182,6 @@ function WaveformContent({
   const [amplitudeScale, setAmplitudeScale] = useState<AmplitudeScale>("linear");
   const [sampleMode, setSampleMode] = useState<SampleDisplayMode>("linear");
   const scrollbar = useRef<HTMLDivElement>(null);
-  const currentViewport = useRef(viewport);
-  currentViewport.current = viewport;
-  const selectionDrag = useRef<
-    | {
-        pointer: number;
-        anchor: number;
-        rawAnchor: number;
-        snapAnchor: boolean;
-        offset: number;
-        previous: SelectionRange;
-      }
-    | undefined
-  >(undefined);
-  const interaction = useRef(0);
   const [snapZero, setSnapZero] = useState(false);
   const [snapMarkers, setSnapMarkers] = useState(false);
   const [snapTicks, setSnapTicks] = useState(false);
@@ -370,65 +193,55 @@ function WaveformContent({
   const pendingScroll = useRef<number | undefined>(undefined);
 
   useLayoutEffect(() => {
-    setState({ document: info, viewport: fullRange });
-    interaction.current++;
-    selectionDrag.current = undefined;
+    resetViewport();
     overviewDrag.current = undefined;
     setAnchorName("");
     setAnchorColor("#a78bfa");
-  }, [info, fullRange]);
+  }, [resetViewport]);
 
-  useLayoutEffect(() => {
-    // A new selection session (including client replacement) or import lock
-    // invalidates any pending zero-snap completion before it can seek.
-    interaction.current++;
-    selectionDrag.current = undefined;
-    if (disabled) {
-      editor.cancelPreview();
-    }
-  }, [disabled, editor.cancelPreview]);
-
-  const updateViewport = useCallback(
-    (change: (range: FrameRange) => FrameRange) => {
-      setState((previous) => {
-        const base =
-          previous.document === info ? previous : { document: info, viewport: fullRange };
-        const next = clampViewport(change(base.viewport), info.frames);
-        if (
-          base === previous &&
-          next.start === base.viewport.start &&
-          next.end === base.viewport.end
-        )
-          return previous;
-        return { ...base, viewport: next };
-      });
-    },
-    [info, fullRange],
-  );
-
-  const setSelection = useCallback(
-    (range: SelectionRange) => {
-      if (disabled) return;
-      interaction.current++;
-      selectionDrag.current = undefined;
-      editor.commit(range);
-      if (range.start !== selection.start || range.end !== selection.end) onSeek?.(range.start);
-    },
-    [disabled, editor.commit, onSeek, selection.start, selection.end],
-  );
+  const {
+    selectionDrag,
+    interaction,
+    setSelection,
+    startSelection,
+    moveSelection,
+    endSelection,
+    cancelSelection,
+    selectRegion,
+    timeTicks,
+  } = useWaveformPointer({
+    client,
+    info,
+    editor,
+    disabled,
+    width,
+    viewport,
+    onSeek,
+    snapZero,
+    snapMarkers,
+    snapTicks,
+    timeFormat,
+  });
   const commandsBlocked = Boolean(
     disabled || timelineOptions?.busy || !client || editor.adding || editor.previewing,
   );
   const selectAll = useCallback(() => {
     if (commandsBlocked || selectionDrag.current) return;
     setSelection({ start: 0, end: info.frames, channelMask: selection.channelMask });
-  }, [commandsBlocked, setSelection, info.frames, selection.channelMask]);
+  }, [commandsBlocked, setSelection, info.frames, selection.channelMask, selectionDrag.current]);
   const addAnchor = useCallback(
     (kind: "marker" | "region") => {
       if (commandsBlocked || selectionDrag.current || (kind === "region" && !selectedRange)) return;
       void editor.addAnchor(kind, anchorName, anchorColor);
     },
-    [commandsBlocked, editor.addAnchor, selectedRange, anchorName, anchorColor],
+    [
+      commandsBlocked,
+      editor.addAnchor,
+      selectedRange,
+      anchorName,
+      anchorColor,
+      selectionDrag.current,
+    ],
   );
   const addMarker = useCallback(() => addAnchor("marker"), [addAnchor]);
   const addRegion = useCallback(() => addAnchor("region"), [addAnchor]);
@@ -462,23 +275,6 @@ function WaveformContent({
       }
     },
     [viewport, info.frames, width],
-  );
-  const followPlayback = useCallback(
-    (frame: number) => {
-      if (!playing || follow === "off" || info.frames === 0) return;
-      updateViewport((range) => {
-        const length = range.end - range.start;
-        if (length >= info.frames) return range;
-        if (follow === "page" && frame >= range.start && frame < range.end) return range;
-        const start =
-          follow === "continuous"
-            ? Math.round(frame - length / 2)
-            : Math.floor(frame / length) * length;
-        const next = clampViewport({ start, end: start + length }, info.frames);
-        return next.start === range.start && next.end === range.end ? range : next;
-      });
-    },
-    [playing, follow, info.frames, updateViewport],
   );
   const updatePlayback = useCallback(
     (frame: number) => {
@@ -526,6 +322,8 @@ function WaveformContent({
       editor.commit,
       editor.previewing,
       updatePlayback,
+      selectionDrag,
+      interaction,
     ],
   );
   useLayoutEffect(
@@ -578,142 +376,6 @@ function WaveformContent({
     pendingScroll.current = element.scrollLeft;
   }, [viewport.start, maxStart, scrollWidth, width]);
 
-  const pointerFrame = (event: { currentTarget: HTMLElement; clientX: number }) => {
-    const target = event.currentTarget;
-    const track = target instanceof HTMLCanvasElement ? target : target.parentElement;
-    const bounds = (track ?? target).getBoundingClientRect();
-    return Math.round(
-      xToFrame(
-        Math.max(0, Math.min(width, event.clientX - bounds.left)),
-        currentViewport.current,
-        width,
-      ),
-    );
-  };
-  const timeTicks = generateTimeTicks(viewport, width, info.sampleRate, timeFormat);
-  const snapRadius = Math.max(0, Math.round((6 / width) * (viewport.end - viewport.start)));
-  const snapCandidates = [
-    ...(snapMarkers
-      ? [
-          ...timeline.markers.map((marker) => marker.frame),
-          ...timeline.regions.flatMap((region) => [region.start, region.end]),
-        ]
-      : []),
-    ...(snapTicks ? timeTicks.map((tick) => tick.frame) : []),
-  ];
-  const snapFrame = (frame: number, zero?: number) =>
-    snapSelectionFrame(
-      frame,
-      zero === undefined ? snapCandidates : [...snapCandidates, zero],
-      snapRadius,
-      info.frames,
-    );
-  const startSelection = (event: PointerEvent<HTMLElement>, edge?: "start" | "end") => {
-    if (disabled || event.button !== 0 || info.frames === 0) return;
-    interaction.current++;
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    const rawFrame = pointerFrame(event);
-    const frame = snapFrame(rawFrame);
-    const extending = event.shiftKey;
-    const fixed =
-      edge === "start"
-        ? selection.end
-        : edge === "end"
-          ? selection.start
-          : extending
-            ? frame < selection.start + (selection.end - selection.start) / 2
-              ? selection.end
-              : selection.start
-            : frame;
-    selectionDrag.current = {
-      pointer: event.pointerId,
-      anchor: fixed,
-      rawAnchor: edge || extending ? fixed : rawFrame,
-      snapAnchor: !edge && !extending,
-      offset: edge ? rawFrame - selection[edge] : 0,
-      previous: selection,
-    };
-    const moving = edge ? selection[edge] : frame;
-    editor.preview({
-      start: Math.min(fixed, moving),
-      end: Math.max(fixed, moving),
-      channelMask: selection.channelMask,
-    });
-  };
-  const moveSelection = (event: PointerEvent<HTMLElement>) => {
-    const drag = selectionDrag.current;
-    if (!drag || drag.pointer !== event.pointerId) return;
-    const frame = snapFrame(Math.max(0, Math.min(info.frames, pointerFrame(event) - drag.offset)));
-    editor.preview({
-      start: Math.min(drag.anchor, frame),
-      end: Math.max(drag.anchor, frame),
-      channelMask: drag.previous.channelMask,
-    });
-  };
-  const endSelection = (event: PointerEvent<HTMLElement>) => {
-    const drag = selectionDrag.current;
-    if (!drag || drag.pointer !== event.pointerId) return;
-    moveSelection(event);
-    const rawFrame = Math.max(0, Math.min(info.frames, pointerFrame(event) - drag.offset));
-    const sequence = interaction.current;
-    selectionDrag.current = undefined;
-    if (event.currentTarget.hasPointerCapture?.(event.pointerId))
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    const finish = (anchor: number, frame: number) => {
-      if (interaction.current !== sequence) return;
-      const range = {
-        start: Math.min(anchor, frame),
-        end: Math.max(anchor, frame),
-        channelMask: drag.previous.channelMask,
-      };
-      editor.commit(range);
-      onSeek?.(range.start);
-    };
-    if (!snapZero) {
-      finish(drag.anchor, snapFrame(rawFrame));
-      return;
-    }
-    // Keep zero-crossing work bounded even when viewing an hours-long file.
-    const radius = Math.min(8192, snapRadius, Math.ceil(info.sampleRate * 0.02));
-    void Promise.all([
-      drag.snapAnchor ? editor.snap(drag.rawAnchor, radius, drag.previous.channelMask) : undefined,
-      editor.snap(rawFrame, radius, drag.previous.channelMask),
-    ]).then(([anchor, frame]) => {
-      if (interaction.current !== sequence) return;
-      if (!frame || (drag.snapAnchor && !anchor)) {
-        // A failed analysis must not silently turn a requested snapped edit
-        // into an unsnapped one. Keep the last committed selection and error.
-        editor.cancelPreview();
-        return;
-      }
-      finish(
-        drag.snapAnchor
-          ? snapFrame(drag.rawAnchor, anchor?.found ? anchor.frame : undefined)
-          : drag.anchor,
-        snapFrame(rawFrame, frame?.found ? frame.frame : undefined),
-      );
-    });
-  };
-  const cancelSelection = (event: PointerEvent<HTMLElement>) => {
-    const drag = selectionDrag.current;
-    if (!drag || drag.pointer !== event.pointerId) return;
-    selectionDrag.current = undefined;
-    interaction.current++;
-    editor.cancelPreview();
-  };
-  const selectRegion = (event: MouseEvent<HTMLElement>) => {
-    if (disabled || info.frames === 0) return;
-    const frame = Math.min(info.frames - 1, pointerFrame(event));
-    const region = timeline.regions
-      .filter((region) => frame >= region.start && frame < region.end)
-      .sort((a, b) => a.end - a.start - (b.end - b.start) || a.id - b.id)[0];
-    const boundaries = [0, ...timeline.markers.map((marker) => marker.frame), info.frames].sort(
-      (a, b) => a - b,
-    );
-    const start = region?.start ?? boundaries.filter((boundary) => boundary <= frame).at(-1) ?? 0;
-    const end = region?.end ?? boundaries.find((boundary) => boundary > frame) ?? info.frames;
-    setSelection({ start, end, channelMask: selection.channelMask });
-  };
   const amplitudeTicks = generateAmplitudeTicks(LANE_HEIGHT, amplitudeScale);
   const selectionStart = selection ? Math.max(viewport.start, selection.start) : 0;
   const selectionEnd = selection ? Math.min(viewport.end, selection.end) : 0;
@@ -1039,77 +701,15 @@ function WaveformContent({
           Time
         </span>
         <div className="relative h-7 overflow-hidden" data-testid="waveform-time-ruler">
-          {timeline.regions.map(
-            (region) =>
-              region.end >= viewport.start &&
-              region.start <= viewport.end && (
-                <button
-                  key={`region-${region.id}`}
-                  type="button"
-                  title={region.name}
-                  aria-label={`Select region ${region.name}`}
-                  disabled={disabled}
-                  className="absolute bottom-0 z-10 h-2 min-w-1 rounded"
-                  data-testid={`timeline-region-${region.id}`}
-                  style={{
-                    backgroundColor: `${region.color}80`,
-                    left: frameToX(Math.max(viewport.start, region.start), viewport, width),
-                    width: Math.max(
-                      1,
-                      frameToX(Math.min(viewport.end, region.end), viewport, width) -
-                        frameToX(Math.max(viewport.start, region.start), viewport, width),
-                    ),
-                  }}
-                  onClick={() =>
-                    setSelection({
-                      start: region.start,
-                      end: region.end,
-                      channelMask: selection.channelMask,
-                    })
-                  }
-                />
-              ),
-          )}
-          {timeline.markers.map(
-            (marker) =>
-              marker.frame >= viewport.start &&
-              marker.frame <= viewport.end && (
-                <button
-                  key={`marker-${marker.id}`}
-                  type="button"
-                  title={marker.name}
-                  aria-label={`Go to marker ${marker.name}`}
-                  disabled={disabled}
-                  className="absolute top-0 z-20 h-full border-l-2 text-[10px]"
-                  data-testid={`timeline-marker-${marker.id}`}
-                  style={{
-                    left: Math.min(width - 1, frameToX(marker.frame, viewport, width)),
-                    borderColor: marker.color,
-                    color: marker.color,
-                  }}
-                  onClick={() =>
-                    setSelection({
-                      start: marker.frame,
-                      end: marker.frame,
-                      channelMask: selection.channelMask,
-                    })
-                  }
-                >
-                  {marker.name}
-                </button>
-              ),
-          )}
-          {timeTicks.map((tick) => (
-            <span
-              key={tick.frame}
-              className="absolute top-0 h-full border-l border-border"
-              style={{ left: tick.x }}
-            >
-              <span className="absolute left-1 top-1 whitespace-nowrap text-[10px] tabular-nums">
-                {tick.label}
-              </span>
-            </span>
-          ))}
+          <TimelineAnchors
+            timeline={timeline}
+            viewport={viewport}
+            width={width}
+            disabled={disabled}
+            selection={selection}
+            onSelect={setSelection}
+          />
+          <TimeRuler ticks={timeTicks} />
         </div>
       </div>
       <div
@@ -1132,27 +732,18 @@ function WaveformContent({
                 className="grid"
                 style={{ gridTemplateColumns: `${RULER_WIDTH}px minmax(0, 1fr)` }}
               >
-                <div
-                  className="relative border-r"
-                  style={{ height: LANE_HEIGHT }}
-                  data-testid={`waveform-amplitude-ruler-${channel}`}
-                >
-                  {(spectralView === "spectrogram"
-                    ? [
-                        { value: info.sampleRate / 2, y: 8, label: `${info.sampleRate / 2} Hz` },
-                        { value: 0, y: LANE_HEIGHT - 8, label: "0 Hz" },
-                      ]
-                    : amplitudeTicks
-                  ).map((tick) => (
-                    <span
-                      key={tick.value}
-                      className="absolute right-1 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
-                      style={{ top: Math.max(7, Math.min(LANE_HEIGHT - 7, tick.y)) }}
-                    >
-                      {tick.label}
-                    </span>
-                  ))}
-                </div>
+                <AmplitudeRuler
+                  channel={channel}
+                  height={LANE_HEIGHT}
+                  ticks={
+                    spectralView === "spectrogram"
+                      ? [
+                          { value: info.sampleRate / 2, y: 8, label: `${info.sampleRate / 2} Hz` },
+                          { value: 0, y: LANE_HEIGHT - 8, label: "0 Hz" },
+                        ]
+                      : amplitudeTicks
+                  }
+                />
                 <div className="relative min-w-0 overflow-hidden" data-testid="waveform-track">
                   {spectralView !== "spectrogram" && (
                     <PeakCanvas

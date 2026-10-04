@@ -32,6 +32,11 @@ class PeakWorker implements WorkerLike {
   timeline: TimelineResult;
   zeroFrame?: number;
   deferSnaps = false;
+  deferPeaks = false;
+  pendingPeaks: (() => void)[] = [];
+  resolvePeaks() {
+    for (const reply of this.pendingPeaks.splice(0)) reply();
+  }
   pendingSnaps: Extract<WorkerRequest, { op: "call" }>[] = [];
   calls(method: string) {
     return this.sent.filter(
@@ -199,7 +204,7 @@ class PeakWorker implements WorkerLike {
       counts[index] = exact ? 1 : span;
       starts[index] = params.startFrame + (exact ? index : 0);
     }
-    queueMicrotask(() =>
+    const reply = () =>
       this.listener?.({
         data: {
           kind: "reply",
@@ -212,8 +217,9 @@ class PeakWorker implements WorkerLike {
             data,
           },
         },
-      } as MessageEvent<WorkerReply>),
-    );
+      } as MessageEvent<WorkerReply>);
+    if (this.deferPeaks) this.pendingPeaks.push(reply);
+    else queueMicrotask(reply);
   }
   addEventListener(_type: "message", listener: (event: MessageEvent<WorkerReply>) => void) {
     this.listener = listener;
@@ -1396,4 +1402,25 @@ describe("WaveformView", () => {
     expect(getByText("No audio frames in this document.")).toBeTruthy();
     expect(worker.peaks).toHaveLength(0);
   });
+});
+
+it("keeps the previous painted waveform while a fitted lane transitions to delayed zoom peaks", async () => {
+  const s = mounted();
+  await waitFor(() =>
+    expect(s.getByTestId("waveform-channel-0").getAttribute("data-rendered")).toBe("true"),
+  );
+  const canvas = s.getByTestId("waveform-channel-0") as HTMLCanvasElement;
+  const drawing = contexts.get(canvas);
+  drawing?.fillRect.mockClear();
+  drawing?.clearRect.mockClear();
+  s.worker.deferPeaks = true;
+  fireEvent.click(s.getByRole("button", { name: "Zoom in" }));
+  await waitFor(() => expect(s.worker.pendingPeaks.length).toBeGreaterThan(0));
+  expect(canvas.getAttribute("aria-busy")).toBe("true");
+  expect(canvas.getAttribute("data-rendered")).toBe("false");
+  expect(drawing?.fillRect).not.toHaveBeenCalled();
+  expect(drawing?.clearRect).not.toHaveBeenCalled();
+  await act(async () => s.worker.resolvePeaks());
+  expect(canvas.getAttribute("data-rendered")).toBe("true");
+  expect(drawing?.fillRect).toHaveBeenCalled();
 });

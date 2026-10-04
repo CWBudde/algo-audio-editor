@@ -1,5 +1,6 @@
 import type { DocumentMemoryResult } from "@aae/protocol";
-import { type RefObject, useId, useLayoutEffect, useRef } from "react";
+import { type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import type { AudioEngine } from "@/audio/audio-engine";
 import type { RingBufferStats } from "@/audio/ring-buffer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ interface AboutStatusDialogProps {
   kernel: KernelState;
   sampleRate?: number;
   stats?: RingBufferStats;
+  engine?: Pick<AudioEngine, "stats">;
   memory?: DocumentMemoryResult;
   fallbackFocusRef?: RefObject<HTMLButtonElement | null>;
 }
@@ -34,10 +36,20 @@ export function AboutStatusDialog({
   onClose,
   kernel,
   sampleRate,
-  stats,
+  stats: suppliedStats,
+  engine,
   memory,
   fallbackFocusRef,
 }: AboutStatusDialogProps) {
+  const [liveStats, setStats] = useState<RingBufferStats>();
+  useEffect(() => {
+    const read = () => setStats(engine?.stats());
+    read();
+    if (!engine) return;
+    const timer = setInterval(read, 200);
+    return () => clearInterval(timer);
+  }, [engine]);
+  const stats = engine ? liveStats : suppliedStats;
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);

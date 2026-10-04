@@ -93,9 +93,18 @@ export function useWaveformPeaks(
 
   useEffect(() => {
     const lane = control.current;
-    // Old completed buffers must not stay retained after detail is disabled or
-    // the viewport/document changes. Keep only the physical RPC occupied.
-    setSnapshot(undefined);
+    // Retain one completed viewport while its same-document replacement loads.
+    // Document/client/channel or representation changes release old buffers.
+    setSnapshot((previous) =>
+      request &&
+      previous &&
+      previous.request.client === request.client &&
+      previous.request.documentKey === request.documentKey &&
+      previous.request.params.channel === request.params.channel &&
+      previous.request.samples === request.samples
+        ? previous
+        : undefined,
+    );
     lane.active = true;
     lane.latest = request;
     lane.sequence++;
@@ -179,7 +188,16 @@ export function useWaveformPeaks(
   // for the replacement effect to run.
   const current = request && snapshot?.request === request ? snapshot : undefined;
   return {
-    pages: current?.pages,
+    pages:
+      current?.pages ??
+      (request &&
+      snapshot &&
+      snapshot.request.client === request.client &&
+      snapshot.request.documentKey === request.documentKey &&
+      snapshot.request.params.channel === request.params.channel &&
+      snapshot.request.samples === request.samples
+        ? snapshot.pages
+        : undefined),
     loading: request !== undefined && current === undefined,
     error: current?.error,
   };

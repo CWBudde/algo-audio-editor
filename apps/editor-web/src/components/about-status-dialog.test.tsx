@@ -1,5 +1,5 @@
 import type { HelloResult } from "@aae/protocol";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { KernelState } from "@/hooks/use-kernel";
@@ -228,4 +228,34 @@ it("shows failure diagnostics and restores a fallback when an opener disappears"
   );
   expect(document.activeElement).toBe(fallback);
   fallback.remove();
+});
+
+it("polls diagnostics locally while closed without rendering its parent and releases the subscription", () => {
+  vi.useFakeTimers();
+  const parentRender = vi.fn();
+  let frames = 0;
+  const engine = {
+    stats: vi.fn(() => ({
+      consumedFrames: frames,
+      bufferedFrames: 10,
+      underrunFrames: 0,
+      documentFrame: frames,
+      ended: false,
+    })),
+  };
+  function Parent() {
+    parentRender();
+    return <AboutStatusDialog open={false} onClose={vi.fn()} kernel={ready} engine={engine} />;
+  }
+  const ui = render(<Parent />);
+  expect(parentRender).toHaveBeenCalledOnce();
+  frames = 128;
+  act(() => vi.advanceTimersByTime(600));
+  expect(ui.getByTestId("frames-played").textContent).toBe("128");
+  expect(parentRender).toHaveBeenCalledOnce();
+  expect(engine.stats).toHaveBeenCalledTimes(4);
+  ui.unmount();
+  act(() => vi.advanceTimersByTime(1000));
+  expect(engine.stats).toHaveBeenCalledTimes(4);
+  vi.useRealTimers();
 });

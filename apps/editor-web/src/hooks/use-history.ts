@@ -1,5 +1,6 @@
 import type { DocumentInfoResult, EditResult, HistoryListResult } from "@aae/protocol";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useKernelSession } from "@/hooks/use-kernel-session";
 import type { KernelClient } from "@/kernel/client";
 
 export interface HistoryOptions {
@@ -20,25 +21,16 @@ interface Snapshot {
 
 /** Kernel snapshots own history; this hook only serializes navigation controls. */
 export function useHistory(options: HistoryOptions) {
-  const latest = useRef(options);
-  latest.current = options;
-  const mounted = useRef(false);
-  const epoch = useRef(0);
+  const {
+    latest,
+    mounted,
+    token: operation,
+    capture,
+  } = useKernelSession<HistoryOptions, object>(options, options.client, options.info, undefined);
   const revision = useRef(0);
-  const operation = useRef<object | undefined>(undefined);
   const snapshot = useRef<Snapshot | undefined>(undefined);
   const [state, setState] = useState<Snapshot>();
   const [busy, setBusy] = useState(false);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Document/client identity changes invalidate pending navigation.
-  useLayoutEffect(() => {
-    mounted.current = true;
-    epoch.current++;
-    return () => {
-      mounted.current = false;
-      epoch.current++;
-    };
-  }, [options.client, options.info]);
 
   const publish = useCallback((client: KernelClient, value: HistoryListResult) => {
     if (snapshot.current?.client === client && snapshot.current.value === value) return;
@@ -54,7 +46,7 @@ export function useHistory(options: HistoryOptions) {
       const client = latest.current.client;
       if (mounted.current && client) publish(client, value);
     },
-    [publish],
+    [publish, latest, mounted],
   );
 
   useEffect(() => {
@@ -87,7 +79,7 @@ export function useHistory(options: HistoryOptions) {
     return () => {
       active = false;
     };
-  }, [options.client, options.info, publish]);
+  }, [options.client, options.info, publish, latest]);
 
   const navigate = useCallback(
     async (kind: "undo" | "redo" | "jump", stateId?: string) => {
@@ -115,17 +107,10 @@ export function useHistory(options: HistoryOptions) {
       )
         return;
       const token = {};
-      const started = epoch.current;
       const sourceDocumentId = info.documentId;
       operation.current = token;
       setBusy(true);
-      const active = () =>
-        mounted.current &&
-        epoch.current === started &&
-        latest.current.client === client &&
-        latest.current.info === info &&
-        latest.current.info?.documentId === sourceDocumentId &&
-        operation.current === token;
+      const active = capture(token);
       const work = async () => {
         if (!active()) return;
         await latest.current.beforeEdit();
@@ -157,7 +142,7 @@ export function useHistory(options: HistoryOptions) {
         if (mounted.current) setBusy(false);
       }
     },
-    [publish],
+    [publish, capture, latest, mounted, operation],
   );
 
   const undo = useCallback(() => navigate("undo"), [navigate]);

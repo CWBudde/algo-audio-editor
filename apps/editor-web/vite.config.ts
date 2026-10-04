@@ -41,7 +41,18 @@ export default defineConfig(({ command }) => {
   return {
     // GitHub Pages serves the app from /<repo>/; everything else from the root.
     base: process.env.VITE_BASE ?? "/",
-    build: { outDir: outputDir },
+    build: {
+      outDir: outputDir,
+      rolldownOptions: {
+        output: {
+          codeSplitting: {
+            groups: [
+              { name: "react", test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+            ],
+          },
+        },
+      },
+    },
     plugins: [
       react(),
       tailwindcss(),

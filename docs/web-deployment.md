@@ -85,13 +85,28 @@ atomic CDN updates. No offline/PWA support is promised.
 
 ## Size budget
 
-Every `just build` runs `check-web-budget.mjs` after `wasm-build`. It records raw
-and gzip level-9 WASM sizes in the log and GitHub job summary, and rejects gzip
-size above **4 MiB (4,194,304 bytes)**. The initial Phase 13 measurement is
-**11,063,065 bytes raw / 2,831,562 bytes gzip**, with room for remaining codec and
-project features. Linker `-s -w` and `-trimpath` remain enabled. `wasm-opt` is not
-added; JS budgets are separate Phase R.7 work. This download-size limit does not
-replace the engine's memory limits.
+Every `just build` runs the pinned Binaryen 132.0.0 `wasm-opt -Oz` after Go's
+`-trimpath -s -w` build, then builds Vite's production artifacts and runs
+`check-web-budget.mjs`. Go's bulk-memory, nontrapping conversion and sign-extension
+features remain enabled; IEEE/trapping semantics are preserved. The optimizer is
+installed by `bun install`, including on Windows and CI.
+
+The checker measures gzip level 9 and fails closed if the content-hashed kernel
+or module entry is missing. Browser CI explicitly repeats this gate after e2e.
+It includes **all** JS files, including lazy dialogs, worker and Go runtime:
+
+| Artifact | Limit |
+| --- | --- |
+| WASM, raw | 12 MiB |
+| WASM, gzip | 3 MiB |
+| Any JS chunk, raw | 500 KiB |
+| Entry JS chunk, gzip | 160 KiB |
+| All JS artifacts combined, gzip | 384 KiB |
+
+Dialogs and effect controls load on demand. React's shared runtime has its own
+cacheable chunk. The existing Vite kernel/runtime content hashes are computed
+from the final optimized bytes. Build logs and GitHub summaries record measured
+sizes and budgets; the download limits remain separate from kernel memory limits.
 
 ## Browser support
 

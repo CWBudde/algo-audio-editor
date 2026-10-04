@@ -29,6 +29,14 @@ execFileSync("go", [
   env: { ...process.env, GOOS: "js", GOARCH: "wasm" },
   stdio: "inherit",
 });
+// Run the pinned, portable Binaryen CLI with the existing Go feature set.
+// Preserve trapping/IEEE semantics; no fast-math or traps-never-happen flags.
+execFileSync(process.execPath, [
+  path.join(root, "node_modules/binaryen/bin/wasm-opt"),
+  path.join(destination, "kernel.wasm"),
+  "-Oz", "--enable-bulk-memory", "--enable-nontrapping-float-to-int", "--enable-sign-ext",
+  "-o", path.join(destination, "kernel.wasm"),
+], { stdio: "inherit" });
 const goroot = execFileSync("go", ["env", "GOROOT"], { encoding: "utf8" }).trim();
 const runtime = ["lib", "misc"]
   .map(directory => path.join(goroot, directory, "wasm/wasm_exec.js"))

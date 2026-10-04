@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   type CommandActions,
   type CommandContext,
@@ -40,7 +40,30 @@ export function useCommands(options: CommandsOptions) {
   latest.current = options;
   const mounted = useRef(false);
   const platform = options.platform ?? detectShortcutPlatform();
-  const commands = resolveCommands(options.getContext(), platform, options.actions);
+  const nextContext = options.getContext();
+  const context = useRef(nextContext);
+  if (
+    (Object.keys(nextContext) as (keyof CommandContext)[]).some(
+      (key) => nextContext[key] !== context.current[key],
+    ) ||
+    Object.keys(nextContext).length !== Object.keys(context.current).length
+  )
+    context.current = nextContext;
+  // Resolution only depends on action availability. Execution reads fresh closures.
+  const actionKey = Object.entries(options.actions)
+    .filter(([, action]) => action)
+    .map(([id]) => id)
+    .sort()
+    .join("\n");
+  const available = useMemo(
+    () => Object.fromEntries(actionKey.split("\n").map((id) => [id, () => {}])),
+    [actionKey],
+  );
+  const stableContext = context.current;
+  const commands = useMemo(
+    () => resolveCommands(stableContext, platform, available),
+    [stableContext, platform, available],
+  );
 
   const execute = useCallback((id: CommandId): boolean => {
     if (!mounted.current) return false;

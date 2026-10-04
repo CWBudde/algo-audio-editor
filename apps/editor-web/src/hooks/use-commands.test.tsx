@@ -361,3 +361,22 @@ describe("useCommands", () => {
     expect(action).toHaveBeenCalledOnce();
   });
 });
+
+it("reuses command metadata for fresh action closures, but updates enabled state and action availability", () => {
+  const s = mounted();
+  const commands = s.result.current.commands;
+  const fresh = vi.fn();
+  s.rerender({ ...s.options, actions: { ...s.actions, "file.open": fresh } });
+  expect(s.result.current.commands).toBe(commands);
+  s.result.current.execute("file.open");
+  expect(fresh).toHaveBeenCalledOnce();
+  s.setContext({ modalOpen: true });
+  s.rerender(s.options);
+  expect(s.result.current.commands).not.toBe(commands);
+  expect(s.result.current.commands.find((command) => command.id === "edit.copy")?.enabled).toBe(
+    false,
+  );
+  s.setContext({ modalOpen: false });
+  s.rerender({ ...s.options, actions: {} });
+  expect(s.result.current.commands.every((command) => !command.enabled)).toBe(true);
+});

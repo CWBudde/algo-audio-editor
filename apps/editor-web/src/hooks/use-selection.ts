@@ -8,13 +8,13 @@ import type {
   TimelineResult,
 } from "@aae/protocol";
 import { useCallback, useLayoutEffect, useReducer, useRef } from "react";
+import { useKernelSession } from "@/hooks/use-kernel-session";
 import type { KernelClient } from "@/kernel/client";
 
 interface Session {
   client: KernelClient | undefined;
   info: DocumentInfoResult;
   active: boolean;
-  epoch: number;
   revision: number;
   commitRevision: number;
   commits: number;
@@ -86,7 +86,6 @@ export function useSelection(
         client,
         info,
         active: false,
-        epoch: 0,
         revision: 0,
         commitRevision: 0,
         commits: 0,
@@ -103,11 +102,11 @@ export function useSelection(
     store.current = { client, info, initial, session: create() };
   }
   const session = store.current.session;
-  const latestOptions = useRef(options);
-  latestOptions.current = options;
-  const currentSession = useRef(session);
-  currentSession.current = session;
-  const mutation = useRef<object | undefined>(undefined);
+  const {
+    latest,
+    token: mutation,
+    capture,
+  } = useKernelSession({ options, session }, client, session);
   // One physical write at a time, with only the newest pending range retained.
   // A replacement session cannot let the old response paint its UI; the kernel
   // additionally rejects writes carrying an obsolete document ID.
@@ -145,8 +144,7 @@ export function useSelection(
 
   useLayoutEffect(() => {
     session.active = true;
-    const epoch = ++session.epoch;
-    const current = () => session.active && session.epoch === epoch;
+    const current = capture();
     if (client) {
       void client.call("selection.get", { documentId: info.documentId }).then(
         (result) => {
@@ -194,7 +192,7 @@ export function useSelection(
       session.active = false;
       if (lane.current.pending?.session === session) lane.current.pending = undefined;
     };
-  }, [client, info, session, drain]);
+  }, [client, info, session, drain, capture]);
 
   const preview = useCallback(
     (selection: SelectionRange) => {
@@ -259,17 +257,15 @@ export function useSelection(
         !session.active ||
         session.previewing ||
         mutation.current ||
-        latestOptions.current.busy ||
+        latest.current.options.busy ||
         !client
       )
         return;
       const token = {};
       mutation.current = token;
-      const epoch = session.epoch;
       const revision = session.commitRevision;
       const selection = { ...session.committed };
-      const active = () =>
-        session.active && session.epoch === epoch && currentSession.current === session;
+      const active = capture(token);
       session.adding = true;
       session.error = undefined;
       refresh();
@@ -297,9 +293,9 @@ export function useSelection(
               session.error = undefined;
             }
           }
-          latestOptions.current.onTimelineChanged?.(result, info.documentId);
+          latest.current.options.onTimelineChanged?.(result, info.documentId);
         };
-        const wrapper = latestOptions.current.withOperation;
+        const wrapper = latest.current.options.withOperation;
         if (wrapper) await wrapper(work);
         else await work();
       } catch (error) {
@@ -307,10 +303,10 @@ export function useSelection(
       } finally {
         session.adding = false;
         if (mutation.current === token) mutation.current = undefined;
-        if (currentSession.current.active) refresh();
+        if (latest.current.session.active) refresh();
       }
     },
-    [client, info, session],
+    [client, info, session, capture, mutation, latest],
   );
   const addAnchor = (kind: "marker" | "region", name: string, color = "#a78bfa") =>
     mutate((rpc, selection) =>

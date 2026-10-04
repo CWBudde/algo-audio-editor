@@ -1,5 +1,6 @@
 import type { DocumentInfoResult, HistoryListResult, TimelineExportParams } from "@aae/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useKernelSession } from "@/hooks/use-kernel-session";
 import type { KernelClient } from "@/kernel/client";
 import { openAudioDocument } from "@/lib/audio-codecs";
 import {
@@ -26,17 +27,21 @@ interface DocumentOptions {
 
 /** Owns document revisions and serializes file and edit workflows. */
 export function useDocument(client: KernelClient | undefined, options: DocumentOptions) {
-  const latest = useRef({ client, options });
-  latest.current = { client, options };
-  const operation = useRef<object | undefined>(undefined);
+  const {
+    latest,
+    mounted,
+    token: operation,
+    capture,
+  } = useKernelSession({ client, options }, client, client, () => {
+    operation.current = undefined;
+    generation.current++;
+  });
   const generation = useRef(0);
-  const mounted = useRef(false);
   const [snapshot, setSnapshot] = useState<{ client: KernelClient; info: DocumentInfoResult }>();
   const [pending, setPending] = useState<{ client: KernelClient; busy: boolean }>();
   const currentInfo = useRef<DocumentInfoResult | undefined>(undefined);
 
   useEffect(() => {
-    mounted.current = true;
     let active = true;
     const startedWith = generation.current;
     client?.call("doc.info").then(
@@ -47,9 +52,6 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     );
     return () => {
       active = false;
-      mounted.current = false;
-      operation.current = undefined;
-      generation.current++;
     };
   }, [client]);
 
@@ -61,8 +63,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
       generation.current++;
       operation.current = token;
       setPending({ client: target, busy: true });
-      const active = () =>
-        mounted.current && latest.current.client === target && operation.current === token;
+      const active = capture(token);
       return work(target, active)
         .catch((error: unknown) => {
           if (active() && !isFileDialogCancelled(error))
@@ -73,7 +74,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
           if (operation.current === token) operation.current = undefined;
         });
     },
-    [],
+    [capture, latest, operation],
   );
 
   const importFile = useCallback(
@@ -105,7 +106,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
         await finishNativeOpen(file, success);
       }
     },
-    [],
+    [latest],
   );
 
   const openFile = useCallback(
@@ -133,7 +134,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
       if (file && active()) await importFile(target, active, file);
       else if (file) await finishNativeOpen(file, false);
     });
-  }, [importFile, run]);
+  }, [importFile, run, latest]);
 
   const openDemo = useCallback(() => {
     void run("Could not open demo", async (target, active) => {
@@ -148,31 +149,37 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
   const info = snapshot?.client === client ? snapshot?.info : undefined;
   currentInfo.current = info;
   /** Edits share the file-operation lock, including preparation and confirmation. */
-  const withOperation = useCallback(async (work: () => Promise<void>) => {
-    const target = latest.current.client;
-    if (!target || !mounted.current) throw new Error("The audio document is unavailable.");
-    if (operation.current) throw new Error("Another document operation is in progress.");
-    const token = {};
-    generation.current++;
-    operation.current = token;
-    setPending({ client: target, busy: true });
-    try {
-      await work();
-    } finally {
-      if (mounted.current && latest.current.client === target && operation.current === token)
-        setPending({ client: target, busy: false });
-      if (operation.current === token) operation.current = undefined;
-    }
-  }, []);
-  const refreshInfo = useCallback(async (target: KernelClient) => {
-    if (!mounted.current || latest.current.client !== target) return;
-    const started = ++generation.current;
-    const info = await target.call("doc.info");
-    if (!mounted.current || latest.current.client !== target || generation.current !== started)
-      return;
-    currentInfo.current = info;
-    setSnapshot({ client: target, info });
-  }, []);
+  const withOperation = useCallback(
+    async (work: () => Promise<void>) => {
+      const target = latest.current.client;
+      if (!target || !mounted.current) throw new Error("The audio document is unavailable.");
+      if (operation.current) throw new Error("Another document operation is in progress.");
+      const token = {};
+      generation.current++;
+      operation.current = token;
+      setPending({ client: target, busy: true });
+      try {
+        await work();
+      } finally {
+        if (mounted.current && latest.current.client === target && operation.current === token)
+          setPending({ client: target, busy: false });
+        if (operation.current === token) operation.current = undefined;
+      }
+    },
+    [latest, mounted, operation],
+  );
+  const refreshInfo = useCallback(
+    async (target: KernelClient) => {
+      if (!mounted.current || latest.current.client !== target) return;
+      const started = ++generation.current;
+      const info = await target.call("doc.info");
+      if (!mounted.current || latest.current.client !== target || generation.current !== started)
+        return;
+      currentInfo.current = info;
+      setSnapshot({ client: target, info });
+    },
+    [mounted, latest],
+  );
   const replaceInfo = useCallback(
     (next: DocumentInfoResult, expectedDocumentId: string) => {
       const target = latest.current.client;
@@ -188,7 +195,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
       setSnapshot({ client: target, info: next });
       return true;
     },
-    [refreshInfo],
+    [refreshInfo, latest, mounted],
   );
   const saveAndWait = useCallback(() => {
     if (!info || latest.current.client !== client) return;
@@ -229,7 +236,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
       }
     });
     return work?.then(() => savedSuccessfully);
-  }, [client, info, run]);
+  }, [client, info, run, latest]);
 
   const save = useCallback(() => {
     void saveAndWait();
@@ -264,7 +271,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
         // A sidecar export never acknowledges the document's save point.
       });
     },
-    [client, info, run],
+    [client, info, run, latest],
   );
 
   return {

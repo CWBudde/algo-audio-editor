@@ -8,7 +8,9 @@ import type {
   ProcessJobResult,
   SelectionRange,
 } from "@aae/protocol";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { deferred, holdJobLock, releaseJobLock, runCandidate } from "@/hooks/job-runner";
+import { useKernelSession } from "@/hooks/use-kernel-session";
 import type { KernelClient } from "@/kernel/client";
 import {
   type EffectPreset,
@@ -50,13 +52,6 @@ export interface EffectsView {
   job?: ProcessJobResult;
   error?: string;
 }
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
 interface Session extends EffectsView {
   client: KernelClient;
   done: ReturnType<typeof deferred>;
@@ -74,10 +69,19 @@ interface Session extends EffectsView {
   acknowledged: number;
 }
 export function useEffects(options: EffectsOptions) {
-  const latest = useRef(options);
-  latest.current = options;
-  const mounted = useRef(false);
-  const session = useRef<Session | undefined>(undefined);
+  const {
+    latest,
+    mounted,
+    token: session,
+    active: sessionActive,
+  } = useKernelSession<EffectsOptions, Session>(
+    options,
+    options.client,
+    options.info?.documentId,
+    () => {
+      void cancel();
+    },
+  );
   const [view, setView] = useState<EffectsView>();
   const [descriptors, setDescriptors] = useState<EffectDescriptor[]>([]);
   const catalog = useRef(descriptors);
@@ -87,11 +91,10 @@ export function useEffects(options: EffectsOptions) {
   const [catalogError, setCatalogError] = useState<string>();
   const owns = useCallback(
     (s: Session) =>
-      mounted.current &&
-      session.current === s &&
+      sessionActive(s) &&
       latest.current.client === s.client &&
       latest.current.info?.documentId === s.info.documentId,
-    [],
+    [sessionActive, latest],
   );
   const update = useCallback(
     (s: Session, change: Partial<EffectsView>) => {
@@ -107,7 +110,7 @@ export function useEffects(options: EffectsOptions) {
         latest.current.onError("Could not use effects", error);
       }
     },
-    [owns, update],
+    [owns, update, latest],
   );
   useEffect(() => {
     let active = true;
@@ -189,14 +192,16 @@ export function useEffects(options: EffectsOptions) {
     },
     [update, removeImpulses],
   );
-  const finish = useCallback(async (s: Session) => {
-    if (session.current === s) {
-      session.current = undefined;
-      if (mounted.current) setView(undefined);
-    }
-    s.done.resolve();
-    await s.released.promise;
-  }, []);
+  const finish = useCallback(
+    async (s: Session) => {
+      if (session.current === s) {
+        session.current = undefined;
+        if (mounted.current) setView(undefined);
+      }
+      await releaseJobLock(s);
+    },
+    [session, mounted],
+  );
   const cancel = useCallback(async () => {
     const s = session.current;
     if (!s || s.committing || s.closing) return;
@@ -226,15 +231,7 @@ export function useEffects(options: EffectsOptions) {
       });
       await finish(s);
     }
-  }, [update, stop, finish, removeImpulses, cleanAssets]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: replacement invalidates the owning modal/preview session.
-  useLayoutEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      void cancel();
-    };
-  }, [options.client, options.info?.documentId, cancel]);
+  }, [update, stop, finish, removeImpulses, cleanAssets, session, mounted, latest]);
   const open = useCallback(
     (selection: SelectionRange, effectId?: string) => {
       const { client, info, busy } = latest.current;
@@ -264,27 +261,26 @@ export function useEffects(options: EffectsOptions) {
       };
       session.current = s;
       setView({ ...s });
-      void latest.current
-        .withOperation(async () => {
+      holdJobLock(
+        s,
+        latest.current.withOperation,
+        async () => {
           await s.beforeEdit();
           if (!s.closing && owns(s)) update(s, { phase: "idle" });
           ready.resolve();
-          await s.done.promise;
-        })
-        .catch((error) => {
+        },
+        (error) => {
           report(s, error);
           s.done.resolve();
           if (session.current === s) {
             session.current = undefined;
             if (mounted.current) setView(undefined);
           }
-        })
-        .finally(() => {
-          ready.resolve();
-          s.released.resolve();
-        });
+        },
+        () => ready.resolve(),
+      );
     },
-    [owns, update, report],
+    [owns, update, report, latest, mounted, session],
   );
   const syncPreview = useCallback(
     (s: Session) => {
@@ -327,7 +323,7 @@ export function useEffects(options: EffectsOptions) {
       s.revision++;
       if (validRack(s.rack, catalog.current, s.selection.channelMask)) syncPreview(s);
     },
-    [owns, update, syncPreview],
+    [owns, update, syncPreview, session],
   );
   const preview = useCallback(() => {
     const s = session.current;
@@ -365,7 +361,7 @@ export function useEffects(options: EffectsOptions) {
       }
     })();
     return s.pending;
-  }, [owns, update, stop, request, report]);
+  }, [owns, update, stop, request, report, session, latest]);
   const stopPreview = useCallback(() => {
     const s = session.current;
     if (!s || s.pending || s.closing) return;
@@ -381,7 +377,7 @@ export function useEffects(options: EffectsOptions) {
       }
     })();
     return s.pending;
-  }, [stop, report, owns, update]);
+  }, [stop, report, owns, update, session]);
   useEffect(() => {
     const s = session.current;
     if (!s || !view?.previewing) return;
@@ -408,7 +404,7 @@ export function useEffects(options: EffectsOptions) {
       active = false;
       clearInterval(timer);
     };
-  }, [view?.previewing, owns, update, report]);
+  }, [view?.previewing, owns, update, report, session]);
   const apply = useCallback(
     (allowClipping = false) => {
       const s = session.current;
@@ -438,16 +434,10 @@ export function useEffects(options: EffectsOptions) {
           const job = await s.client.call("effects.apply", params);
           s.job = job;
           if (s.closing || !owns(s)) return;
-          const ready =
-            job.state === "running"
-              ? await s.client.runProcess(
-                  { documentId: s.info.documentId, jobId: job.jobId },
-                  (job) => {
-                    s.job = job;
-                    update(s, { job });
-                  },
-                )
-              : job;
+          const ready = await runCandidate(s.client, s.info, job, (job) => {
+            s.job = job;
+            update(s, { job });
+          });
           s.job = ready;
           if (s.closing || !owns(s) || ready.state !== "ready") return;
           if (!allowClipping && (ready.nonFinite || ready.peak > 1)) {
@@ -506,7 +496,19 @@ export function useEffects(options: EffectsOptions) {
       })();
       return s.pending;
     },
-    [owns, update, stop, request, report, finish, removeImpulses, cleanAssets],
+    [
+      owns,
+      update,
+      stop,
+      request,
+      report,
+      finish,
+      removeImpulses,
+      cleanAssets,
+      session,
+      latest,
+      mounted,
+    ],
   );
   const loadIR = useCallback(
     (nodeId: string, file: File) => {
@@ -562,7 +564,7 @@ export function useEffects(options: EffectsOptions) {
       })();
       return s.pending;
     },
-    [owns, update, report, syncPreview],
+    [owns, update, report, syncPreview, session, latest],
   );
   const savePreset = useCallback(
     async (name: string) => {
@@ -600,7 +602,7 @@ export function useEffects(options: EffectsOptions) {
       s.pending = task;
       await task;
     },
-    [report, owns, update],
+    [report, owns, update, session, mounted],
   );
   const deletePreset = useCallback(
     async (id: string) => {
@@ -636,7 +638,7 @@ export function useEffects(options: EffectsOptions) {
       s.pending = task;
       await task;
     },
-    [report, owns, update],
+    [report, owns, update, session, mounted],
   );
   const loadPreset = useCallback(
     (id: string) => {
@@ -684,7 +686,7 @@ export function useEffects(options: EffectsOptions) {
       })();
       return s.pending;
     },
-    [owns, update, report, syncPreview],
+    [owns, update, report, syncPreview, session],
   );
   return {
     view,

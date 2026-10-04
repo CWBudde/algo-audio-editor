@@ -4,7 +4,7 @@ import type {
   KernelMethod,
   ProcessJobResult,
 } from "@aae/protocol";
-import type { RingBufferInit } from "@/audio/ring-buffer";
+import type { RingBufferInit } from "../audio/ring-buffer.ts";
 
 /**
  * Main thread ↔ kernel worker messages. Every request carries an id and gets

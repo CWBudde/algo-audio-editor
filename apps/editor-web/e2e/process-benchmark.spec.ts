@@ -310,13 +310,7 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
         async ({ sourceDocumentId, outputChannels }) => {
           const worker = window.__aaeTest?.workers[0];
           if (!worker) throw new Error("kernel worker missing");
-          type TimedCall = {
-            method: string;
-            startedAt: number;
-            endedAt?: number;
-            result?: unknown;
-            params?: unknown;
-          };
+          type TimedCall = import("../src/kernel/process-probe.ts").ProcessProbeCall;
           type PhaseTiming = {
             phase: ProcessJobResult["phase"];
             phaseIndex: number;
@@ -329,9 +323,7 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
             lastFrames: number;
             maxProgressGapMs: number;
           };
-          const calls = new Map<number, TimedCall>();
           const phases = new Map<ProcessJobResult["phase"], PhaseTiming>();
-          const nativePost = worker.postMessage;
           let rejectPending: (error: Error) => void = () => {};
           let progressEvents = 0;
           let lastProgress: ProcessJobResult | undefined;
@@ -375,38 +367,12 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
             if (progress.state === "ready") phase.finishedMs = now - started;
             previousPhase = phase;
           };
-          worker.postMessage = (
-            message: unknown,
-            transfer?: Transferable[] | StructuredSerializeOptions,
-          ) => {
-            const request = message as {
-              id?: number;
-              op?: string;
-              method?: string;
-              params?: unknown;
-            };
-            const method = request.op === "process.run" ? "process.run" : request.method;
-            if (
-              request.id !== undefined &&
-              method &&
-              ["process.start", "process.run", "process.commit"].includes(method)
-            )
-              calls.set(request.id, {
-                method,
-                startedAt: performance.now(),
-                params: request.params,
-              });
-            nativePost.call(worker, message, Array.isArray(transfer) ? { transfer } : transfer);
-          };
-          const onMessage = (event: MessageEvent) => {
-            if (event.data.kind === "fatal") {
-              rejectPending(new Error(event.data.error));
-              return;
-            }
-            const call = calls.get(event.data.id);
-            if (!call) return;
-            if (event.data.kind === "process.progress" && call.method === "process.run") {
-              const progress = event.data.progress as ProcessJobResult;
+          const probe = window.__aaeProcessProbe;
+          if (!probe) throw new Error("processing probe missing");
+          const observation = probe.observe(worker, {
+            methods: ["process.start", "process.run", "process.commit"],
+            onError: (error) => rejectPending(error),
+            onProgress: (progress) => {
               if (progress.documentId !== sourceDocumentId) return;
               const now = performance.now();
               if (lastProgressAt)
@@ -415,15 +381,17 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
               lastProgress = progress;
               progressEvents++;
               recordPhase(progress, now, true);
-            } else if (event.data.kind === "reply") {
-              call.endedAt = performance.now();
-              call.result = event.data.result;
-              if (!event.data.ok) rejectPending(new Error(`${call.method}: ${event.data.error}`));
-              else if (call.method === "process.start")
-                recordPhase(event.data.result as ProcessJobResult, call.endedAt, false);
-            }
-          };
-          worker.addEventListener("message", onMessage);
+            },
+            onReply: (call) => {
+              if (call.method === "process.start")
+                recordPhase(
+                  call.result as ProcessJobResult,
+                  call.endedAt ?? performance.now(),
+                  false,
+                );
+            },
+          });
+          const { calls } = observation;
           try {
             await new Promise<void>((resolve, reject) => {
               rejectPending = reject;
@@ -517,8 +485,7 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
               changed: result.changed,
             };
           } finally {
-            worker.postMessage = nativePost;
-            worker.removeEventListener("message", onMessage);
+            observation.dispose();
           }
         },
         { sourceDocumentId: source.document.documentId, outputChannels },
@@ -600,6 +567,8 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
         async ({ outputFrames, outputChannels }) => {
           const probe = window.__aaeTest;
           if (!probe) throw new Error("kernel probe missing");
+          const processingProbe = window.__aaeProcessProbe;
+          if (!processingProbe) throw new Error("processing probe missing");
           const result = [];
           for (let channel = 0; channel < outputChannels; channel++) {
             const peaks = (await probe.request("peaks.get", {
@@ -608,21 +577,7 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
               endFrame: outputFrames,
               buckets: 1,
             })) as PeaksGetResult;
-            const triples = new Float32Array(peaks.data, 0, peaks.count * 3);
-            const counts = new Uint32Array(peaks.data, peaks.count * 12, peaks.count);
-            const starts = new Float64Array(peaks.data, peaks.count * 16, peaks.count);
-            result.push({
-              channel,
-              count: peaks.count,
-              extrema: Array.from({ length: peaks.count }, (_, index) => [
-                triples[index * 3],
-                triples[index * 3 + 1],
-              ]),
-              ranges: Array.from({ length: peaks.count }, (_, index) => [
-                starts[index],
-                counts[index],
-              ]),
-            });
+            result.push({ channel, ...processingProbe.summarizePeaks(peaks) });
           }
           return result;
         },
@@ -760,44 +715,29 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
       const timingPromise = page.evaluate(async () => {
         const worker = window.__aaeTest?.workers[0];
         if (!worker) throw new Error("kernel worker missing");
-        const nativePost = worker.postMessage;
-        const calls = new Map<number, { method: string; started: number; ended?: number }>();
         let progressEvents = 0;
         let ready: ProcessJobResult | undefined;
         let exportedBytes = 0;
-        const onWorker = (event: MessageEvent) => {
-          if (event.data.kind === "process.progress") {
+        const probe = window.__aaeProcessProbe;
+        if (!probe) throw new Error("processing probe missing");
+        const observation = probe.observe(worker, {
+          methods: [
+            "process.start",
+            "process.run",
+            "process.exportCandidate",
+            "process.commit",
+            "process.cancel",
+          ],
+          onProgress: (progress) => {
             progressEvents++;
-            ready = event.data.progress as ProcessJobResult;
-          }
-          if (event.data.kind !== "reply") return;
-          const call = calls.get(event.data.id);
-          if (!call) return;
-          call.ended = performance.now();
-          if (call.method === "process.exportCandidate" && event.data.ok)
-            exportedBytes = event.data.result.dataBytes;
-        };
-        worker.addEventListener("message", onWorker);
-        worker.postMessage = (
-          message: unknown,
-          transfer?: Transferable[] | StructuredSerializeOptions,
-        ) => {
-          const request = message as { id?: number; op?: string; method?: string };
-          const method = request.op === "process.run" ? "process.run" : request.method;
-          if (
-            request.id !== undefined &&
-            method &&
-            [
-              "process.start",
-              "process.run",
-              "process.exportCandidate",
-              "process.commit",
-              "process.cancel",
-            ].includes(method)
-          )
-            calls.set(request.id, { method, started: performance.now() });
-          nativePost.call(worker, message, Array.isArray(transfer) ? { transfer } : transfer);
-        };
+            ready = progress;
+          },
+          onReply: (call) => {
+            if (call.method === "process.exportCandidate")
+              exportedBytes = (call.result as { dataBytes: number }).dataBytes;
+          },
+        });
+        const { calls } = observation;
         let started = 0;
         try {
           const destinationDocumentId = await new Promise<string>((resolve, reject) => {
@@ -836,12 +776,11 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
             ready,
             calls: Array.from(calls.values()).map((call) => ({
               method: call.method,
-              rpcMs: call.ended === undefined ? null : call.ended - call.started,
+              rpcMs: call.endedAt === undefined ? null : call.endedAt - call.startedAt,
             })),
           };
         } finally {
-          worker.postMessage = nativePost;
-          worker.removeEventListener("message", onWorker);
+          observation.dispose();
         }
       });
       const [timing, destination] = await Promise.all([timingPromise, popup]);
@@ -883,14 +822,12 @@ if (process.env.AAE_PROCESS_BENCHMARK === "1") {
           endFrame: document.frames,
           buckets: 1,
         })) as PeaksGetResult;
-        const triples = new Float32Array(peaks.data, 0, peaks.count * 3);
+        const processingProbe = window.__aaeProcessProbe;
+        if (!processingProbe) throw new Error("processing probe missing");
         return {
           document,
           history,
-          extrema: Array.from({ length: peaks.count }, (_, index) => [
-            triples[index * 3],
-            triples[index * 3 + 1],
-          ]),
+          extrema: processingProbe.summarizePeaks(peaks).extrema,
         };
       });
       expect(output.document).toMatchObject({ channels: 1, sampleRate: 48000, frames });

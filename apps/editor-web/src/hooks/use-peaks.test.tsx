@@ -266,6 +266,26 @@ describe("useSamplePeaks", () => {
 });
 
 describe("usePeaks", () => {
+  it("retains the last completed same-document viewport while replacements load and coalesce", async () => {
+    const s = setup();
+    await flush();
+    await act(async () => s.worker.reply(0, fixture()));
+    const drawn = s.result.current.data;
+    s.rerender({ ...s.props, params: { ...viewport, startFrame: 128 } });
+    expect(s.result.current.data).toBe(drawn);
+    expect(s.result.current.loading).toBe(true);
+    await flush();
+    s.rerender({ ...s.props, params: { ...viewport, startFrame: 256 } });
+    await act(async () => s.worker.reply(1, fixture(128)));
+    expect(s.result.current.data).toBe(drawn);
+    await flush();
+    await act(async () => s.worker.reply(2, fixture(256)));
+    expect(s.result.current.data?.startFrames[0]).toBe(256);
+    expect(s.result.current.loading).toBe(false);
+    s.rerender({ ...s.props, documentKey: {} });
+    expect(s.result.current.data).toBeUndefined();
+  });
+
   it("waits for inputs, then exposes zero-copy peak views", async () => {
     const { result, worker, client, props, rerender } = setup({ client: undefined });
     await flush();

@@ -6,7 +6,8 @@ import type {
   PastePlan,
   SelectionRange,
 } from "@aae/protocol";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useKernelSession } from "@/hooks/use-kernel-session";
 import type { KernelClient } from "@/kernel/client";
 import type { AppliedOperation } from "@/lib/operation-chain";
 
@@ -25,11 +26,14 @@ export interface EditOptions {
 
 /** Control-only edit orchestration. The kernel owns clipboard and audio edits. */
 export function useEdit(options: EditOptions) {
-  const latest = useRef(options);
-  latest.current = options;
-  const mounted = useRef(false);
-  const epoch = useRef(0);
-  const operation = useRef<object | undefined>(undefined);
+  const {
+    latest,
+    mounted,
+    token: operation,
+    capture,
+  } = useKernelSession<EditOptions, object>(options, options.client, options.info, () =>
+    cancelConfirmation.current?.(),
+  );
   const cancelConfirmation = useRef<(() => void) | undefined>(undefined);
   const clipboardRevision = useRef(0);
   const [busy, setBusy] = useState(false);
@@ -37,17 +41,6 @@ export function useEdit(options: EditOptions) {
     client: KernelClient;
     value: ClipboardInfo;
   }>();
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Identity changes invalidate edits even when callback bodies do not read document metadata.
-  useLayoutEffect(() => {
-    mounted.current = true;
-    epoch.current++;
-    return () => {
-      mounted.current = false;
-      epoch.current++;
-      cancelConfirmation.current?.();
-    };
-  }, [options.client, options.info]);
 
   useEffect(() => {
     const client = options.client;
@@ -67,7 +60,7 @@ export function useEdit(options: EditOptions) {
     return () => {
       active = false;
     };
-  }, [options.client]);
+  }, [options.client, latest]);
 
   const run = useCallback(
     async (kind: EditOperation, selection: SelectionRange, frames?: number) => {
@@ -75,7 +68,6 @@ export function useEdit(options: EditOptions) {
       const { client, info } = initial;
       if (!mounted.current || !client || !info || initial.busy || operation.current) return;
       const token = {};
-      const started = epoch.current;
       const range = {
         start: selection.start,
         end: selection.end,
@@ -84,13 +76,7 @@ export function useEdit(options: EditOptions) {
       const sourceDocumentId = info.documentId;
       operation.current = token;
       setBusy(true);
-      const active = () =>
-        mounted.current &&
-        epoch.current === started &&
-        latest.current.client === client &&
-        latest.current.info === info &&
-        latest.current.info?.documentId === sourceDocumentId &&
-        operation.current === token;
+      const active = capture(token);
       const work = async () => {
         if (!active()) return;
         let clipboardVersion: string | undefined;
@@ -161,15 +147,18 @@ export function useEdit(options: EditOptions) {
         if (mounted.current) setBusy(false);
       }
     },
-    [],
+    [capture, latest, mounted, operation],
   );
 
-  const acceptClipboard = useCallback((value: ClipboardInfo) => {
-    const client = latest.current.client;
-    if (!mounted.current || !client) return;
-    clipboardRevision.current++;
-    setClipboard({ client, value });
-  }, []);
+  const acceptClipboard = useCallback(
+    (value: ClipboardInfo) => {
+      const client = latest.current.client;
+      if (!mounted.current || !client) return;
+      clipboardRevision.current++;
+      setClipboard({ client, value });
+    },
+    [latest, mounted],
+  );
 
   return {
     acceptClipboard,

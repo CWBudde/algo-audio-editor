@@ -39,7 +39,7 @@ icons:
 demo:
     cd {{kernel}} && go run ./cmd/demo-build
 
-# Bound the compressed kernel download after wasm-build.
+# Bound all production JS/WASM artifacts after the web build.
 check-web-budget:
     node scripts/check-web-budget.mjs
 
@@ -49,8 +49,8 @@ dev: wasm-build
 
 # Production build of the web app into apps/editor-web/dist
 build: wasm-build
-    just check-web-budget
     bun run --cwd {{web}} build
+    just check-web-budget
 
 # Serve the production build locally (COOP/COEP headers included)
 preview: build
