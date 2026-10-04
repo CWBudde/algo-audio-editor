@@ -230,6 +230,18 @@ func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
 		protocol.MethodMarkersUpdate, protocol.MethodMarkersRemove, protocol.MethodRegionsUpdate,
 		protocol.MethodRegionsRemove, protocol.MethodTimelineExport:
 		return e.dispatchEditor(method, payload)
+	case protocol.MethodMetadataGet:
+		var p protocol.MetadataGetParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.getMetadata(p)
+	case protocol.MethodMetadataSet:
+		var p protocol.MetadataSetParams
+		if err := decode(method, payload, &p); err != nil {
+			return nil, err
+		}
+		return e.setMetadata(p)
 	case protocol.MethodDocumentOpen:
 		var p protocol.DocumentOpenParams
 		if err := decode(method, payload, &p); err != nil {

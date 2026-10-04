@@ -8,6 +8,7 @@ export type CommandId =
   | "file.open"
   | "file.save"
   | "file.export"
+  | "file.metadata"
   | "edit.undo"
   | "edit.redo"
   | "edit.cut"
@@ -125,7 +126,10 @@ interface Definition {
 
 /** Editor actions, menu order and keyboard bindings share one typed source. */
 export const COMMAND_MENUS: readonly { label: string; items: readonly (CommandId | "-")[] }[] = [
-  { label: "File", items: ["file.new", "file.open", "-", "file.save", "file.export"] },
+  {
+    label: "File",
+    items: ["file.new", "file.open", "-", "file.save", "file.export", "-", "file.metadata"],
+  },
   {
     label: "Edit",
     items: [
@@ -314,6 +318,7 @@ function pasteAvailable(c: CommandContext, mode: "insert" | "replace" | "mix"): 
 
 const mod = (key: string, shift = false): Shortcut => ({ key, mod: true, shift });
 const definitions: readonly Definition[] = [
+  { id: "file.metadata", label: "File metadata…", menu: "File", enabled: documentAvailable },
   {
     id: "process.capture-noise-profile",
     label: "Capture noise profile",

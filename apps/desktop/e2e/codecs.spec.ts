@@ -89,3 +89,84 @@ test("native Opus export writes a playable copy and keeps the source save point"
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("native metadata command, modal fencing and saved WAV tags survive reopening", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "aae-metadata-"));
+  const output = path.join(directory, "metadata.wav");
+  const app = await launchEditor({ args: [desktopRoot] });
+  try {
+    const page = await app.firstWindow();
+    await captureKernelWorker(page);
+    await page.reload();
+    await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
+    await load(page, [[0, 0.5, -0.5, 0]]);
+    const before = await sourceState(page);
+    await expect
+      .poll(() =>
+        app.evaluate(
+          ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("file.metadata")?.enabled,
+        ),
+      )
+      .toBe(true);
+    await app.evaluate(({ Menu, BrowserWindow }) => {
+      const item = Menu.getApplicationMenu()?.getMenuItemById("file.metadata");
+      item?.click(item, BrowserWindow.getAllWindows()[0], {} as Electron.KeyboardEvent);
+    });
+    const dialog = page.getByRole("dialog", { name: "File metadata" });
+    await expect(dialog.getByLabel("Title", { exact: true })).toBeEnabled();
+    await expect
+      .poll(() =>
+        app.evaluate(
+          ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("file.save")?.enabled,
+        ),
+      )
+      .toBe(false);
+    await dialog.getByLabel("Title", { exact: true }).fill("Native title 🎵");
+    await dialog.getByRole("button", { name: "Apply metadata" }).click();
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
+    await app.evaluate(({ dialog }, output) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: output });
+    }, output);
+    await expect
+      .poll(() =>
+        app.evaluate(
+          ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("file.save")?.enabled,
+        ),
+      )
+      .toBe(true);
+    await app.evaluate(({ Menu, BrowserWindow }) => {
+      const item = Menu.getApplicationMenu()?.getMenuItemById("file.save");
+      item?.click(item, BrowserWindow.getAllWindows()[0], {} as Electron.KeyboardEvent);
+    });
+    await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
+    const bytes = await readFile(output);
+    expect(bytes.includes(Buffer.from("Native title 🎵\0"))).toBe(true);
+    expect((await sourceState(page)).document).toEqual(before.document);
+    const previous = (await sourceState(page)).document.documentId;
+    await app.evaluate(({ dialog }, output) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [output] });
+    }, output);
+    await expect
+      .poll(() =>
+        app.evaluate(
+          ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("file.open")?.enabled,
+        ),
+      )
+      .toBe(true);
+    await app.evaluate(({ Menu, BrowserWindow }) => {
+      const item = Menu.getApplicationMenu()?.getMenuItemById("file.open");
+      item?.click(item, BrowserWindow.getAllWindows()[0], {} as Electron.KeyboardEvent);
+    });
+    await expect.poll(async () => (await sourceState(page)).document.documentId).not.toBe(previous);
+    await app.evaluate(({ Menu, BrowserWindow }) => {
+      const item = Menu.getApplicationMenu()?.getMenuItemById("file.metadata");
+      item?.click(item, BrowserWindow.getAllWindows()[0], {} as Electron.KeyboardEvent);
+    });
+    await expect(dialog.getByLabel("Title", { exact: true })).toHaveValue("Native title 🎵");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+  } finally {
+    await closeEditor(app);
+    await rm(directory, { recursive: true, force: true });
+  }
+});

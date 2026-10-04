@@ -94,9 +94,12 @@ Save writes standard WAV `cue` points and `LIST/adtl` labels/region lengths.
 An additional `aeMD` chunk retains colors and the next annotation identity,
 which standard WAV annotations cannot represent. Foreign cue zero is remapped
 to an unused positive identity. Imported annotations without colors use purple.
-Recognized annotation metadata is bounded to 2 MiB and validated before import;
-malformed annotations reject the open without changing the current document.
-General metadata preservation remains Phase 6.
+WAV metadata is bounded to 2 MiB and validated before import; malformed metadata
+rejects the open without changing the current document. File → File metadata…
+edits standard INFO tags through undoable history. Whole-document WAV Save/Export
+also retains broadcast and opaque chunks plus surviving cue notes/locale fields.
+See [codec metadata limits](docs/codecs.md#wav-metadata); MP3/FLAC tag mapping remains
+Phase 6 work.
 
 Export CSV includes IDs, names, colors, exact frames and seconds. Export labels
 writes Audacity-style start/end seconds and names; names containing tabs or

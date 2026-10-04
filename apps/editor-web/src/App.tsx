@@ -21,6 +21,7 @@ import { EffectsDialog } from "@/components/effects-dialog";
 import { ExportDialog } from "@/components/export-dialog";
 import { HistoryPanel } from "@/components/history-panel";
 import { IconAction } from "@/components/icon-action";
+import { MetadataDialog } from "@/components/metadata-dialog";
 import { PlaybackMeters } from "@/components/playback-meters";
 import { ProcessDialog } from "@/components/process-dialog";
 import { SpectrumPanel } from "@/components/spectrum-panel";
@@ -44,6 +45,7 @@ import { useEffects } from "@/hooks/use-effects";
 import { useExport } from "@/hooks/use-export";
 import { useHistory } from "@/hooks/use-history";
 import { useKernel } from "@/hooks/use-kernel";
+import { useMetadata } from "@/hooks/use-metadata";
 import { usePlaybackMeters } from "@/hooks/use-playback-meters";
 import { useProcess } from "@/hooks/use-process";
 import { DEFAULT_SPECTRAL_SETTINGS, type SpectralSettings } from "@/lib/analysis-settings";
@@ -227,6 +229,14 @@ export default function App() {
     withOperation: doc.withOperation,
     onEdited,
     stateId: history.history?.currentStateId,
+  });
+  const metadata = useMetadata({
+    client,
+    info: doc.info,
+    busy,
+    stateId: history.history?.currentStateId,
+    withOperation: doc.withOperation,
+    onChanged: history.accept,
   });
   const exporting = useExport({
     client,
@@ -464,12 +474,14 @@ export default function App() {
           effects.view ||
           exporting.view ||
           informationOpen ||
+          metadata.view ||
           analysis.view,
       ),
     }),
     paletteOpen,
     onError: (_id, error) => reportError("Command failed")(error),
     actions: {
+      "file.metadata": metadata.open,
       "process.capture-noise-profile": () => {
         const range = waveformView.current?.selectionState() ?? selection;
         if (range && doc.info) {
@@ -619,7 +631,14 @@ export default function App() {
     ),
     busy:
       busy ||
-      Boolean(processing.view || effects.view || exporting.view || analysis.view || pastePlan),
+      Boolean(
+        processing.view ||
+          effects.view ||
+          exporting.view ||
+          analysis.view ||
+          metadata.view ||
+          pastePlan,
+      ),
     canOpen:
       Boolean(client) &&
       !desktopClosing &&
@@ -628,6 +647,7 @@ export default function App() {
       !effects.view &&
       !exporting.view &&
       !analysis.view &&
+      !metadata.view &&
       !pastePlan,
     onClosingChange: setDesktopClosing,
     name: doc.info?.name,
@@ -874,6 +894,11 @@ export default function App() {
         view={analysis.view}
         onCancel={analysis.cancel}
         onCommit={() => void analysis.commit()}
+      />
+      <MetadataDialog
+        view={metadata.view}
+        onCancel={metadata.cancel}
+        onCommit={(tags) => void metadata.commit(tags)}
       />
       <AboutStatusDialog
         open={informationOpen}

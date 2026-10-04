@@ -212,9 +212,9 @@ func TestWAVImportStreamsAcrossBlocks(t *testing.T) {
 
 func TestWAVAncillaryChunksAndDataBeforeFormat(t *testing.T) {
 	valid := rawWAV(1, 16, 1, 48000, intPayload(16, []int32{123, -456}), false)
-	// An invalid LIST payload is deliberately opaque in this phase. The import
-	// validates its container extent and skips metadata instead of decoding it.
-	ancillary := []byte{'L', 'I', 'S', 'T', 3, 0, 0, 0, 'b', 'a', 'd', 0}
+	// Unknown list types remain opaque, but LIST now requires its type header.
+	// Short/malformed metadata is rejected separately by metadata_test.go.
+	ancillary := timelineRIFFChunk("LIST", []byte("zzzzopaque"))
 	for _, reverse := range []bool{false, true} {
 		input := slices.Clone(valid[:12])
 		input = append(input, ancillary...)

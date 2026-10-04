@@ -23,6 +23,8 @@ type wavLayout struct {
 	float                bool
 	timelineChunks       []wavTimelineChunk
 	timelineBytes        int
+	metadataChunks       []audiobuf.FileChunk
+	metadataBytes        int
 }
 
 // inspectWAV validates every container boundary before the decoder sees any
@@ -66,11 +68,23 @@ func inspectWAV(input []byte) (wavLayout, error) {
 			layout.dataStart, layout.dataBytes = int(body), int(size)
 			seenData = true
 		case "cue ", "aeMD", "LIST":
+			if string(input[pos:pos+4]) == "LIST" && size < 4 {
+				return wavLayout{}, fmt.Errorf("wav.inspect: LIST requires a four-byte type")
+			}
+			if err := layout.addMetadataChunk([4]byte(input[pos:pos+4]), input[body:body+size]); err != nil {
+				return wavLayout{}, err
+			}
 			id := [4]byte(input[pos : pos+4])
 			if id == wav.CIDList && (size < 4 || string(input[body:body+4]) != "adtl") {
 				break
 			}
 			if err := layout.addTimelineChunk(id, input[body:body+size]); err != nil {
+				return wavLayout{}, err
+			}
+		case "fact", "JUNK", "PAD ":
+			// Reconstructed format/data define current PCM; padding is disposable.
+		default:
+			if err := layout.addMetadataChunk([4]byte(input[pos:pos+4]), input[body:body+size]); err != nil {
 				return wavLayout{}, err
 			}
 		}
@@ -133,9 +147,12 @@ func (e *Engine) openWAVDocument(p protocol.DocumentOpenParams, input []byte) (p
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: import annotations: %w", err)
 	}
+	metadata, err := decodeWAVMetadata(layout.metadataChunks, timeline)
+	if err != nil {
+		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: import metadata: %w", err)
+	}
 	// Present only a small normalized fmt chunk and the validated data section
 	// to the audio decoder; bounded timeline chunks were decoded separately.
-	// General metadata mapping remains Phase 6.
 	// The body references the caller's file bytes; no whole-file copy is made.
 	reader := layout.reader(input)
 	decoder := wav.NewDecoder(reader)
@@ -182,7 +199,8 @@ func (e *Engine) openWAVDocument(p protocol.DocumentOpenParams, input []byte) (p
 	if name == "" {
 		name = "Untitled.wav"
 	}
-	document, err := audiobuf.NewDocument(channels, layout.rate, audiobuf.Metadata{Name: name, Timeline: timeline})
+	metadata.Name = name
+	document, err := audiobuf.NewDocument(channels, layout.rate, metadata)
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: create document: %w", err)
 	}
@@ -229,9 +247,9 @@ func (e *Engine) exportWAVDocument(p protocol.DocumentExportParams) (protocol.Do
 		return protocol.DocumentExportInfo{}, err
 	}
 	dataBytes := document.Frames() * int64(document.Channels()) * int64(p.BitDepth/8)
-	chunks, metadataBytes, err := encodeWAVTimeline(document.Metadata().Timeline, document.Frames())
+	chunks, metadataBytes, err := encodeWAVMetadata(document.Metadata(), document.Frames())
 	if err != nil {
-		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: annotations: %w", err)
+		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: metadata: %w", err)
 	}
 	fileBytes := dataBytes + (dataBytes & 1) + 44 + metadataBytes
 	if fileBytes-8 > math.MaxUint32 || fileBytes > int64(math.MaxInt) {
@@ -313,4 +331,15 @@ func (e *Engine) exportWAVDocument(p protocol.DocumentExportParams) (protocol.Do
 		name += ".wav"
 	}
 	return protocol.DocumentExportInfo{Name: name, MimeType: "audio/wav", DataBytes: len(writer.data)}, nil
+}
+
+func (l *wavLayout) addMetadataChunk(id [4]byte, body []byte) error {
+	l.metadataBytes += 8 + len(body) + len(body)%2
+	if l.metadataBytes > maxTimelineMetadataBytes {
+		return fmt.Errorf("wav.inspect: metadata exceeds the %d-byte budget", maxTimelineMetadataBytes)
+	}
+	if id != timelineExtensionID {
+		l.metadataChunks = append(l.metadataChunks, audiobuf.FileChunk{ID: id, Data: body})
+	}
+	return nil
 }

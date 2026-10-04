@@ -269,6 +269,10 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 	if err != nil {
 		return protocol.DocumentExportInfo{}, err
 	}
+	// Avoid silent loss of editable tags or opaque source metadata.
+	if len(document.Metadata().Tags) > 0 || len(document.Metadata().WAVChunks) > 0 {
+		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: FLAC/AIFF metadata mapping is not available; export WAV to preserve file metadata")
+	}
 	// Timeline containers remain WAV until format-specific metadata mapping lands.
 	if len(document.Metadata().Timeline.Markers) > 0 || len(document.Metadata().Timeline.Regions) > 0 {
 		return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: FLAC/AIFF annotation mapping is not available; export WAV to preserve markers and regions")

@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -640,8 +640,28 @@ export interface AnalysisSpectrumResult {
   data: ArrayBuffer;
 }
 
+/** Editable text and a summary of opaque WAV metadata retained by Go. */
+export interface MetadataResult {
+  documentId: string;
+  stateId: string;
+  tags: Record<string, string>;
+  preservedBytes: number;
+  chunks: string[];
+}
+export interface MetadataSetParams {
+  documentId: string;
+  stateId: string;
+  tags: Record<string, string>;
+}
+export interface MetadataMutationResult extends MetadataResult {
+  history: HistoryListResult;
+  changed: boolean;
+}
+
 /** Every kernel method with its params and result types. */
 export interface KernelMethods {
+  "metadata.get": { params: SelectionGetParams; result: MetadataResult };
+  "metadata.set": { params: MetadataSetParams; result: MetadataMutationResult };
   "meters.configure": {
     params: { enabled?: boolean; reset?: boolean } | undefined;
     result: MetersConfigureResult;

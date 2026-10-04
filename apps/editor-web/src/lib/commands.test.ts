@@ -175,6 +175,7 @@ describe("central command registry", () => {
     for (const id of [
       "file.open",
       "file.save",
+      "file.metadata",
       "edit.copy",
       "view.zoom-fit",
       "transport.stop",
@@ -184,6 +185,8 @@ describe("central command registry", () => {
     expect(enabled("help.about", { modalOpen: true })).toBe(false);
     expect(enabled("file.open", { info: undefined })).toBe(true);
     expect(enabled("file.save", { info: undefined })).toBe(false);
+    expect(enabled("file.metadata", { info: undefined })).toBe(false);
+    expect(enabled("file.metadata", { modalOpen: true })).toBe(false);
     expect(enabled("edit.undo", { canUndo: false })).toBe(false);
     expect(enabled("edit.redo", { canRedo: false })).toBe(false);
   });
@@ -193,6 +196,7 @@ describe("central command registry", () => {
     for (const id of [
       "file.save",
       "file.export",
+      "file.metadata",
       "edit.paste-insert",
       "edit.paste-replace",
       "edit.paste-mix",

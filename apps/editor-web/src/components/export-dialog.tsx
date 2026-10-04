@@ -153,15 +153,15 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
           </p>
           {(settings.format === "flac" || settings.format === "aiff") && (
             <p className="mt-1 text-xs text-muted-foreground">
-              Use WAV to preserve markers and regions. FLAC and AIFF metadata mapping is not yet
-              available.
+              Use WAV to preserve file metadata, markers and regions. FLAC and AIFF metadata mapping
+              is not yet available.
             </p>
           )}
           {lossy ? (
             <>
               <p className="mt-2 text-xs text-muted-foreground">
-                Lossy export creates a compressed copy without markers or regions. Keep a lossless
-                file for further editing.
+                Lossy export creates a compressed copy without file metadata, markers or regions.
+                Keep a lossless file for further editing.
               </p>
               <label className="mt-3 block text-sm" htmlFor={`${id}-bitrate`}>
                 Bitrate

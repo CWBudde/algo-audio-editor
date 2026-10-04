@@ -12,10 +12,22 @@ type Metadata struct {
 	Name     string
 	Tags     map[string]string
 	Timeline Timeline
+	// WAVChunks retains bounded non-audio container metadata.
+	WAVChunks []FileChunk
+}
+
+// FileChunk is opaque container metadata; sample data is never stored here.
+type FileChunk struct {
+	ID   [4]byte
+	Data []byte
 }
 
 func (m Metadata) clone() Metadata {
 	m.Tags = maps.Clone(m.Tags)
+	m.WAVChunks = slices.Clone(m.WAVChunks)
+	for i := range m.WAVChunks {
+		m.WAVChunks[i].Data = slices.Clone(m.WAVChunks[i].Data)
+	}
 	m.Timeline = m.Timeline.clone()
 
 	return m

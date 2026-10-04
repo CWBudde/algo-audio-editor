@@ -137,6 +137,14 @@ func (e *Engine) exportSource(p protocol.DocumentExportParams) (audiobuf.Documen
 		channels, indices = append(channels, part), append(indices, index)
 	}
 	metadata := e.document.Metadata()
+	if p.Scope == "selection" {
+		// Opaque chunks may reference original file offsets/lengths. Partial
+		// exports retain text tags and ID-filtered annotation supplements only.
+		metadata.WAVChunks, err = selectionWAVChunks(metadata.WAVChunks)
+		if err != nil {
+			return audiobuf.Document{}, nil, fmt.Errorf("doc.export: selection metadata: %w", err)
+		}
+	}
 	metadata.Timeline, err = metadata.Timeline.Crop(e.document.Frames(), start, end)
 	if err != nil {
 		return audiobuf.Document{}, nil, fmt.Errorf("doc.export: annotations: %w", err)

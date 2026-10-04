@@ -19,8 +19,8 @@ const maxTimelineMetadataBytes = 2 << 20
 var timelineExtensionID = [4]byte{'a', 'e', 'M', 'D'}
 
 // Only selected, structurally validated payloads reach upstream chunk codecs.
-// PCM is never read by a metadata decoder, and unrelated file metadata remains
-// outside the Phase 2 marker/region mapping.
+// PCM is never read by a metadata decoder. General metadata has its own bounded
+// Phase 6.3 mapping in wav_metadata.go.
 type wavTimelineChunk struct {
 	id   [4]byte
 	data []byte

@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 17
+const Version = 18
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -22,6 +22,8 @@ const (
 	MethodToneConfigure = "tone.configure"
 	// MethodDocumentMemory returns retained document sample storage statistics.
 	MethodDocumentMemory = "doc.memory"
+	MethodMetadataGet    = "metadata.get"
+	MethodMetadataSet    = "metadata.set"
 	// MethodPeaksGet returns peak metadata with data retrieved via takeData.
 	MethodPeaksGet = "peaks.get"
 	// MethodDocumentOpen imports detected audio bytes supplied separately from the JSON payload.
@@ -513,4 +515,26 @@ type TransportResult struct {
 	Loop     bool  `json:"loop"`
 	Position int64 `json:"position"`
 	Playing  bool  `json:"playing"`
+}
+
+// Metadata fields are small UTF-8 text; opaque container bytes stay in Go.
+type MetadataGetParams = SelectionGetParams
+
+type MetadataResult struct {
+	DocumentID     string            `json:"documentId"`
+	StateID        string            `json:"stateId"`
+	Tags           map[string]string `json:"tags"`
+	PreservedBytes int               `json:"preservedBytes"`
+	Chunks         []string          `json:"chunks"`
+}
+
+type MetadataSetParams struct {
+	DocumentID string            `json:"documentId"`
+	StateID    string            `json:"stateId"`
+	Tags       map[string]string `json:"tags"`
+}
+type MetadataMutationResult struct {
+	MetadataResult
+	History HistoryListResult `json:"history"`
+	Changed bool              `json:"changed"`
 }
