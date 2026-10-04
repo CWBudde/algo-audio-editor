@@ -39,6 +39,7 @@ export function ProcessDialog({
   const gain = useRef<HTMLInputElement>(null);
   const opener = useRef<HTMLElement | undefined>(undefined);
   const open = Boolean(view);
+  const returnFocus = view?.returnFocus;
   const latestOpen = useRef(open);
   latestOpen.current = open;
   useLayoutEffect(() => {
@@ -49,17 +50,24 @@ export function ProcessDialog({
       opener.current = undefined;
       return;
     }
-    opener.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    opener.current = returnFocus?.isConnected
+      ? returnFocus
+      : document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : undefined;
     element.showModal();
     (gain.current ?? element.querySelector<HTMLElement>("input, select, button"))?.focus();
     return () => {
       element.close();
       if (!latestOpen.current) return;
-      if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
+      const target = opener.current;
+      // Conditional unmount cleanup runs before React enables the launcher.
+      queueMicrotask(() => {
+        if (!element.open && target?.isConnected) target.focus({ preventScroll: true });
+      });
       opener.current = undefined;
     };
-  }, [open]);
+  }, [open, returnFocus]);
   const value = view ? parseProcessParameter(view.operation, view.parameterText) : undefined;
   const normalize =
     view?.operation === "normalize-peak" || view?.operation === "normalize-loudness";

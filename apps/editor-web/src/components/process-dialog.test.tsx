@@ -236,6 +236,33 @@ it("controlled close restores the opener after React's focus commit", () => {
   expect(document.activeElement).toBe(opener);
 });
 
+it("conditional unmount restores focus after the launcher is re-enabled", async () => {
+  const actions = callbacks();
+  const ui = render(
+    <div>
+      <button type="button">Launcher</button>
+    </div>,
+  );
+  const opener = ui.getByRole("button", { name: "Launcher" });
+  opener.focus();
+  opener.blur(); // Lazy loading can finish after the disabled launcher loses focus.
+  ui.rerender(
+    <div>
+      <button type="button" disabled>
+        Launcher
+      </button>
+      <ProcessDialog view={{ ...view, returnFocus: opener }} {...actions} />
+    </div>,
+  );
+  ui.rerender(
+    <div>
+      <button type="button">Launcher</button>
+    </div>,
+  );
+  await Promise.resolve();
+  expect(document.activeElement).toBe(opener);
+});
+
 const normalizedJob = (change: Partial<ProcessJobResult> = {}): ProcessJobResult => ({
   candidate: { sampleRate: 48000, channels: 2, frames: 100, ...view.selection },
   ...view.selection,

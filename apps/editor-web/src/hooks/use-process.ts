@@ -38,6 +38,7 @@ export interface ProcessOptions {
 export type ProcessPhase = "idle" | "processing" | "ready" | "committing" | "cancelling";
 export type ProcessOperation = ProcessStartParams["operation"];
 export interface ProcessView {
+  returnFocus?: HTMLElement;
   info: DocumentInfoResult;
   selection: SelectionRange;
   operation: ProcessOperation;
@@ -159,11 +160,12 @@ export function useProcess(options: ProcessOptions) {
   );
   const finish = useCallback(
     async (s: Session) => {
+      // Re-enable the launcher before closing the modal and restoring focus.
+      await releaseJobLock(s);
       if (session.current === s) {
         session.current = undefined;
         if (mounted.current) setView(undefined);
       }
-      await releaseJobLock(s);
     },
     [session, mounted],
   );
@@ -252,6 +254,10 @@ export function useProcess(options: ProcessOptions) {
       };
       session.current = s;
       setView({
+        // Capture under the opening gesture, before the lock disables controls
+        // and the lazy dialog module finishes loading.
+        returnFocus:
+          document.activeElement instanceof HTMLElement ? document.activeElement : undefined,
         info,
         selection: range,
         operation,
@@ -379,13 +385,14 @@ export function useProcess(options: ProcessOptions) {
             update(s, { phase: "idle", job: undefined, ready: false });
             return;
           }
-          update(s, { phase: "ready", job: s.job, ready: true });
           if (mode === "preview") {
             s.previewing = true;
             await latest.current.playPreview(s.info, s.job);
-            if (!s.closing) update(s, { previewing: true });
+            if (!s.closing)
+              update(s, { phase: "ready", job: s.job, ready: true, previewing: true });
             return;
           }
+          update(s, { phase: "ready", job: s.job, ready: true });
           if ((s.job.peak > 1 || s.job.nonFinite) && !allowClipping) {
             if (operation === "extract-channel") s.cancelExtract?.();
             return;

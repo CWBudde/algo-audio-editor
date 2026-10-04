@@ -459,6 +459,48 @@ it("serializes Stop preview against another run and waits for it before closing"
   expect(s.held()).toBe(false);
 });
 
+it("keeps preview startup busy until playback settles, then accepts Apply", async () => {
+  const s = setup();
+  const playing = deferred<void>();
+  vi.mocked(s.options.playPreview).mockReturnValue(playing.promise);
+  let preview: Promise<void> | undefined;
+  act(() => {
+    preview = s.result.current.preview();
+  });
+  await waitFor(() => expect(s.options.playPreview).toHaveBeenCalledOnce());
+  expect(s.result.current.view).toMatchObject({ phase: "processing", previewing: false });
+  await act(async () => {
+    playing.resolve();
+    await preview;
+  });
+  expect(s.result.current.view).toMatchObject({ phase: "ready", previewing: true });
+  await act(async () => s.result.current.apply());
+  expect(s.call).toHaveBeenCalledWith("process.commit", expect.anything());
+  expect(s.result.current.view).toBeUndefined();
+  expect(s.held()).toBe(false);
+});
+
+it("retains the modal until its document lock finishes releasing", async () => {
+  const released = deferred<void>();
+  const s = setup("gain", {
+    withOperation: async (work) => {
+      await work();
+      await released.promise;
+    },
+  });
+  let closing: Promise<void> | undefined;
+  act(() => {
+    closing = s.result.current.cancel();
+  });
+  await act(async () => {});
+  expect(s.result.current.view?.phase).toBe("cancelling");
+  await act(async () => {
+    released.resolve();
+    await closing;
+  });
+  expect(s.result.current.view).toBeUndefined();
+});
+
 it("reports a failed preparation, keeps the dialog retryable and releases its lock on Cancel", async () => {
   const s = setup();
   vi.mocked(s.options.preparePreview).mockRejectedValue(new Error("audio permission"));

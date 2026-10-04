@@ -194,12 +194,15 @@ test("oversized mix rejects safely without changing the document or clipboard", 
 }) => {
   await load(page);
   // Shared silence represents this duration cheaply; mixing would newly
-  // materialize more than 512 MiB of stereo samples without the kernel guard.
-  await (await revealControl(page.getByLabel("Silence frames", { exact: true }))).fill("67108865");
-  await edit(page, "Insert silence", 67_108_873);
-  await select(page, 0, 67_108_873);
+  // materialize more than the shared 3 GiB storage budget without the guard.
+  const frames = (3 * 2 ** 30) / (2 * 4) + 1;
+  await (await revealControl(page.getByLabel("Silence frames", { exact: true }))).fill(
+    String(frames - LEFT.length),
+  );
+  await edit(page, "Insert silence", frames);
+  await select(page, 0, frames);
   await page.getByRole("button", { name: "Copy", exact: true }).click();
-  await expect.poll(async () => (await clipboard(page)).frames).toBe(67_108_873);
+  await expect.poll(async () => (await clipboard(page)).frames).toBe(frames);
   await select(page, 0, 0);
   const before = await info(page);
   const copied = await clipboard(page);
@@ -209,7 +212,7 @@ test("oversized mix rejects safely without changing the document or clipboard", 
     )
   ).click();
   await expect(page.getByText("Could not paste-mix", { exact: true })).toBeVisible();
-  await expect(page.getByText(/materialized.*budget|budget.*materialized/)).toBeVisible();
+  await expect(page.getByText(/memory budget exceeded/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Paste", exact: true })).toBeEnabled();
   expect(await info(page)).toEqual(before);
   expect(await clipboard(page)).toEqual(copied);

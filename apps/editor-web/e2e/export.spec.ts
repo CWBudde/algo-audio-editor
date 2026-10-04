@@ -37,9 +37,9 @@ for (const [encoding, depths] of [
         frames: 8,
       });
       if (encoding === "pcm" && depth === 8) {
-        // The untouched WAV encoder uses its established unsigned 127.5 scale.
+        // PCM8 uses signed 128-step quantization with an unsigned midpoint of 128.
         expect(output.data).toEqual(
-          Buffer.from([143, 0, 159, 16, 175, 32, 191, 48, 207, 64, 223, 80, 239, 96, 255, 112]),
+          Buffer.from([144, 0, 160, 16, 176, 32, 192, 48, 208, 64, 224, 80, 240, 96, 255, 112]),
         );
       } else {
         expect(output.samples).toEqual([
