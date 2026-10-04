@@ -36,6 +36,12 @@ jobs:
           GOOS=js GOARCH=wasm go vet ./...
       - name: go test
         run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - uses: extractions/setup-just@v4
+      - name: go test under js/wasm (bridge + golden vectors in V8)
+        run: just test-go-wasm
       - name: WAV decoder fuzz smoke
         run: go test -run '^$' -fuzz '^FuzzWAVOpen$' -fuzztime=10s -parallel=2 ./internal/engine
       - name: Additional codec fuzz smoke
@@ -120,8 +126,11 @@ jobs:
           bun-version: "1.4.2"
       - uses: extractions/setup-just@v4
       - run: bun install --frozen-lockfile
+      # `bunx --cwd <dir>` parses the directory as a GitHub package spec and
+      # 404s; run Playwright from the app directory instead.
       - name: Install Playwright Chromium
-        run: bunx --cwd apps/editor-web playwright install --with-deps chromium
+        working-directory: apps/editor-web
+        run: bunx playwright install --with-deps chromium
       - name: Browser e2e
         run: just e2e
       - name: Electron e2e

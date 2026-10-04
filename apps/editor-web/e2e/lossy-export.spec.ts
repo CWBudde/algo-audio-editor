@@ -228,18 +228,13 @@ test("M4A muxes independent AAC packets into a playable file without changing so
   }, packets);
   await page.goto("/");
   await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
-  await page
-    .getByTestId("audio-file-input")
-    .setInputFiles({
-      name: "tone.wav",
-      mimeType: "audio/wav",
-      buffer: readFileSync(
-        new URL(
-          "../../../packages/kernel/internal/engine/testdata/codecs/tone.wav",
-          import.meta.url,
-        ),
-      ),
-    });
+  await page.getByTestId("audio-file-input").setInputFiles({
+    name: "tone.wav",
+    mimeType: "audio/wav",
+    buffer: readFileSync(
+      new URL("../../../packages/kernel/internal/engine/testdata/codecs/tone.wav", import.meta.url),
+    ),
+  });
   await expect(page.getByTestId("document-name")).toHaveText("tone.wav");
   const before = await sourceState(page),
     dialog = await openExport(page);
