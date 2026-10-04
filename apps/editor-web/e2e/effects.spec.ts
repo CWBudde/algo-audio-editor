@@ -270,6 +270,75 @@ test("custom EQ and dynamics curves come from the kernel and EQ pointer editing 
   await expect(dialog.getByRole("alert")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
 });
+test("parametric EQ has labeled axes, persistent draggable bands and keyboard controls on desktop and narrow screens", async ({
+  page,
+}, testInfo) => {
+  await load(page);
+  const before = await sourceState(page);
+  const descriptor = (await catalogue(page)).effects.find(
+    (effect) => effect.id === "eq-parametric",
+  );
+  if (!descriptor) throw new Error("Parametric EQ missing");
+  const dialog = await openEffect(page, descriptor.id);
+  const graph = dialog.getByRole("group", { name: "Parametric EQ frequency graph" });
+  const field = (id: string) => {
+    const parameter = descriptor.parameters.find((parameter) => parameter.id === id);
+    if (!parameter) throw new Error(`Parameter ${id} missing`);
+    return dialog.getByLabel(`${parameter.label}${parameter.unit ? ` (${parameter.unit})` : ""}`, {
+      exact: true,
+    });
+  };
+  const path = graph.getByTestId("effect-response-path");
+  await expect(path).toHaveAttribute("d", /^M\S+/);
+  await expect(graph.getByText("Frequency (Hz)")).toBeVisible();
+  await expect(graph.getByText("Gain (dB)")).toBeVisible();
+  await expect(graph.getByRole("slider")).toHaveCount(4);
+  await expect(field("band5FreqHz")).toHaveCount(0);
+  const initialPath = await path.getAttribute("d");
+  const first = graph.getByRole("slider", { name: "EQ band 1", exact: true });
+  await first.focus();
+  await first.press("ArrowUp");
+  await expect(field("band1GainDB")).toHaveValue("0.5");
+  await expect(path).not.toHaveAttribute("d", initialPath ?? "");
+  await first.press("+");
+  await expect(field("band1Q")).toHaveValue("1.1");
+  const secondFrequency = await field("band2FreqHz").inputValue();
+  const box = await graph.boundingBox();
+  const handle = await first.boundingBox();
+  if (!box || !handle) throw new Error("EQ geometry missing");
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    box.x + (box.width * (52 + (568 * Math.log(5000 / 20)) / Math.log(1000))) / 640,
+    box.y + (box.height * 72.5) / 280,
+    { steps: 12 },
+  );
+  await page.mouse.up();
+  await expect
+    .poll(async () => Number(await field("band1FreqHz").inputValue()))
+    .toBeCloseTo(5000, -1);
+  await expect.poll(async () => Number(await field("band1GainDB").inputValue())).toBeCloseTo(12, 0);
+  await expect(field("band2FreqHz")).toHaveValue(secondFrequency);
+  expect(await sourceState(page)).toEqual(before);
+  await testInfo.attach("parametric-eq-desktop", {
+    body: await graph.screenshot({ path: testInfo.outputPath("parametric-eq-desktop.png") }),
+    contentType: "image/png",
+  });
+  await field("bands").fill("8");
+  await expect(graph.getByRole("slider")).toHaveCount(8);
+  await field("bands").fill("1");
+  await expect(graph.getByRole("slider")).toHaveCount(1);
+  await page.setViewportSize({ width: 640, height: 720 });
+  await graph.scrollIntoViewIfNeeded();
+  await expect(graph).toBeVisible();
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await testInfo.attach("parametric-eq-narrow", {
+    body: await graph.screenshot({ path: testInfo.outputPath("parametric-eq-narrow.png") }),
+    contentType: "image/png",
+  });
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(await sourceState(page)).toEqual(before);
+});
 test("Escape cancels an offline effects render without changing source or history", async ({
   page,
 }) => {

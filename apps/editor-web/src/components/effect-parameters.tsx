@@ -1,6 +1,7 @@
 import type { EffectDescriptor, EffectParameterDescriptor } from "@aae/protocol";
 import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import { EffectSlider } from "@/components/effect-slider";
+import { ParametricEQGraph } from "@/components/parametric-eq-graph";
 import type { KernelClient } from "@/kernel/client";
 import type { RackEffect } from "@/lib/effect-presets";
 
@@ -164,6 +165,17 @@ function EffectCurve({
         : {}),
     });
   };
+  if (descriptor.id === "eq-parametric")
+    return (
+      <div>
+        <ParametricEQGraph {...{ descriptor, node, points, sampleRate, disabled, onChange }} />
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
+      </div>
+    );
   return (
     <div>
       <svg
@@ -236,6 +248,11 @@ export function EffectParameters({
       )}
       {descriptor.parameters
         .filter((parameter) => parameter.id !== "irIndex")
+        .filter((parameter) => {
+          if (descriptor.id !== "eq-parametric") return true;
+          const band = /^band(\d+)/.exec(parameter.id);
+          return !band || Number(band[1]) <= Number(node.params.bands ?? 4);
+        })
         .map((parameter) => {
           const field = `${id}-${parameter.id}`;
           if (parameter.type === "enum")
