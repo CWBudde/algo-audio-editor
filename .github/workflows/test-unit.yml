@@ -1,0 +1,50 @@
+name: test-unit
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go (race, coverage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          bun: "false"
+      - run: just test-go-race
+      - name: Coverage summary
+        working-directory: packages/kernel
+        run: |
+          {
+            echo "### Kernel coverage"
+            echo '```'
+            go tool cover -func=coverage.out | tail -1
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  wasm:
+    name: Go under js/wasm (bridge, golden vectors in V8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          bun: "false"
+      - run: just test-go-wasm
+
+  web:
+    name: Vitest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          go: "false"
+      - run: just test-web

@@ -192,7 +192,7 @@ check-unreleased:
 check: check-formatted lint test-go-race test-web check-tidy build
 
 # Electron e2e needs a display; headless, run `xvfb-run --auto-servernum just ci`.
-# Everything the CI workflow (.github/workflows/ci.yml) runs, in one recipe.
+# Everything CI runs (.github/workflows/ci.yml and the test-*.yml it calls), in one recipe.
 ci: check-formatted lint test-go-race test-go-wasm fuzz-wav fuzz-codecs test-web check-tidy e2e e2e-desktop e2e-desktop-packaged
 
 clean:

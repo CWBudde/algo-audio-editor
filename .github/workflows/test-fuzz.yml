@@ -1,0 +1,20 @@
+name: test-fuzz
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  codecs:
+    name: Codec fuzz smoke (WAV, FLAC/AIFF/MP3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          bun: "false"
+      - run: just fuzz-wav
+      - run: just fuzz-codecs

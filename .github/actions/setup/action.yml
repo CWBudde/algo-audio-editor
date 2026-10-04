@@ -1,0 +1,37 @@
+name: Set up toolchain
+description: >-
+  Go (from packages/kernel/go.mod), Node 24, Bun with a frozen install, and
+  just. One place for the versions every test-*.yml job shares.
+
+inputs:
+  go:
+    description: Install Go with the module cache.
+    default: "true"
+  bun:
+    description: Install Bun and the workspace dependencies.
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - if: inputs.go == 'true'
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: packages/kernel/go.mod
+        cache-dependency-path: packages/kernel/go.sum
+    - uses: actions/setup-node@v6
+      with:
+        node-version: "24"
+    - if: inputs.bun == 'true'
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: "1.4.2"
+    - if: inputs.bun == 'true'
+      name: bun install
+      shell: bash
+      env:
+        # Only the Electron jobs need the binary; they fetch it explicitly
+        # with `install-electron`.
+        ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      run: bun install --frozen-lockfile
+    - uses: extractions/setup-just@v4

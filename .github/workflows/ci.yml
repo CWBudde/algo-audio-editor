@@ -1,5 +1,8 @@
 name: CI
 
+# Orchestrates the test-*.yml workflows; each one also mirrors a `just`
+# recipe, and `just ci` runs all of them locally. Pages and desktop releases
+# gate on this workflow by name ("CI") and file (ci.yml), so keep both stable.
 on:
   push:
     branches: [main]
@@ -12,140 +15,26 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # The Electron binary is only needed by the desktop job, which fetches it
-  # explicitly with `install-electron`.
-  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-
 jobs:
-  kernel:
-    name: Kernel (Go)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/kernel
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: packages/kernel/go.mod
-          cache-dependency-path: packages/kernel/go.sum
-      - name: go vet (native + js/wasm)
-        run: |
-          go vet ./...
-          GOOS=js GOARCH=wasm go vet ./...
-      - name: go test
-        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-      - uses: extractions/setup-just@v4
-      - name: go test under js/wasm (bridge + golden vectors in V8)
-        run: just test-go-wasm
-      - name: WAV decoder fuzz smoke
-        run: go test -run '^$' -fuzz '^FuzzWAVOpen$' -fuzztime=10s -parallel=2 ./internal/engine
-      - name: Additional codec fuzz smoke
-        run: go test -run '^$' -fuzz '^FuzzCodecOpen$' -fuzztime=10s -parallel=2 ./internal/engine
-      - name: Coverage summary
-        run: |
-          {
-            echo "### Kernel coverage"
-            echo '```'
-            go tool cover -func=coverage.out | tail -1
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: go mod tidy
-        run: go mod tidy -diff
-      - uses: golangci/golangci-lint-action@v9
-        with:
-          version: latest
-          working-directory: packages/kernel
-
-  web:
-    name: Web (lint, types, unit)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
-      - name: Biome
-        run: bunx biome ci apps packages/protocol
-      - name: Typecheck
-        run: |
-          bun run --cwd apps/editor-web typecheck
-          bun run --cwd apps/desktop typecheck
-      - name: Vitest
-        run: bun run --cwd apps/editor-web test
-
   format:
-    name: Formatting
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: packages/kernel/go.mod
-          cache-dependency-path: packages/kernel/go.sum
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
-      - name: Install treefmt and formatters
-        run: |
-          curl -fsSL https://github.com/numtide/treefmt/releases/download/v2.1.1/treefmt_2.1.1_linux_amd64.tar.gz \
-            | sudo tar -C /usr/local/bin -xz treefmt
-          go install mvdan.cc/gofumpt@v0.10.0
-          go install github.com/daixiang0/gci@v0.14.0
-          go install mvdan.cc/sh/v3/cmd/shfmt@v3.12.0
-      - uses: extractions/setup-just@v4
-      - run: just check-formatted
+    name: Format
+    uses: ./.github/workflows/test-format.yml
 
+  lint:
+    name: Lint
+    uses: ./.github/workflows/test-lint.yml
+
+  unit:
+    name: Unit
+    uses: ./.github/workflows/test-unit.yml
+
+  fuzz:
+    name: Fuzz
+    uses: ./.github/workflows/test-fuzz.yml
+
+  # The browser and Electron suites are the slow part; spend those runner
+  # minutes only once lint and unit tests pass.
   e2e:
-    name: End-to-end (browser + Electron)
-    runs-on: ubuntu-latest
-    needs: [kernel, web]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: packages/kernel/go.mod
-          cache-dependency-path: packages/kernel/go.sum
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-      - uses: extractions/setup-just@v4
-      - run: bun install --frozen-lockfile
-      # `bunx --cwd <dir>` parses the directory as a GitHub package spec and
-      # 404s; run Playwright from the app directory instead.
-      - name: Install Playwright Chromium
-        working-directory: apps/editor-web
-        run: bunx playwright install --with-deps chromium
-      - name: Browser e2e
-        run: just e2e
-      - name: Electron e2e
-        run: |
-          bun run --cwd apps/desktop install-electron
-          just desktop-build
-          xvfb-run --auto-servernum bun run --cwd apps/desktop e2e
-      - name: Packaged Electron smoke
-        run: xvfb-run --auto-servernum just e2e-desktop-packaged
-      - uses: actions/upload-artifact@v7
-        if: failure()
-        with:
-          name: playwright-results
-          path: |
-            apps/editor-web/test-results
-            apps/editor-web/playwright-report
-            apps/desktop/test-results
-          if-no-files-found: ignore
+    name: E2E
+    needs: [lint, unit]
+    uses: ./.github/workflows/test-e2e.yml

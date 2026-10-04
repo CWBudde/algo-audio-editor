@@ -1,0 +1,51 @@
+name: test-e2e
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    name: Browser (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      # `bunx --cwd <dir>` parses the directory as a GitHub package spec and
+      # 404s; run Playwright from the app directory instead.
+      - name: Install Playwright Chromium
+        working-directory: apps/editor-web
+        run: bunx playwright install --with-deps chromium
+      - run: just e2e
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-browser
+          path: |
+            apps/editor-web/test-results
+            apps/editor-web/playwright-report
+          if-no-files-found: ignore
+
+  electron:
+    name: Electron (e2e, packaged smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      # Electron bundles its own Chromium but needs the same system libraries.
+      - name: Install Chromium system dependencies
+        working-directory: apps/editor-web
+        run: bunx playwright install-deps chromium
+      - run: bun run --cwd apps/desktop install-electron
+      - run: xvfb-run --auto-servernum just e2e-desktop
+      - run: xvfb-run --auto-servernum just e2e-desktop-packaged
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-electron
+          path: apps/desktop/test-results
+          if-no-files-found: ignore
