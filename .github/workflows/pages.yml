@@ -30,10 +30,12 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       # Pages serves the site from /<repo>/.
       VITE_BASE: /${{ github.event.repository.name }}/
+      VITE_BUILD_CHANNEL: development
     steps:
       - name: CI passed for the dispatched commit
         if: github.event_name == 'workflow_dispatch'
@@ -51,13 +53,7 @@ jobs:
           # Build exactly the commit CI tested, not whatever main is now.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0 # `git describe` stamps the kernel version
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: packages/kernel/go.mod
-          cache-dependency-path: packages/kernel/go.sum
-      - uses: oven-sh/setup-bun@v2
-      - uses: extractions/setup-just@v4
-      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: just build
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
@@ -67,9 +63,21 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      url: ${{ steps.deployment.outputs.page_url }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v5
+
+  verify:
+    needs: deploy
+    permissions:
+      contents: read
+    uses: ./.github/workflows/pages-smoke.yml
+    with:
+      url: ${{ needs.deploy.outputs.url }}
+      commit: ${{ github.event.workflow_run.head_sha || github.sha }}

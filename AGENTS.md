@@ -39,6 +39,8 @@ just desktop-hot    # Electron against the running `just dev` server
 just test           # Go tests + Vitest
 just test-go-wasm   # kernel tests under js/wasm in Node (bridge + golden vectors)
 just e2e            # Playwright against the production build
+just e2e-pages      # gzip/headerless Pages subpath, cold worker boot and fallback
+just e2e-pages-live # deployed URL from PLAYWRIGHT_BASE_URL; no local build/server
 just e2e-timing     # opt-in @timing hardware gates; target laptop only, not CI
 just e2e-desktop    # Playwright driving Electron (needs a display)
 just lint           # golangci-lint, go vet (js/wasm), biome, typecheck

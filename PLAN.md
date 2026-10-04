@@ -549,33 +549,35 @@
 
 **Goal:** A live, linkable build of the editor on GitHub Pages that a visitor can open and use on a real file without installing anything — the project's public demo and the reference target for "does it work outside dev?".
 
-**Acceptance criterion:** `https://meko-tech.github.io/algo-audio-editor/` (or the chosen Pages URL) loads from a cold cache, reports `crossOriginIsolated === true`, imports a local WAV, plays it without underruns and exports it again — verified by a Playwright smoke run against the deployed URL in CI.
+**Acceptance criterion:** `https://cwbudde.github.io/algo-audio-editor/` (or the chosen Pages URL) loads from a cold cache, reports `crossOriginIsolated === true`, imports a local WAV, plays it without underruns and exports it again — verified by a Playwright smoke run against the deployed URL in CI.
 
-**Status:** the plumbing from Phase 0 exists (`pages.yml` deploy workflow, `VITE_BASE` sub-path handling, `coi-serviceworker.js`). This phase turns it into a published, verified, documented site.
+**Status (2026-10-04):** Pages already publishes CI-tested `main`. The remaining deployment/presentation implementation now includes a bundled demo, build stamps, hashed kernel/runtime assets, headerless subpath tests and post-deploy/daily live verification. The existing public build passes cold WAV import/playback/sample-preserving Save; the new workflow and UI await the next push/deploy. The strict CDN cache-policy gate below remains open. See [deployment details and browser support](docs/web-deployment.md).
 
 ### Enablement & verification
 
-- [ ] Enable Pages for the repo (source: GitHub Actions) and confirm the `github-pages` environment deploys from `main`
-- [ ] Verify cross-origin isolation in production: `coi-serviceworker.js` registers under the `/<repo>/` scope, reloads once, and SharedArrayBuffer is available. Ship a visible fallback (not a blank page) when isolation fails — e.g. browsers or extensions that block the service worker.
-- [ ] Verify the sub-path build end to end: `kernel.wasm`, `wasm_exec.js`, the worklet `?worker&url` asset and every `%BASE_URL%` reference resolve under `/<repo>/`
-- [ ] Playwright job against the deployed URL (`PLAYWRIGHT_BASE_URL`), run after deploy and on a schedule, reusing the Phase 0 smoke assertions
-- [ ] `404.html` fallback so deep links do not land on GitHub's 404
+- [x] GitHub API confirms Pages source `workflow`, HTTPS URL `https://cwbudde.github.io/algo-audio-editor/` and a `github-pages` environment policy restricted to `main`; existing deploy run 37218337572 succeeded for `e8a373a`.
+- [x] The adapted `coi-serviceworker.js` registers with explicit repository scope and `updateViaCache: none`, reloads once after control, and avoids reloads on active-session worker updates. `App` provides actionable isolation guidance. `pages.spec.ts` verifies cold/warm scope, isolation, SharedArrayBuffer and blocked-worker guidance against a gzip static server without COOP/COEP; the existing live WAV smoke passes too.
+- [x] `vite.config.ts` emits SHA-256 kernel/runtime filenames and `%BASE_URL%` assets under the repository path; `runtime.ts` boots the matched pair. `e2e-pages` verifies real WASM boot, zero-underrun worklet playback and exact exported PCM under `/algo-audio-editor/`.
+- [x] `pages-smoke.yml` accepts `PLAYWRIGHT_BASE_URL`, runs after deploy and daily at 07:23 UTC, checks the deployed commit, and retains failure traces. `pages.yml` retains its successful-CI gate and uses shared pinned setup. The new workflow will first execute after this work is pushed/deployed; local/live evidence is recorded separately above.
+- [x] Vite copies the processed index to `404.html`; a production subpath regression boots the editor on `/shared/example`. Unknown paths retain HTTP 404 and do not restore a saved document.
 
 ### Delivery quality
 
-- [ ] Cache strategy: hashed assets cached long-term, `index.html` and `coi-serviceworker.js` never cached; a deploy must not leave a stale worker serving an old `kernel.wasm`
-- [ ] Kernel size budget: record the gzipped `kernel.wasm` size in CI and fail the build when it grows beyond an agreed threshold (`-ldflags="-s -w"`, consider `wasm-opt` if it stays in-tree)
-- [ ] Browser support matrix documented (Chromium, Firefox, Safari) with the known isolation and codec gaps per browser
-- [ ] A small bundled demo file the visitor can open with one click, so the demo needs no local audio
+- [ ] Strict hosting cache policy remains pending: hashed JS/CSS/kernel/runtime URLs, no application CacheStorage, controlled navigation `no-store` and uncached worker updates are implemented and tested. GitHub controls first-response/CDN headers (observed `max-age=600`), so never-cached HTML/worker and long-term immutable caching are not claimed. Stale CDN HTML can still reference removed assets; limits are documented in `docs/web-deployment.md`.
+- [x] `check-web-budget.mjs` runs in every `just build`, records raw/gzip bytes in logs and GitHub summaries, and rejects gzip size above 4 MiB. Initial baseline: 11,063,065 bytes raw / 2,831,562 bytes gzip; existing `-s -w`/`-trimpath` retained, no `wasm-opt` added.
+- [x] `docs/web-deployment.md` documents Chromium/Firefox/Safari feature requirements, blocked-isolation guidance, runtime codec checks and pending Firefox/Safari/native AAC acceptance, linked from README; Chromium is the tested reference browser.
+- [x] `public/demo.wav` is a four-second quiet stereo 48 kHz/16-bit tone, regenerated by `cmd/demo-build` through tagged upstream Go DSP/WAV (`just demo`) with CC0 provenance. The landing state's **Open demo** uses the shared import lock; hook regressions cover duplicate fetches, failure/retry and stale sessions, plus a real one-click production import.
 
 ### Presentation
 
-- [ ] Landing state explains what the app is, that everything runs locally (no upload), and links to the repo and PLAN.md
-- [ ] Build stamp visible in the status bar/About (kernel version from `git describe`, commit SHA, build date)
-- [ ] README: a "Try it" link to the live site, a screenshot and the browser matrix
+- [x] `WaveformPlaceholder` explains local audio editing/no upload and provides Open file/Open demo buttons plus source/roadmap links; the normal document view retains its compact layout.
+- [x] About shows kernel `git describe`, full frontend commit, kernel UTC build timestamp and development channel; post-deploy verification checks the expected commit and a populated timestamp. ABI 18 is unchanged.
+- [x] README links the live demo, CI status, `docs/images/editor-demo.png` and the browser matrix. The screenshot is captured from the actual production demo UI.
 - [x] Favicon/app icon set from `assets/appicon.png`: multi-size ICO, 32-/512-pixel PNG and 180-pixel Apple touch icon in `apps/editor-web/public`, linked with `%BASE_URL%` in `index.html`.
-- [ ] Open-Graph/Twitter card metadata
-- [ ] Decide and document whether the Pages deploy tracks `main` or only tags; if it tracks `main`, label the site as a development build
+- [x] `index.html` includes description, Open Graph and Twitter summary metadata with the canonical cwbudde Pages URL and existing app icon.
+- [x] Pages follows CI-tested `main`; the web header visibly says **Development build**, and README/landing metadata/deployment docs describe this policy. Release-tag desktop publishing remains separate.
+
+**Validation (2026-10-04):** full `just ci` passes: native Go race/coverage, actual V8/WASM tests, both fuzz smokes, formatting/lint/typechecks/tidy, 910 frontend tests, 134 browser tests, four gzip/headerless Pages tests (including expected commit/UTC stamp), 16 Electron tests and one packaged-runtime test. Pages tests build into separate `dist-pages`, preserving the root-path browser/Electron output. `actionlint`, `check-deps` and `git diff --check` pass. The current live site's cold WAV import/playback/exact-PCM Save passes in 11.8 s on a fresh retry; an earlier cold load exceeded the readiness timeout, so propagation/network failures remain visible and CI retains traces/retries. The updated UI and post-deploy/daily workflow await the next push/deploy; strict CDN cache controls remain pending above.
 
 ---
 

@@ -128,9 +128,78 @@ function options() {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("useDocument", () => {
+  it("holds the document lock while fetching the demo and ignores duplicate opens", async () => {
+    const fetching = deferred<Response>();
+    const fetchDemo = vi.fn().mockReturnValue(fetching.promise);
+    vi.stubGlobal("fetch", fetchDemo);
+    vi.stubGlobal(
+      "File",
+      class extends File {
+        arrayBuffer() {
+          return Promise.resolve(wavBytes(4));
+        }
+      },
+    );
+    const worker = new DocumentWorker();
+    const callbacks = options();
+    const client = new KernelClient(worker);
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    act(() => {
+      result.current.openDemo();
+      result.current.openDemo();
+    });
+    expect(fetchDemo).toHaveBeenCalledTimes(1);
+    expect(fetchDemo).toHaveBeenCalledWith(`${import.meta.env.BASE_URL}demo.wav`);
+    expect(result.current.busy).toBe(true);
+    await act(async () =>
+      fetching.resolve({ ok: true, blob: async () => new Blob(["RIFF"]) } as Response),
+    );
+    expect(opened(worker)).toHaveLength(1);
+    expect(result.current.info?.name).toBe("demo.wav");
+    expect(callbacks.beforeOpen).toHaveBeenCalledTimes(1);
+    expect(result.current.busy).toBe(false);
+  });
+
+  it("rejects a failed demo fetch without importing and releases the lock for retry", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const callbacks = options();
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openDemo());
+    expect(callbacks.reportError).toHaveBeenCalledWith("Could not open demo", expect.any(Error));
+    expect(callbacks.beforeOpen).not.toHaveBeenCalled();
+    expect(opened(worker)).toHaveLength(0);
+    expect(result.current.busy).toBe(false);
+    await act(async () => result.current.openFile(file()));
+    expect(opened(worker)).toHaveLength(1);
+  });
+
+  it("drops a demo response after the kernel session is replaced", async () => {
+    const fetching = deferred<Response>();
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(fetching.promise));
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const callbacks = options();
+    const { result, rerender } = renderHook(({ client }) => useDocument(client, callbacks), {
+      initialProps: { client },
+    });
+    act(() => result.current.openDemo());
+    const replacement = new DocumentWorker();
+    rerender({ client: new KernelClient(replacement) });
+    await act(async () =>
+      fetching.resolve({ ok: true, blob: async () => new Blob(["RIFF"]) } as Response),
+    );
+    expect(opened(worker)).toHaveLength(0);
+    expect(opened(replacement)).toHaveLength(0);
+    expect(callbacks.beforeOpen).not.toHaveBeenCalled();
+    expect(result.current.busy).toBe(false);
+  });
+
   it("holds the shared edit lock through confirmation and rejects overlapping file/edit operations", async () => {
     const worker = new DocumentWorker();
     const client = new KernelClient(worker);

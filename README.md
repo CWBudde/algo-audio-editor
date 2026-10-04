@@ -6,6 +6,15 @@ WebAssembly** on top of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp)
 family. Portable codecs run in Go; browser codec APIs extend format support.
 The UI is **React + TypeScript + shadcn**.
 
+[Try it in your browser](https://cwbudde.github.io/algo-audio-editor/) ·
+[![CI](https://github.com/cwbudde/algo-audio-editor/actions/workflows/ci.yml/badge.svg)](https://github.com/cwbudde/algo-audio-editor/actions/workflows/ci.yml)
+
+The public demo follows CI-tested `main` and is a **development build**. Open
+your own file or choose **Open demo**; audio stays on your device.
+See the [browser support matrix and deployment details](docs/web-deployment.md#browser-support).
+
+![The browser editor displaying the bundled stereo demo](docs/images/editor-demo.png)
+
 > **Status:** WAV editing, processing, effects and analysis described in [PLAN.md](PLAN.md): WAV import/export,
 > interactive waveforms, playback, channel-aware selections and editing in the
 > browser and Electron, with undo/redo, persistent markers/regions, save-point

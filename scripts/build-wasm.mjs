@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,4 +34,7 @@ const runtime = ["lib", "misc"]
   .map(directory => path.join(goroot, directory, "wasm/wasm_exec.js"))
   .find(existsSync);
 if (!runtime) throw new Error(`wasm_exec.js not found under ${goroot}`);
+// Go's runtime can be read-only (e.g. from a module/toolchain cache). Replace
+// the generated file rather than trying to overwrite its inherited mode.
+rmSync(path.join(destination, "wasm_exec.js"), { force: true });
 copyFileSync(runtime, path.join(destination, "wasm_exec.js"));

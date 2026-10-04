@@ -30,12 +30,21 @@ wasm-build:
 icons:
     node scripts/generate-icons.mjs
 
+# Regenerate the CC0 demo with Go/upstream DSP.
+demo:
+    cd {{kernel}} && go run ./cmd/demo-build
+
+# Bound the compressed kernel download after wasm-build.
+check-web-budget:
+    node scripts/check-web-budget.mjs
+
 # Start the Vite dev server (rebuilds the kernel first)
 dev: wasm-build
     bun run --cwd {{web}} dev
 
 # Production build of the web app into apps/editor-web/dist
 build: wasm-build
+    just check-web-budget
     bun run --cwd {{web}} build
 
 # Serve the production build locally (COOP/COEP headers included)
@@ -100,6 +109,16 @@ test-web:
 # Browser end-to-end tests against the production build (no hardware timing gates)
 e2e: build
     bun run --cwd {{web}} e2e
+
+# Actual headerless Pages subpath and cold service-worker boot.
+e2e-pages:
+    VITE_BASE=/algo-audio-editor/ VITE_OUT_DIR=dist-pages just build
+    AAE_EXPECTED_COMMIT="$(git rev-parse HEAD)" bun run --cwd {{web}} e2e --config playwright.pages.config.ts
+
+# Live site verification without rebuilding or launching a local server.
+e2e-pages-live:
+    test -n "${PLAYWRIGHT_BASE_URL:-}"
+    bun run --cwd {{web}} e2e --config playwright.pages.config.ts
 
 # Opt-in hardware timing gates (`@timing`): run on the target laptop, not on shared CI.
 e2e-timing: build
@@ -193,8 +212,8 @@ check: check-formatted lint test-go-race test-web check-tidy build
 
 # Electron e2e needs a display; headless, run `xvfb-run --auto-servernum just ci`.
 # Everything CI runs (.github/workflows/ci.yml and the test-*.yml it calls), in one recipe.
-ci: check-formatted lint test-go-race test-go-wasm fuzz-wav fuzz-codecs test-web check-tidy e2e e2e-desktop e2e-desktop-packaged
+ci: check-formatted lint test-go-race test-go-wasm fuzz-wav fuzz-codecs test-web check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
 
 clean:
-    rm -rf {{web}}/dist {{desktop}}/dist {{web}}/public/kernel.wasm {{web}}/public/wasm_exec.js
+    rm -rf {{web}}/dist {{web}}/dist-pages {{desktop}}/dist {{web}}/public/kernel.wasm {{web}}/public/wasm_exec.js
     rm -f {{kernel}}/coverage.out

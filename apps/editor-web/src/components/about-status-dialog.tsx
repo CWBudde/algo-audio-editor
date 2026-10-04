@@ -112,6 +112,13 @@ export function AboutStatusDialog({
           testId="kernel-version"
         />
         <Item label="Protocol" value={hello ? `ABI v${hello.protocolVersion}` : "–"} />
+        <Item
+          label="Build"
+          value={`${import.meta.env.VITE_BUILD_CHANNEL} build`}
+          testId="build-channel"
+        />
+        <Item label="Commit" value={import.meta.env.VITE_BUILD_COMMIT} testId="build-commit" />
+        <Item label="Built (UTC)" value={hello?.buildTime || "–"} testId="build-time" />
         <Item label="Device rate" value={`${sampleRate ?? hello?.sampleRate ?? "–"} Hz`} />
         <Item
           label="Memory"

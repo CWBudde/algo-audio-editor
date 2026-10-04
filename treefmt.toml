@@ -5,6 +5,7 @@ excludes = [
     "**/.git/**",
     "**/node_modules/**",
     "**/dist/**",
+    "**/dist-pages/**",
     "**/go.mod",
     "**/go.sum",
     "bun.lock",

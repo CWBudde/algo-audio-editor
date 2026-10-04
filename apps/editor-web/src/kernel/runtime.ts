@@ -26,7 +26,10 @@ export function startKernel(): Promise<KernelRuntime> {
     });
     const client = new KernelClient(worker);
     try {
-      const hello = await client.boot(publicUrl("kernel.wasm"), publicUrl("wasm_exec.js"));
+      const hello = await client.boot(
+        publicUrl(import.meta.env.VITE_KERNEL_FILE),
+        publicUrl(import.meta.env.VITE_GO_RUNTIME_FILE),
+      );
       return { client, hello };
     } catch (err) {
       client.terminate();

@@ -14,12 +14,13 @@ const timing = process.env.AAE_TIMING === "1";
 
 export default defineConfig({
   testDir: "e2e",
+  testIgnore: "**/pages.spec.ts",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: {
-    baseURL: `http://localhost:${PORT}`,
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${PORT}`,
     trace: "retain-on-failure",
   },
   projects: [
@@ -44,11 +45,13 @@ export default defineConfig({
   ],
   // Runs against the production build (`just e2e` builds first), served with
   // the same COOP/COEP headers as the dev server.
-  webServer: {
-    command: `bun run preview --port ${PORT} --strictPort`,
-    url: `http://localhost:${PORT}`,
-    // Own the preview lifecycle so tests always verify this production build.
-    // A busy port fails explicitly; AAE_E2E_PORT avoids unrelated local servers.
-    reuseExistingServer: false,
-  },
+  webServer: process.env.PLAYWRIGHT_BASE_URL
+    ? undefined
+    : {
+        command: `bun run preview --port ${PORT} --strictPort`,
+        url: `http://localhost:${PORT}`,
+        // Own the preview lifecycle so tests always verify this production build.
+        // A busy port fails explicitly; AAE_E2E_PORT avoids unrelated local servers.
+        reuseExistingServer: false,
+      },
 });

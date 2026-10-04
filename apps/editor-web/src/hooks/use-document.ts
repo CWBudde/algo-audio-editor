@@ -135,6 +135,16 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     });
   }, [importFile, run]);
 
+  const openDemo = useCallback(() => {
+    void run("Could not open demo", async (target, active) => {
+      const response = await fetch(`${import.meta.env.BASE_URL}demo.wav`);
+      if (!response.ok) throw new Error(`Demo download failed (${response.status}).`);
+      const blob = await response.blob();
+      if (active())
+        await importFile(target, active, new File([blob], "demo.wav", { type: "audio/wav" }));
+    });
+  }, [importFile, run]);
+
   const info = snapshot?.client === client ? snapshot?.info : undefined;
   currentInfo.current = info;
   /** Edits share the file-operation lock, including preparation and confirmation. */
@@ -244,6 +254,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     busy: pending?.client === client && pending?.busy === true,
     open,
     openFile,
+    openDemo,
     openNativeFile,
     save,
     saveAndWait,

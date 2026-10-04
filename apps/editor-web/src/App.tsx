@@ -691,6 +691,9 @@ export default function App() {
           <span className="hidden shrink-0 px-1 text-sm font-semibold tracking-tight md:inline">
             algo-audio-editor
           </span>
+          {!desktop.native && (
+            <span className="shrink-0 text-xs text-muted-foreground">Development build</span>
+          )}
           {!desktop.native && <AppMenubar commands={commands} onExecute={execute} />}
         </header>
         {kernel.status === "error" && (
@@ -702,10 +705,11 @@ export default function App() {
             changes may be lost.
           </p>
         )}
-        {kernel.status !== "error" && globalThis.crossOriginIsolated === false && (
+        {globalThis.crossOriginIsolated === false && (
           <p role="alert" className="border-b px-3 py-2 text-sm">
-            Audio playback requires cross-origin isolation. Open this editor from a supported server
-            or the desktop app.
+            Audio playback requires cross-origin isolation. Allow service workers for this site,
+            disable extensions that block them, then reload. If your browser or private mode blocks
+            isolation, use a regular window in a current browser or the desktop app.
           </p>
         )}
         <fieldset
@@ -849,7 +853,11 @@ export default function App() {
               analysisStateId={history.history?.currentStateId}
             />
           ) : (
-            <WaveformPlaceholder />
+            <WaveformPlaceholder
+              disabled={!client || busy}
+              onOpen={doc.open}
+              onDemo={doc.openDemo}
+            />
           )}
         </main>
         {doc.info && client && spectrumOpen && selection && (

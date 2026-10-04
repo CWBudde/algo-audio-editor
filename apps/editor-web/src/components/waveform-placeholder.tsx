@@ -1,7 +1,18 @@
 import type { DocumentInfoResult } from "@aae/protocol";
 import { FileAudio } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
-export function WaveformPlaceholder({ info }: { info?: DocumentInfoResult }) {
+export function WaveformPlaceholder({
+  info,
+  disabled,
+  onOpen,
+  onDemo,
+}: {
+  info?: DocumentInfoResult;
+  disabled?: boolean;
+  onOpen?(): void;
+  onDemo?(): void;
+}) {
   if (info) {
     return (
       <section
@@ -31,6 +42,37 @@ export function WaveformPlaceholder({ info }: { info?: DocumentInfoResult }) {
         <p className="text-sm text-muted-foreground">
           Open an audio file or drop it here to view its waveform and play it.
         </p>
+        <p className="text-sm text-muted-foreground">
+          Edit, process and analyze audio locally in your browser. Your audio stays on this device;
+          files are never uploaded.
+        </p>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button disabled={disabled} onClick={onOpen}>
+            Open audio file
+          </Button>
+          <Button variant="outline" disabled={disabled} onClick={onDemo}>
+            Open demo
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">Demo: four seconds of quiet stereo tones.</p>
+        <div className="flex gap-4 text-sm">
+          <a
+            className="underline"
+            href="https://github.com/cwbudde/algo-audio-editor"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Source code
+          </a>
+          <a
+            className="underline"
+            href="https://github.com/cwbudde/algo-audio-editor/blob/main/PLAN.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Roadmap
+          </a>
+        </div>
       </div>
     </div>
   );

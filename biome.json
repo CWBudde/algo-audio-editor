@@ -12,6 +12,7 @@
       "**/*.json",
       "!**/public/**",
       "!**/dist/**",
+      "!**/dist-pages/**",
       "!**/src/components/ui/**"
     ]
   },

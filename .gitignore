@@ -4,6 +4,7 @@ node_modules/
 
 # ── Build output ─────────────────────────────────────────────────────────────
 apps/editor-web/dist/
+apps/editor-web/dist-pages/
 apps/desktop/dist/
 apps/desktop/release/
 apps/editor-web/public/kernel.wasm

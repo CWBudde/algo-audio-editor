@@ -20,6 +20,10 @@ jobs:
         working-directory: apps/editor-web
         run: bunx playwright install --with-deps chromium
       - run: just e2e
+      - name: Headerless Pages subpath and service-worker tests
+        env:
+          VITE_BASE: /algo-audio-editor/
+        run: just e2e-pages
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
