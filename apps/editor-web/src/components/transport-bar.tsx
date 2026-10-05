@@ -1,8 +1,8 @@
-import { Play, Repeat2, Settings2, Square } from "lucide-react";
 import { type Ref, useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { ControlDisclosure } from "@/components/control-disclosure";
 import { IconAction } from "@/components/icon-action";
 import type { CommandId, ResolvedCommand } from "@/lib/commands";
+import { Play, Repeat2, Settings2, Square } from "@/lib/icons";
 
 export type PlaybackFollow = "off" | "page" | "continuous";
 

@@ -1,9 +1,9 @@
 import type { HistoryListResult } from "@aae/protocol";
-import { History } from "lucide-react";
 import { ControlDisclosure } from "@/components/control-disclosure";
 import { Button } from "@/components/ui/button";
 import type { CommandId, ResolvedCommand } from "@/lib/commands";
 import { formatBytes } from "@/lib/format-bytes";
+import { History } from "@/lib/icons";
 
 export interface HistoryPanelProps {
   history?: HistoryListResult;

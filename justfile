@@ -243,6 +243,11 @@ check-tidy:
 licenses:
     node scripts/generate-licenses.mjs
 
+# Opt-in candidate probe: temporary module, network downloads and local libFLAC.
+# Exit success means the report completed; its failures block candidate adoption.
+evaluate-flac:
+    node scripts/flac-evaluation.mjs
+
 # Check reviewed inventory/input hashes and notices without registry downloads.
 check-licenses:
     node --test scripts/license-policy.test.mjs scripts/licenses-go.test.mjs scripts/licenses-npm.test.mjs scripts/licenses-electron.test.mjs

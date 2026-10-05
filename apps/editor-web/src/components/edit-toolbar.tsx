@@ -5,12 +5,12 @@ import type {
   PastePlan,
   SelectionRange,
 } from "@aae/protocol";
-import { ClipboardPaste, Copy, Crop, MoreHorizontal, Scissors, Trash2 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { ControlDisclosure } from "@/components/control-disclosure";
 import { IconAction } from "@/components/icon-action";
 import { Button } from "@/components/ui/button";
 import type { CommandId, ResolvedCommand } from "@/lib/commands";
+import { ClipboardPaste, Copy, Crop, MoreHorizontal, Scissors, Trash2 } from "@/lib/icons";
 import { parseSelectionTime } from "@/lib/selection";
 
 export interface EditToolbarProps {

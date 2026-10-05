@@ -1,65 +1,57 @@
 # npm replacements under the existing license policy
 
 Research date: 2026-10-05. The user chose to retain MIT/BSD/Apache-only bundled
-dependencies and plan replacements. This document proposes implementation work;
-it does not change dependencies, declare exceptions equivalent to allowed licenses,
-or claim the first-release gate has passed. The current per-version evidence is
+dependencies and plan replacements. The font/icon replacements below are implemented;
+updater replacement remains proposed. No license exceptions were granted and
+the first-release gate remains open. The current per-version evidence is
 in [the dependency manifest](dependencies.json) and [npm audit](npm-audit.md).
 
-## Replace the redistributed font
+## System fonts — implemented (2026-10-06)
 
-`apps/editor-web/src/index.css` imports `@fontsource-variable/geist` and sets
-`--font-sans` to `Geist Variable`. Remove that import and dependency, and use a
-local font stack such as `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-sans-serif`. This avoids shipping the OFL font files. The CSS specification
-defines `system-ui` using the platform's default UI font; naming locally installed
-fonts does not add their files to the app. This is a proposed implementation
-inference from the [CSS Fonts specification](https://drafts.csswg.org/css-fonts-4/#system-ui-def).
+Removed `@fontsource-variable/geist` from the workspace manifest/lock and its
+CSS import. `--font-sans` uses
+`system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`.
+These are locally installed fonts; no font files are redistributed. This follows
+the [CSS Fonts definition](https://drafts.csswg.org/css-fonts-4/#system-ui-def).
 
-Before completion, rebuild and verify that no Geist font assets, `@font-face`
-rules or font network requests remain in the production build. Exercise the
-1920×1080 effect dialog, menus, timeline labels and narrow-window layout, since
-font metrics change. Check Linux plus installed Windows/macOS typography; a
-Linux screenshot cannot establish those platforms' acceptance. Regenerate the
-lockfile and notices with Bun 1.4.2, preserving exact installed versions.
+The production `ui-clarity.spec.ts` regression checks the computed stack, zero
+font requests and zero downloadable font faces, plus 1920×1080 and 640×720
+waveform/footer/action visibility. Production builds reject resolved Geist modules,
+emitted font assets and CSS `@font-face` rules, including inlined font data.
+Linux Chromium acceptance is recorded in
+[the replacement checks](../benchmarks/license-replacements-2026-10-06.md).
+Installed Windows/macOS typography remains unverified; those platforms use their
+own system fonts and may have different metrics.
 
-## Replace Lucide glyphs and component types
+## MIT icons — implemented (2026-10-06)
 
-The current source imports 31 glyph symbols and the `LucideIcon` type across 13
-files, including `icon-action.tsx`, toolbars, waveform controls and three generated
-shadcn files: `ui/sonner.tsx`, `ui/menubar.tsx` and `ui/dropdown-menu.tsx`.
-`lucide-react@1.50.0` declares ISC. Its own
-[upstream license](https://github.com/lucide-icons/lucide/blob/main/LICENSE)
-also preserves Feather-derived attribution; copying its paths into local SVGs
-does not turn them into newly licensed artwork.
+Replaced `lucide-react@1.50.0` with exactly pinned `@heroicons/react@2.2.0`.
+The [tagged MIT grant](https://github.com/tailwindlabs/heroicons/blob/v2.2.0/LICENSE)
+and full installed grant are retained in the inventory and shipped notices.
+Its React peer is the only declared runtime dependency; no Lucide SVG paths
+were copied or relicensed.
 
-Use an application-owned icon module backed by a small subset of Heroicons
-outline SVGs, recording each upstream filename, release and content digest.
-Heroicons v2.2.0 has a
-[complete MIT grant](https://github.com/tailwindlabs/heroicons/blob/v2.2.0/LICENSE)
-from Tailwind Labs. Alternatively, use the tagged `@heroicons/react` package;
-its [versioned manifest](https://github.com/tailwindlabs/heroicons/blob/v2.2.0/react/package.json)
-has a React peer and no declared runtime dependency tree. Verify the actual
-selected package archive and license when implementing either option. Retain the
-full grant and copyright in generated notices; add vendored sources to the audit
-input/digest inventory if choosing local SVGs.
+Handwritten components use `src/lib/icons.ts`, which maps semantic editor
+actions to Heroicons outline artwork and owns the `IconComponent` SVG prop
+type. Existing accessible labels, button sizes and currentColor styling remain.
+Crop, snapping and selection-fit actions use distinct available glyphs;
+accessible names retain their exact action meanings.
 
-Map semantic actions rather than reproducing Lucide geometry: play→play,
-stop→stop, copy→document duplicate, paste→clipboard, undo/redo→U-turn arrows,
-loop→arrow path, zoom→magnifying glass, markers→flag, history→clock, and
-warnings/info/checks→their matching status glyphs. For specialized controls such
-as magnet snapping, crop selection or scan search, choose a distinct available
-glyph or draw original geometry; retain accessible labels as the primary action
-names. Define the app's icon prop type with React SVG props so `IconAction` does
-not depend on `LucideIcon`.
+Generated shadcn files stay byte-identical. `components.json` intentionally
+retains `iconLibrary: lucide` as the template setting; matching TypeScript
+and exact Vite/Vitest aliases resolve their `lucide-react` import to
+`src/lib/shadcn-icons.ts`, a seven-export Heroicons facade. This is a local
+module alias, not an installed Lucide package. Newly generated names must be
+mapped explicitly before typechecking passes. Compatibility tests guard every
+generated icon export and reject handwritten Lucide imports. Production builds
+also reject actual resolved Lucide package modules. Do not reinstall Lucide
+when regenerating components. The generator may add it automatically: remove that
+manifest entry and update the lock using Bun 1.4.2, then update the facade for any
+new symbols, regenerate notices and rerun typecheck/tests, as described in AGENTS.md.
 
-The generated shadcn components need a reproducible generation/adaptation strategy
-that respects the repository's generated-file convention. Resolve this before
-removing Lucide: regenerating unchanged Lucide templates would reintroduce the
-dependency. Test icon sizing/currentColor, keyboard focus, disabled actions,
-`aria-hidden` and named buttons; run existing toolbar, waveform, menu and toast
-tests and browser accessibility checks. Search both production imports and the
-output bundle for Lucide, then update the lockfile and notices.
+Bun 1.4.2 removed both old dependencies and added Heroicons without changing
+other locked package versions. The exact-source audit/notices were regenerated;
+font and Lucide policy findings are cleared while the remaining gate stays open.
 
 ## Replace the updater dependency closure as one feature
 

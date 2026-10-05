@@ -57,6 +57,40 @@ export default defineConfig(({ command }) => {
       react(),
       tailwindcss(),
       {
+        name: "permitted-web-dependencies",
+        apply: "build",
+        transform(_code, id) {
+          // Inspect resolved paths, including Bun's nested package layout.
+          if (
+            /(?:^|[/\\])node_modules[/\\](?:lucide-react|@fontsource-variable[/\\]geist)(?:[/\\]|$)/.test(
+              id,
+            )
+          ) {
+            this.error(`Removed dependency entered the web build: ${id}`);
+          }
+        },
+        generateBundle(_options, bundle) {
+          // CSS imports can be expanded before dependency modules reach
+          // transform(), and small fonts can be inlined into CSS. The editor
+          // uses installed system fonts, so neither form may be redistributed.
+          for (const [fileName, output] of Object.entries(bundle)) {
+            if (output.type !== "asset") continue;
+            if (/\.(?:woff2?|ttf|otf|eot)$/i.test(fileName)) {
+              this.error(`Bundled font asset entered the web build: ${fileName}`);
+            }
+            if (/\.css$/i.test(fileName)) {
+              const css =
+                typeof output.source === "string"
+                  ? output.source
+                  : Buffer.from(output.source).toString("utf8");
+              if (/@font-face\b/i.test(css)) {
+                this.error(`Bundled font-face rule entered the web build: ${fileName}`);
+              }
+            }
+          }
+        },
+      },
+      {
         name: "pages-artifacts",
         apply: "build",
         transformIndexHtml: (html) =>
@@ -82,12 +116,20 @@ export default defineConfig(({ command }) => {
       ),
     },
     resolve: {
-      alias: {
-        "@": fileURLToPath(new URL("./src", import.meta.url)),
-        "@aae/protocol": fileURLToPath(
-          new URL("../../packages/protocol/src/index.ts", import.meta.url),
-        ),
-      },
+      alias: [
+        {
+          // Keep shadcn output unchanged while supplying only MIT artwork.
+          find: /^lucide-react$/,
+          replacement: fileURLToPath(new URL("./src/lib/shadcn-icons.ts", import.meta.url)),
+        },
+        { find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) },
+        {
+          find: "@aae/protocol",
+          replacement: fileURLToPath(
+            new URL("../../packages/protocol/src/index.ts", import.meta.url),
+          ),
+        },
+      ],
     },
     server: { headers: crossOriginIsolation },
     preview: { headers: crossOriginIsolation },

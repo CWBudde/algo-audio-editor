@@ -1,7 +1,7 @@
 import type { DocumentInfoResult } from "@aae/protocol";
-import { Info } from "lucide-react";
 import type { Ref } from "react";
 import { Button } from "@/components/ui/button";
+import { Info } from "@/lib/icons";
 
 interface StatusBarProps {
   info?: DocumentInfoResult;

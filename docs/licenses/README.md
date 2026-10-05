@@ -4,13 +4,14 @@ Phase 23's inventory and notice distribution are implemented. **Release approval
 remains open**: the current dependencies exceed the roadmap's MIT/BSD/Apache
 policy, and several pinned sources omit license grants. The user confirmed on
 2026-10-05 that this policy stays in force and affected dependencies should be
-replaced. No dependency was relicensed or replaced by this audit.
+replaced. The 2026-10-06 continuation replaced bundled Geist/Lucide with system
+fonts and pinned MIT Heroicons; no dependency was relicensed.
 
 The [Go audit](go-audit.md) covers 27 selected external modules and Go 1.26.8,
 including the native CLI/MCP commands on six OS/architecture combinations and
-the js/wasm kernel. The [npm audit](npm-audit.md) covers all 715 exact external
+the js/wasm kernel. The [npm audit](npm-audit.md) covers all 714 exact external
 package versions in `bun.lock`, including uninstalled platform dependencies.
-Together there are 743 inventory entries: 62 conservatively classified runtime
+Together there are 742 inventory entries: 61 conservatively classified runtime
 and 681 development entries. Runtime classification describes dependency reach,
 rather than a claim that every package file survives production tree shaking.
 
@@ -86,9 +87,8 @@ The concrete runtime exceptions needing replacement or proven exclusion are:
 | --- | --- |
 | cwbudde/flac v0.1.0 | Unlicense |
 | Go 1.26.8 math | SunPro and retained Cephes free-use wording (`LicenseRef-Cephes`) |
-| @fontsource-variable/geist 5.3.0 | OFL-1.1 font assets |
 | argparse 2.0.1 | Python-2.0 |
-| graceful-fs 4.2.11, lucide-react 1.50.0, semver 7.7.4 | ISC |
+| graceful-fs 4.2.11, semver 7.7.4 | ISC |
 | sax 1.6.1 | BlueOak-1.0.0 |
 
 Missing or inconsistent source evidence also remains open:
@@ -115,13 +115,21 @@ Runtime evidence/policy findings and unresolved finding identities block the
 strict gate. Build tools that emit or redistribute third-party code/assets must
 be classified runtime, regardless of their package manifest's dependency field.
 
+System fonts and MIT Heroicons have replaced the redistributed Geist/Lucide
+dependencies. The regenerated inventory/notice asset includes Heroicons' full
+MIT grant and removes the old font/icon texts; there are now 12 runtime findings,
+including overlap. See [replacement validation](../benchmarks/license-replacements-2026-10-06.md).
+
 The [Go replacement plan](go-replacements.md) evaluates a tagged MIT FLAC
 candidate, verified upstream grants and linked math replacements. The
-[npm replacement plan](npm-replacements.md) proposes system fonts, MIT icons
-and explicit updater tradeoffs. The [Electron plan](electron-audit.md#replacement-plan-under-the-confirmed-policy)
+[initial isolated FLAC report](flac-evaluation.md) records adoption blockers and
+retained cross-target/reference evidence; the product codec is unchanged. The
+[npm replacement report](npm-replacements.md) records the font/icon changes
+and proposed updater tradeoffs. The [Electron plan](electron-audit.md#replacement-plan-under-the-confirmed-policy)
 requires actual component reach/license selections and then a compliant runtime
-build or shell replacement if needed. These are implementation plans; no
-dependency, license grant or architecture was changed by this audit.
+build or shell replacement if needed. Codec/updater/toolchain and Electron
+runtime replacements remain open; no license exception or runtime architecture
+change was approved.
 
 Complete the evidence fixes in tagged upstream releases or replace affected
 dependencies under the confirmed policy before clearing Phase 23. The strict

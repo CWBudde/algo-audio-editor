@@ -1,4 +1,3 @@
-import { Redo2, Undo2 } from "lucide-react";
 import { lazy, Suspense, useCallback } from "react";
 import { AboutStatusDialog } from "@/components/about-status-dialog";
 import { AnalysisControls } from "@/components/analysis-controls";
@@ -15,6 +14,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { WaveformPlaceholder } from "@/components/waveform-placeholder";
 import { WaveformView } from "@/components/waveform-view";
 import type { useAppController } from "@/hooks/use-app-controller";
+import { Redo2, Undo2 } from "@/lib/icons";
 
 const AutomationDialog = lazy(() =>
   import("@/components/automation-dialog").then((module) => ({ default: module.AutomationDialog })),

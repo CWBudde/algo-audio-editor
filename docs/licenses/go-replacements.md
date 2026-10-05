@@ -8,6 +8,15 @@ approve a release, or treat Unlicense as MIT.
 
 ## FLAC: evaluate a tagged MIT implementation first
 
+**Initial feasibility completed 2026-10-06; adoption remains blocked.** The
+[isolated evaluation and next steps](flac-evaluation.md) retain seven-target
+builds, matching native/WASM malformed-input results and 480/512 successful
+independent PCM comparisons. Tagged v1.1.0 accepts inconsistent stream counts
+and frame formats, allocates approximately 16 MiB from a tiny truncated seek
+table and produces some independently rejected 32-bit files. Repair these
+upstream and complete the remaining provenance, storage, corpus and performance
+acceptance below before consuming a new audited tag. No product codec changed.
+
 The first candidate is
 [`github.com/tphakala/go-flac v1.1.0`](https://github.com/tphakala/go-flac/tree/v1.1.0),
 not another mewkiz-derived fork. Its tagged

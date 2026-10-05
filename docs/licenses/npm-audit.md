@@ -15,7 +15,10 @@ distribution has additional attribution handled separately during packaging.
 This inventory is conservative at the package level, rather than a claim that
 every file of each runtime package is in a production bundle. Generated shadcn
 components use that project's MIT grant; Base UI primitives are inventoried under
-`@base-ui/react` and its dependencies. Geist font files are marked as assets.
+`@base-ui/react` and its dependencies. The 2026-10-06 replacement removes Geist
+font assets and Lucide; MIT Heroicons is now inventoried as runtime code. Generated
+components' icon imports resolve to a local Heroicons facade without modifying
+the generated files.
 
 License evidence retains complete shipped LICENSE, COPYING, COPYRIGHT and NOTICE
 files, with exact text and SHA-256 digests. A README license section is accepted
@@ -44,9 +47,14 @@ published archive declares MIT but omits a license, and its release commit
 `b69ad4119f1b19bdab13c61ee2fcc88d46b89071` also has no LICENSE or COPYING file.
 The collector preserves that finding rather than generating an assumed grant.
 
-The declared runtime licenses exceed the roadmap's original MIT/BSD/Apache-only
-policy: Geist uses OFL-1.1; `argparse` uses Python-2.0; `graceful-fs`, `lucide-react`
-and `semver` use ISC; `sax` uses BlueOak-1.0.0. These are actual inventory findings,
+After the 2026-10-06 font/icon replacement, the lockfile has 758 keys and 714
+external identities: 41 runtime and 673 development. It retains 691 texts totaling
+1,513,948 bytes. Missing-grant counts are unchanged. The exact Heroicons 2.2.0
+archive identity and full MIT grant are recorded in the regenerated manifest.
+
+The remaining declared runtime licenses exceed the roadmap's MIT/BSD/Apache-only
+policy: `argparse` uses Python-2.0; `graceful-fs` and `semver` use ISC;
+`sax` uses BlueOak-1.0.0. These are actual inventory findings,
 not an approval to widen the policy. Development scope also includes licenses
 such as MPL-2.0 and CC-BY-4.0; that does not imply those packages ship in the app.
 The generated manifest is the authoritative per-version evidence.

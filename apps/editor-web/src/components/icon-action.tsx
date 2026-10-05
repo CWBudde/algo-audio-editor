@@ -1,8 +1,8 @@
-import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { IconComponent } from "@/lib/icons";
 
 interface IconActionProps {
-  icon: LucideIcon;
+  icon: IconComponent;
   label: string;
   shortcutLabel?: string;
   ariaShortcut?: string;

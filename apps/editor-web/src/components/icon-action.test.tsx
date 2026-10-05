@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import { Copy } from "lucide-react";
 import { afterEach, expect, it, vi } from "vitest";
+import { Copy } from "@/lib/icons";
 import { IconAction } from "./icon-action";
 
 afterEach(cleanup);

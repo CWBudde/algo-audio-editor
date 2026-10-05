@@ -51,6 +51,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- System UI fonts replace the bundled Geist font; MIT Heroicons replace Lucide
+  artwork while preserving accessible editor actions and generated UI components.
 - Go lint checks both native and WASM targets with restored revive defaults,
   wrapped-error and security checks. CI pins external actions and the lint
   binary, bounds every runnable job, and caches dependency/browser downloads

@@ -110,6 +110,13 @@ are separate opt-in checks; a successful local gate does not claim those passed.
   `-benchmem`).
 - TypeScript: strict, `erasableSyntaxOnly` (no enums, no parameter
   properties), double quotes, Biome-formatted.
+- Icons: handwritten components import `@/lib/icons` (pinned MIT Heroicons).
+  Keep shadcn output unchanged: its exact `lucide-react` imports resolve to
+  `src/lib/shadcn-icons.ts` through matching TS/Vite/Vitest aliases, without
+  installing Lucide. Map newly generated icon names in that facade; typechecking
+  and the icon compatibility tests guard supported exports. If shadcn adds Lucide
+  to the manifest, remove it and update the lock with Bun 1.4.2 before regenerating
+  notices and running checks; keep the generated component files unchanged.
 - Electron: `contextIsolation`, `sandbox`, no `nodeIntegration`. Every preload
   API is mirrored in `apps/editor-web/src/platform.ts`. Do not derive paths
   from `__dirname` in `apps/desktop`; the bundler inlines it as the source

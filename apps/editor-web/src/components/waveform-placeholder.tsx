@@ -1,6 +1,6 @@
 import type { DocumentInfoResult } from "@aae/protocol";
-import { FileAudio } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FileAudio } from "@/lib/icons";
 
 export function WaveformPlaceholder({
   info,

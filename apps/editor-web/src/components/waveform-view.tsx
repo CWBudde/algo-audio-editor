@@ -1,17 +1,5 @@
 import type { DocumentInfoResult, EditResult, SelectionRange } from "@aae/protocol";
 import {
-  Flag,
-  type LucideIcon,
-  Magnet,
-  Maximize2,
-  ScanSearch,
-  Settings2,
-  SlidersHorizontal,
-  SquareDashed,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react";
-import {
   type Ref,
   useCallback,
   useEffect,
@@ -41,6 +29,18 @@ import { type SelectionOptions, useSelection } from "@/hooks/use-selection";
 import type { KernelClient } from "@/kernel/client";
 import { DEFAULT_SPECTRAL_SETTINGS } from "@/lib/analysis-settings";
 import type { CommandId, ResolvedCommand } from "@/lib/commands";
+import {
+  Flag,
+  type IconComponent,
+  Magnet,
+  Maximize2,
+  ScanSearch,
+  Settings2,
+  SlidersHorizontal,
+  SquareDashed,
+  ZoomIn,
+  ZoomOut,
+} from "@/lib/icons";
 import type { SpectralSelection, SpectralTool } from "@/lib/spectral-selection";
 import {
   type AmplitudeScale,
@@ -446,7 +446,7 @@ function WaveformContent({
   );
   const action = (
     id: CommandId,
-    icon: LucideIcon,
+    icon: IconComponent,
     label: string,
     fallback: () => void,
     blocked: boolean,

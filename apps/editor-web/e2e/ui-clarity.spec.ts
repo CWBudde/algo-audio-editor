@@ -2,12 +2,20 @@
 import { expect, test } from "@playwright/test";
 import { playbackWAV } from "./playback-fixture.ts";
 
-test("keeps file details in a compact footer and secondary controls out of the waveform", async ({
+test("uses system fonts without downloads and keeps desktop and narrow editor controls compact", async ({
   page,
 }, testInfo) => {
-  await page.setViewportSize({ width: 1920, height: 1000 });
+  const fontRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.resourceType() === "font") fontRequests.push(request.url());
+  });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
+  await expect(page.locator("html")).toHaveCSS(
+    "font-family",
+    /system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif/,
+  );
   const name = `${"Long filename 🎵 — ".repeat(12)}stereo.wav`;
   await page.getByTestId("audio-file-input").setInputFiles({
     name,
@@ -22,6 +30,8 @@ test("keeps file details in a compact footer and secondary controls out of the w
     "48000 Hz · 2 channels · 24000 frames",
   );
   await expect(footer).not.toContainText(/kernel ready|Underruns|Platform/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1920);
+  await expect(footer).toBeInViewport();
   await expect(page.getByLabel("Time format", { exact: true })).not.toBeVisible();
   await expect(page.getByLabel("Channel 1 selected", { exact: true })).not.toBeVisible();
   await expect(page.getByLabel("Marker or region name", { exact: true })).not.toBeVisible();
@@ -46,7 +56,12 @@ test("keeps file details in a compact footer and secondary controls out of the w
   await expect(page.getByTestId("waveform-channel-0")).toHaveAttribute("data-rendered", "true");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(640);
   await expect(footer.getByTestId("document-name")).toBeVisible();
+  for (const action of ["Cut", "Copy", "Zoom in", "Zoom out", "Zoom to fit"]) {
+    await expect(page.getByRole("button", { name: action, exact: true })).toBeInViewport();
+  }
   await page.screenshot({ path: testInfo.outputPath("editor-narrow.png") });
+  expect(fontRequests).toEqual([]);
+  expect(await page.evaluate(() => document.fonts.size)).toBe(0);
 });
 
 test("information is on demand and does not stop playback or let editor shortcuts escape", async ({

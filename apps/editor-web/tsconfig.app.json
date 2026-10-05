@@ -19,6 +19,7 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "@/*": ["./src/*"],
+      "lucide-react": ["./src/lib/shadcn-icons.ts"],
       "@aae/protocol": ["../../packages/protocol/src/index.ts"]
     },
     "strict": true
