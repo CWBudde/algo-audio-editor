@@ -28,7 +28,7 @@
 
 Completed implementation is summarized below. Unfinished acceptance, platform and feature work has moved to explicit follow-up phases; **COMPLETE applies to the scope stated in each summary**, not to its follow-up. Open requirements and partial-progress evidence are retained. Detailed completed-phase history is available in Git at `9de516f:PLAN.md`; old test counts and dependency versions describe those historical runs, not the current build.
 
-**Next review work:** R.5, followed by R.8–R.10; R.1 still has CI/lint follow-ups. Feature phases remain separately schedulable, with Electron permission hardening in R.9 required before recording.
+**Next review work:** R.8–R.10; R.1 still has CI/lint follow-ups. Feature phases remain separately schedulable, with Electron permission hardening in R.9 required before recording.
 
 | Previous location | Remaining work | New location |
 | --- | --- | --- |
@@ -131,6 +131,15 @@ Phase IDs 0–14 and U remain as historical implementation references. Review ID
 - [x] Tagged `algo-dsp v0.10.2` supplies preflighted `resample.StreamPlan`/`Stream` for transport, clipboard and offline resampling. Adapter bit-parity, independent FIR/tails, extreme ratios, loop/seek, workspace and zero-allocation regressions cover the removal of local delay/flush/GCD copies; R.3 moved loudness weights/noise framing upstream.
 - [x] Upstream `signal.AddInto32` / `AverageInto32` remove wide mix/downmix scratch while preserving unclipped bits, signed zero, subnormals and overflow-safe averages. Native race/V8-WASM, lint/vet/tidy/dependency, production build/budgets and ten focused Chromium checks pass; ABI unchanged.
 
+### R.5: Kernel structure & performance — COMPLETE (2026-10-05)
+
+- [x] `subsystems.go` gives `Engine` explicit document, transport, history, jobs, analysis and effects ownership. `methods.go` replaces dispatch switches and both busy allow-lists with 56 registered decoders/handlers/policies; completeness, busy-matrix, panic and binary-ownership regressions preserve existing behavior.
+- [x] `protocol/names.go` and matching TypeScript unions provide typed operation/kind/state/phase names with unchanged ABI 18 values and payload shapes. Strict decoding rejects unknown/nested fields and trailing JSON while retaining empty/default payloads; method context and `%w` preserve upstream causes, verified by registry and error-wrapping tests.
+- [x] Offline analysis and live spectra use a 2 ms soft deadline with bounded statistics/FFT/encoding and resumable YIN units. Fake-clock and actual bridge tests verify exact results, progressive data, cancellation, cache and undo. One-hour JSON and production browser bridge-call measurements are recorded in [R.5 benchmarks](docs/benchmarks/r5-2026-10-05.md); runtime/GC overruns remain explicit.
+- [x] Cached per-state block inventories and a copy-on-write ownership ledger replace history recounts; engine storage queries merge only supplementary clipboard/candidate storage. Randomized oracle, pruning, clone and failed-transaction tests pass; at-capacity WASM history cut/paste improves from 47.52–49.84 ms to 3.86–5.95 ms.
+- [x] `TestFLACImportOneHour`, the bounded native fixture writer and opt-in production browser acceptance decode actual 172,800,000-frame stereo FLAC. Native/V8-WASM verify every sample; Chromium verifies waveform painting, PCM boundaries, clean history and exact retained storage. Existing R.2 memory and R.3 MP3/LUFS regressions remain passing.
+- [x] Full native race and actual WASM suites, lint/vet, tidy, frontend checks, production/native builds, 146 browser cases and nine focused Electron cases pass. Render/transport/resampling/meter benchmarks retain 0 B/op and 0 allocations; Phase 15's separate performance acceptance remains open.
+
 ### R.6: Frontend correctness — COMPLETE (2026-10-04)
 
 - [x] Worklet retirement, allocation-safe split-word ring/cursor reads, serialized Play and shared ref-backed selection eliminate lifecycle/state races. Lost mutating replies recover authoritative `doc.info`; null/empty wire types, generated Go/TS schema parity and single main-thread peak decoding have focused regressions. Frontend/lint/type/build checks pass; the stale 512 MiB browser expectation is retained under R.1.
@@ -205,6 +214,8 @@ Phase IDs 0–14 and U remain as historical implementation references. Review ID
 ### Spectrogram playback gate
 
 - [ ] Reconcile the initially passing Phase 5 measurement with the later Phase 8/baseline failures, profile the cause and rerun the original gate without relaxing timing or underrun limits.
+
+  R.5 (2026-10-05) batches analysis under a 2 ms soft deadline. The unchanged serial production-browser gate now passes: 1,209 painted columns, partial progress, **4,240.255 ms**, live meters and **0 underruns**. The reproducible evidence is in [R.5 benchmarks](docs/benchmarks/r5-2026-10-05.md); historical discrepancy profiling and broader performance acceptance remain open.
 
 **Historical Phase 5 result:** Isolated production playback acceptance passes: the full **28,800,000-frame, ten-minute stereo** file progressively paints both channel spectrograms, observes **1209 painted columns**, and completes the measured tile-render window in **17.562 s** with live meters, advancing playback and **zero underruns** before/during/after. `spectrogram-playback.spec.ts` uses a temporary WAV path to retain the full fixture despite Playwright's 50 MB in-memory upload limit. The six existing timing gates also pass unchanged: five effect updates **40.227 / 42.228 / 44.832 / 38.453 / 47.553 ms**, and the cursor's 20 readings have maximum **7 frames** error, all with zero underruns. Timing uses the same muted Chromium output-clock estimate documented in Phase 4; meters deliberately show rendered output ahead of the device.
 
@@ -383,7 +394,7 @@ Phase IDs 0–14 and U remain as historical implementation references. Review ID
 
 ## Phase R: Review Remediation (2026-10-04)
 
-**Source:** the full-repo review in [docs/REVIEW-2026-10-04.md](docs/REVIEW-2026-10-04.md) (overall 5.5/10, CI/CD 2/10). Findings, severities and `file:line` evidence live there; each item here is one actionable line. Keep the review IDs stable. R.1 established working CI, but its remaining lint/flake tasks stay open; R.5 is the next kernel implementation section, followed by R.8–R.10. Completed R.2–R.4/R.6–R.7 are summarized above.
+**Source:** the full-repo review in [docs/REVIEW-2026-10-04.md](docs/REVIEW-2026-10-04.md) (overall 5.5/10, CI/CD 2/10). Findings, severities and `file:line` evidence live there; each item here is one actionable line. Keep the review IDs stable. R.1 established working CI, but its remaining lint/flake tasks stay open; R.5 kernel implementation is complete; R.8–R.10 are next. Completed R.2–R.4/R.6–R.7 are summarized above.
 
 ### R.1 Make CI truthful (critical) — PARTIAL
 
@@ -405,17 +416,6 @@ Phase IDs 0–14 and U remain as historical implementation references. Review ID
 
 - [x] Browser CI run `37239688144` regressions (2026-10-05): `edits.spec.ts` now constructs shared silence exceeding the unified 3 GiB storage budget and checks the engine's memory-budget error; `export.spec.ts` checks centered PCM8 bytes from `wav v0.1.4`. `useProcess.open` captures the launcher before the document lock disables it and the lazy dialog loads; `finish` releases that lock before closing, and `ProcessDialog` restores focus after React's unmount commit. Preview stays in the processing phase until playback startup settles, preventing an enabled Apply click from being discarded while a preview is still pending. Unit regressions cover delayed playback, delayed lock release and conditional-unmount focus. Local `just e2e` passes all 146 browser tests without retries; all four Pages tests, 1,078 frontend unit tests, web lint/typechecks, formatting and production size budgets pass.
 - [ ] Investigate the historical short-file EOF/device-clock snapshot concern from Phase 3.3: one parallel browser run reported frame 13 instead of 31; both the initial parallel and final serial 101-case sweeps passed the original assertions. The tentative snapshot-race explanation was not confirmed because the trace was cleaned. Product cursor code/assertions were unchanged; historical logs were `/tmp/phase33-browser.log` and `/tmp/phase33-transport.log` (temporary paths, not durable artifacts).
-
----
-
-### R.5 Kernel structure and performance
-
-- [ ] Split `Engine` (30 fields) into subsystems: document, transport, history, jobs, analysis, effects. Replace the 160-line dispatch switch and the two busy allow-lists with one method registry table that holds the decoder, handler and busy policy for each method
-- [ ] Typed constants for operation, kind and state names instead of string literals
-- [ ] Consistent error wrapping: `%w` everywhere and a method prefix on all upstream errors (`restoration.go`, `wav_metadata.go`). Make `decode` reject unknown fields
-- [ ] Analysis and spectrogram steps limited by a time budget rather than 1024 frames or one FFT per call. Measure the round-trip count for a one-hour file (2026-10-04) — partial: pitch steps now spend 2^18 YIN units per call (151 instead of 9,422 round trips per second of audio). Statistics, clipping and spectrum steps are unchanged
-- [ ] History byte accounting kept incrementally, without calling `countBytes()` on every push, prune or undo
-- [ ] Tests — partial (2026-10-05): mono MP3 and multichannel LUFS export/reopen regressions pass in R.3; memory-budget boundaries pass in R.2. An actual one-hour FLAC import remains outstanding.
 
 ---
 

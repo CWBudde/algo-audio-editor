@@ -1,0 +1,50 @@
+R.5 one-hour incremental analysis benchmark evidence
+Observed outputs transcribed from completed tool sessions; not a captured raw log.
+Host: Linux amd64, Intel Core i7-1255U. Go 1.26.8; Node v24.12.0.
+Verified with go -C packages/kernel version (shell Go 1.26.1 auto-selects
+module toolchain Go 1.26.8 for all recorded go -C packages/kernel commands).
+The /usr/local/go WASM runner/glue used in the commands is byte-identical
+to module Go 1.26.8's wasm_exec_node.js and wasm_exec.js (SHA-256 verified).
+Fixture: one-hour 48 kHz stereo repeated varied 16384-frame immutable block.
+All samples/hops processed. IncludeData false during running, true/final bytes retained.
+Count: Engine.Call JSON analysis.step calls, excluding two start/cancel control calls.
+Node/WASM runs Go engine under V8, not production browser JS bridge.
+Pitch separately opt-in and not measured here.
+
+Native budgeted (2 ms soft monotonic budget):
+statistics   4947355909 ns/op   2442 step-calls/op  max 2.749 ms mean 2.021 ms
+clipping     3492939172 ns/op   1722 step-calls/op  max 2.103 ms mean 2.021 ms
+spectrum        4047466 ns/op      2 step-calls/op  max 2.034 ms mean 1.825 ms
+spectrogram  4740419743 ns/op   2346 step-calls/op  max 2.786 ms mean 2.015 ms
+Completed PASS, 13.210 s.
+
+Native reference (fake clock advances one full budget per primitive unit):
+statistics   7408276968 ns/op 168786 step-calls/op  max 9.145 ms mean 0.03995 ms
+clipping     4680239571 ns/op 168751 step-calls/op  max 0.8961 ms mean 0.02403 ms
+spectrum        5823617 ns/op    130 step-calls/op  max 0.2078 ms mean 0.03600 ms
+spectrogram  8366774330 ns/op 337501 step-calls/op  max 6.097 ms mean 0.02040 ms
+Completed PASS, 20.491 s. Focused race/WASM tests overlapped initial reference
+execution; counts are exact, elapsed/max times are not isolated timing evidence.
+
+Node V8 / Go js-wasm budgeted:
+statistics  27478548736 ns/op  12226 step-calls/op  max 21.99 ms mean 2.177 ms
+clipping    13612936448 ns/op   6215 step-calls/op  max 5.065 ms mean 2.122 ms
+spectrum       21571840 ns/op      8 step-calls/op  max 2.244 ms mean 2.044 ms
+spectrogram 20756863744 ns/op   9402 step-calls/op  max 5.051 ms mean 2.129 ms
+Completed PASS, 62.117 s.
+
+Budget is soft: an indivisible work unit, JSON/binary output, runtime GC and
+host scheduling can exceed 2 ms. Observed 21.99 ms max is retained above.
+These measurements do not prove a hardware playback zero-underrun gate.
+
+Final focused native tests: PASS 0.318 s.
+Final focused native race tests: PASS 8.783 s.
+Final focused V8/WASM tests: PASS 1.194 s.
+Regex: TestAnalysis|Test.*Spectrum
+
+Native command:
+rtk proxy just --command env GOWORK=off AAE_ANALYSIS_HOUR_BENCHMARK=1 go -C packages/kernel test ./internal/engine -run '^$' -bench '^BenchmarkAnalysisOneHour$/(statistics|clipping|spectrum|spectrogram)/budgeted$' -benchtime=1x -timeout=15m
+Reference command changes final budgeted$ to reference$.
+
+WASM command:
+rtk proxy just --command env GOWORK=off GOOS=js GOARCH=wasm AAE_ANALYSIS_HOUR_BENCHMARK=1 go -C packages/kernel test ./internal/engine -run '^$' -bench '^BenchmarkAnalysisOneHour$/(statistics|clipping|spectrum|spectrogram)/budgeted$' -benchtime=1x -timeout=15m -exec='env -i AAE_ANALYSIS_HOUR_BENCHMARK=1 /home/cwbudde/.nvm/versions/node/v24.12.0/bin/node --stack-size=8192 /usr/local/go/lib/wasm/wasm_exec_node.js'

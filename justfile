@@ -182,6 +182,35 @@ bench-import-profile output_dir:
         -cpuprofile '{{output_dir}}/cpu.pprof' ./internal/engine
     go tool pprof -top '{{output_dir}}/engine.test' '{{output_dir}}/cpu.pprof'
 
+# Real one-hour 48 kHz stereo FLAC acceptance; run serially (~1.5 GiB retained).
+test-flac-hour:
+    cd {{kernel}} && AAE_LARGE_FILE_ACCEPTANCE=1 go test ./internal/engine -run '^TestFLACImportOneHour$' -count=1 -v -timeout=15m
+
+test-flac-hour-wasm:
+    cd {{kernel}} && GOOS=js GOARCH=wasm AAE_LARGE_FILE_ACCEPTANCE=1 go test \
+        -exec="env -i AAE_LARGE_FILE_ACCEPTANCE=1 $(command -v node) --stack-size=8192 $(go env GOROOT)/lib/wasm/wasm_exec_node.js" \
+        ./internal/engine -run '^TestFLACImportOneHour$' -count=1 -v -timeout=15m
+
+# Generate a compact real codec fixture outside the repository (output must not exist).
+flac-hour-fixture output:
+    [[ '{{output}}' == /* ]]
+    cd {{kernel}} && go run ./cmd/flac-fixture '{{output}}'
+
+# Full production browser import-to-painted-waveform acceptance, without a timing threshold.
+test-flac-hour-browser fixture: build
+    [[ '{{fixture}}' == /* && -f '{{fixture}}' ]]
+    AAE_HOUR_FLAC_FIXTURE='{{fixture}}' bun run --cwd {{web}} e2e e2e/flac-hour.spec.ts --workers=1
+
+# One-hour JSON analysis round-trip comparison (shared repeated source, no codec import).
+bench-analysis-hour:
+    cd {{kernel}} && AAE_ANALYSIS_HOUR_BENCHMARK=1 go test ./internal/engine -run '^$' \
+        -bench '^BenchmarkAnalysisOneHour$' -benchtime=1x -benchmem -timeout=30m
+
+bench-analysis-hour-wasm:
+    cd {{kernel}} && GOOS=js GOARCH=wasm AAE_ANALYSIS_HOUR_BENCHMARK=1 go test \
+        -exec="env -i AAE_ANALYSIS_HOUR_BENCHMARK=1 $(command -v node) --stack-size=8192 $(go env GOROOT)/lib/wasm/wasm_exec_node.js" \
+        ./internal/engine -run '^$' -bench '^BenchmarkAnalysisOneHour$' -benchtime=1x -benchmem -timeout=30m
+
 # ── Lint & format ────────────────────────────────────────────────────────────
 
 lint: lint-go lint-web

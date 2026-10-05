@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-05",
+  "baselineCommit": "c3d9180",
+  "runtime": "Linux amd64; Go 1.26.8 WASM in production Chromium",
+  "fixture": "Real 48 kHz stereo 24-bit FLAC, constant subframes changing at each 4096-frame boundary, full sample count and MD5",
+  "records": [
+    {
+      "measurement": "one-hour FLAC acceptance",
+      "info": {
+        "format": "flac",
+        "documentId": "doc-1",
+        "name": "aae-r5-one-hour.flac",
+        "sampleRate": 48000,
+        "channels": 2,
+        "frames": 172800000,
+        "bitDepth": 24,
+        "float": false
+      },
+      "history": {
+        "documentId": "doc-1",
+        "currentStateId": "state-1",
+        "savedStateId": "state-1",
+        "dirty": false,
+        "canUndo": false,
+        "canRedo": false,
+        "entries": [
+          {
+            "stateId": "state-1",
+            "label": "Opened"
+          }
+        ],
+        "maxEntries": 100,
+        "maxBytes": 3221225472,
+        "retainedBytes": 1406700032
+      },
+      "memory": {
+        "sampleBytes": 1382400000,
+        "peakBytes": 24300032,
+        "uniqueBlocks": 84376,
+        "blockReferences": 84376
+      },
+      "import": {
+        "bytes": 869076,
+        "startedAt": 530.8149999380112,
+        "endedAt": 12851.93499994278,
+        "rpcMs": 12321.120000004768
+      },
+      "importToPaintMs": 12519
+    },
+    {
+      "measurement": "one-hour browser analysis",
+      "kind": "statistics",
+      "elapsedMs": 13628.389999985695,
+      "processedFrames": 172800000,
+      "state": "ready",
+      "stepCalls": 6348,
+      "maxStepMs": 3.5199999809265137,
+      "meanStepMs": 2.124310806327897,
+      "mainWorkerRequests": 3
+    },
+    {
+      "measurement": "one-hour browser analysis",
+      "kind": "clipping",
+      "elapsedMs": 6798.569999933243,
+      "processedFrames": 172800000,
+      "state": "ready",
+      "stepCalls": 3215,
+      "maxStepMs": 2.6399999856948853,
+      "meanStepMs": 2.0918818048518704,
+      "mainWorkerRequests": 3
+    },
+    {
+      "measurement": "one-hour browser analysis",
+      "kind": "spectrum",
+      "elapsedMs": 9.629999995231628,
+      "processedFrames": 172800000,
+      "state": "ready",
+      "stepCalls": 4,
+      "maxStepMs": 2.375,
+      "meanStepMs": 2.145000010728836,
+      "mainWorkerRequests": 3
+    },
+    {
+      "measurement": "one-hour browser analysis",
+      "kind": "spectrogram",
+      "elapsedMs": 10909.639999985695,
+      "processedFrames": 172800000,
+      "state": "ready",
+      "stepCalls": 5095,
+      "maxStepMs": 2.65500009059906,
+      "meanStepMs": 2.1091570169113805,
+      "mainWorkerRequests": 3
+    }
+  ]
+}
