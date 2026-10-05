@@ -4,6 +4,7 @@
  * apps/editor-web/src/platform.ts; keep the two in sync.
  */
 import { contextBridge, ipcRenderer } from "electron";
+import type { DesktopBridge } from "../../editor-web/src/platform";
 
 function subscribe<T extends unknown[]>(channel: string, callback: (...args: T) => void) {
   const listener = (_event: unknown, ...args: unknown[]) => callback(...(args as T));
@@ -11,7 +12,7 @@ function subscribe<T extends unknown[]>(channel: string, callback: (...args: T) 
   return () => ipcRenderer.removeListener(channel, listener);
 }
 
-contextBridge.exposeInMainWorld("aaeDesktop", {
+const bridge = {
   openFile: () => ipcRenderer.invoke("files.open"),
   saveFile: (name: string, extensions: string[]) =>
     ipcRenderer.invoke("files.save", name, extensions),
@@ -45,4 +46,6 @@ contextBridge.exposeInMainWorld("aaeDesktop", {
     chrome: process.versions.chrome,
     node: process.versions.node,
   },
-});
+} satisfies DesktopBridge;
+
+contextBridge.exposeInMainWorld("aaeDesktop", bridge);

@@ -47,3 +47,4 @@ jobs:
       # Vitest extracts protocol wire names with the Go AST parser.
       - uses: ./.github/actions/setup
       - run: just test-web
+      - run: just test-desktop

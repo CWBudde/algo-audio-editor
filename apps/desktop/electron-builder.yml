@@ -5,11 +5,13 @@ directories:
   output: release
 files:
   - dist/**
+  - "!dist/harden-package.js"
   - package.json
 extraResources:
   - from: ../editor-web/dist
     to: web
 asar: true
+afterPack: dist/harden-package.js
 npmRebuild: false
 publish:
   provider: github

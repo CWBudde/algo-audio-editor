@@ -8,6 +8,7 @@
   "files": {
     "includes": [
       "**/*.ts",
+      "**/*.mts",
       "**/*.tsx",
       "**/*.json",
       "!**/public/**",

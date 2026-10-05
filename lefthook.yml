@@ -10,7 +10,7 @@ pre-commit:
     # biome quiet when every staged file is ignored. Use the workspace-pinned
     # binary (see treefmt.toml).
     - name: biome
-      glob: "*.{ts,tsx,json}"
+      glob: "*.{ts,mts,tsx,json}"
       run: node_modules/.bin/biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
 
     # packages/protocol is consumed by editor-web via a path alias, so a
@@ -22,7 +22,7 @@ pre-commit:
       run: bun run --cwd apps/editor-web typecheck
 
     - name: typecheck-desktop
-      glob: "apps/desktop/**/*.ts"
+      glob: "apps/desktop/**/*.{ts,mts}"
       run: bun run --cwd apps/desktop typecheck
 
     # With root set, {staged_files} is relative to packages/kernel.

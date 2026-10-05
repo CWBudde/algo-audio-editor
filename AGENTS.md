@@ -37,7 +37,8 @@ just dev            # build kernel.wasm, start Vite on :5173
 just native-build   # build native aae CLI and aae-mcp stdio server
 just desktop-dev    # production build in the Electron shell
 just desktop-hot    # Electron against the running `just dev` server
-just test           # Go tests + Vitest
+just test           # Go tests + web/desktop Vitest
+just test-desktop   # main-process policies and filesystem capabilities (Node)
 just test-go-wasm   # kernel tests under js/wasm in Node (bridge + golden vectors)
 just e2e            # Playwright against the production build
 just e2e-pages      # gzip/headerless Pages subpath, cold worker boot and fallback

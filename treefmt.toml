@@ -30,7 +30,7 @@ priority = 1
 [formatter.biome]
 command = "node_modules/.bin/biome"
 options = ["check", "--write", "--linter-enabled=false"]
-includes = ["*.ts", "*.tsx", "*.json"]
+includes = ["*.ts", "*.mts", "*.tsx", "*.json"]
 
 [formatter.shfmt]
 command = "shfmt"

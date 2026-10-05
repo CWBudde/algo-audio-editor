@@ -39,6 +39,14 @@ export function registerFiles(applicationURL: string) {
   const generations = new Map<number, number>();
   let pendingFolders = 0;
   const pending = new Map<number, NativeFile[]>();
+  const currentRequest = (win: BrowserWindow) => {
+    const owner = win.webContents.id;
+    const generation = generations.get(owner) ?? 0;
+    return () => {
+      if (win.isDestroyed() || (generations.get(owner) ?? 0) !== generation)
+        throw new Error("File request expired");
+    };
+  };
   const grant = (win: BrowserWindow, file: string, mode: Grant["mode"]): NativeFile => {
     if (grants.size >= 256) throw new Error("Too many pending file requests");
     const id = randomUUID();
@@ -127,6 +135,7 @@ export function registerFiles(applicationURL: string) {
   });
   ipcMain.handle("files.open", async (event) => {
     const win = trustedWindow(event, applicationURL);
+    const checkCurrent = currentRequest(win);
     const result = await dialog.showOpenDialog(win, {
       properties: ["openFile"],
       filters: [
@@ -136,10 +145,12 @@ export function registerFiles(applicationURL: string) {
     });
     if (result.canceled || !result.filePaths[0]) return null;
     const file = await realpath(result.filePaths[0]);
+    checkCurrent();
     return grant(win, file, "read");
   });
   ipcMain.handle("files.save", async (event, name: unknown, extensions: unknown) => {
     const win = trustedWindow(event, applicationURL);
+    const checkCurrent = currentRequest(win);
     if (
       typeof name !== "string" ||
       name.length > 255 ||
@@ -157,6 +168,7 @@ export function registerFiles(applicationURL: string) {
     if (result.canceled || !result.filePath) return null;
     if (!extensions.includes(path.extname(result.filePath).slice(1).toLowerCase()))
       throw new Error("Unsupported save extension");
+    checkCurrent();
     return grant(win, result.filePath, "write");
   });
   ipcMain.handle("files.read", async (event, id: unknown) => {
@@ -246,12 +258,14 @@ export function registerFiles(applicationURL: string) {
     win.on("closed", clear);
   };
   const enqueue = async (win: BrowserWindow, input: string) => {
+    const checkCurrent = currentRequest(win);
     if (!OPEN_EXTENSIONS.has(path.extname(input).slice(1).toLowerCase()))
       throw new Error("Unsupported audio extension");
     const file = await realpath(input);
     if (!OPEN_EXTENSIONS.has(path.extname(file).slice(1).toLowerCase()))
       throw new Error("Unsupported audio extension");
     if (win.isDestroyed()) return;
+    checkCurrent();
     const item = grant(win, file, "read");
     pending.set(win.webContents.id, [...(pending.get(win.webContents.id) ?? []), item]);
     win.webContents.send("files.pending");

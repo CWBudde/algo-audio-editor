@@ -77,7 +77,7 @@ desktop-package-dir: build desktop-build
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 
-test: test-go test-web
+test: test-go test-web test-desktop
 
 test-go:
     cd {{kernel}} && go test ./...
@@ -114,6 +114,10 @@ fuzz-export duration="10s":
 
 test-web:
     bun run --cwd {{web}} test
+
+# Main-process security and filesystem tests run without launching Electron.
+test-desktop:
+    bun run --cwd {{desktop}} test
 
 # Browser end-to-end tests against the production build (no hardware timing gates)
 e2e: build native-build
@@ -246,11 +250,11 @@ check-unreleased:
 # ── Aggregate ────────────────────────────────────────────────────────────────
 
 # Fast local gate: formatting, lint, unit tests and the production build.
-check: check-formatted lint test-go-race test-web check-tidy build
+check: check-formatted lint test-go-race test-web test-desktop check-tidy build
 
 # Electron e2e needs a display; headless, run `xvfb-run --auto-servernum just ci`.
 # Everything CI runs (.github/workflows/ci.yml and the test-*.yml it calls), in one recipe.
-ci: check-formatted lint test-go-race test-go-wasm fuzz-wav fuzz-codecs fuzz-export test-web check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
+ci: check-formatted lint test-go-race test-go-wasm fuzz-wav fuzz-codecs fuzz-export test-web test-desktop check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
 
 clean:
     rm -rf {{kernel}}/bin

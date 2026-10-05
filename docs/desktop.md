@@ -5,6 +5,25 @@ It serves `process.resourcesPath/web` in a packaged app and `editor-web/dist`
 in development. Both use `app://editor`, COOP/COEP and the production CSP.
 The renderer stays sandboxed with context isolation and no Node integration.
 
+Both Electron permission handlers deny requests by default. Only microphone audio
+from the configured application origin and its live top-level renderer is allowed;
+camera, display capture, subframes and foreign origins are denied. Development
+uses the exact `AAE_DEV_URL` origin. Recording UI remains a separate roadmap task.
+Navigation and redirects stay on the application origin. New windows are limited
+to the editor's extraction route; external opening accepts only the repository's
+Source and Plan links. Malformed or escaping `app://` paths receive an error
+response while valid resources retain the isolation and CSP headers.
+
+Packaging applies and reads back Electron V1 fuses before signing: Node mode,
+`NODE_OPTIONS` and Node inspector arguments are disabled; loading the application
+is restricted to ASAR. Embedded ASAR integrity validation is enabled, with
+enforcement on macOS and Windows. Linux does not implement embedded ASAR
+integrity validation; its packaged tests verify the other fuses and bundled
+application startup. Integrity covers the main/preload code in `app.asar`.
+The web/WASM bundle remains in `resources/web` outside that archive. These settings
+apply to installed binaries, leaving the development Electron executable available
+for tests.
+
 ## Native workflows
 
 `native-menu.ts` converts the shared command registry, including effect groups,
@@ -83,11 +102,20 @@ Optional packaged-runtime smoke test on Linux:
 just e2e-desktop-packaged
 ```
 
-`AAE_USER_DATA` selects a separate profile before the single-instance lock;
-the packaged smoke test also uses a temporary profile. The normal desktop suite uses isolated temporary profiles and native dialog
-stubs while testing real kernel imports, disk writes and command execution.
-The packaged smoke test verifies the ASAR preload, bundled web resources, WASM
-startup, cross-origin isolation and absence of renderer Node access.
+`AAE_USER_DATA` selects a separate development profile before the single-instance
+lock and is ignored in packaged builds, as is `AAE_DEV_URL`. The normal desktop
+suite uses isolated temporary profiles and native dialog stubs while testing real
+kernel imports, disk writes and command execution.
+The Linux packaged smoke test isolates the OS configuration directory and connects
+to the renderer over Chromium debugging: disabled Node inspector arguments prevent
+Playwright's usual main-process attachment. It verifies the binary's actual fuse
+values, ASAR preload, bundled web resources, WASM startup, cross-origin isolation
+and absence of renderer Node access.
+
+Main-process unit tests run with `just test-desktop` and are included in `just test`,
+`just check`, `just ci` and the reusable unit-test workflow. They exercise file
+capability ownership, bounded reads and atomic writes, shortcut routing, saved
+window validation, protocol handling and permission policies.
 
 ## Updates and publishing
 
@@ -124,6 +152,10 @@ still release acceptance work. No signed release or update installation was
 performed during Phase 9 implementation.
 
 Primary references: [Electron IPC security](https://www.electronjs.org/docs/latest/tutorial/security),
+[permission handlers](https://www.electronjs.org/docs/latest/api/session),
+[Electron fuses](https://github.com/electron/fuses),
+[package-time fuse configuration](https://www.electron.build/docs/tutorials/adding-electron-fuses/),
+[ASAR integrity platform support](https://www.electronjs.org/docs/latest/tutorial/asar-integrity),
 [OS recent-document support](https://www.electronjs.org/docs/latest/tutorial/recent-documents),
 [electron-builder configuration](https://www.electron.build/v26/docs/configuration/),
 [updater targets and signing requirements](https://www.electron.build/v26/docs/features/auto-update/).

@@ -32,7 +32,16 @@ export async function loadWindowState(): Promise<WindowState> {
           (state.y ?? 0) >= r.y &&
           (state.y ?? 0) < r.y + r.height - 100,
       );
-    return visible ? { ...state, maximized: state.maximized === true } : fallback;
+    // Persisted JSON is not a source of BrowserWindow options.
+    return visible
+      ? {
+          x: state.x,
+          y: state.y,
+          width: state.width,
+          height: state.height,
+          maximized: state.maximized === true,
+        }
+      : fallback;
   } catch {
     return fallback;
   }

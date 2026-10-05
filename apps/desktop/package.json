@@ -5,19 +5,22 @@
   "description": "Electron shell for algo-audio-editor",
   "main": "dist/main.js",
   "scripts": {
-    "build": "bun build src/main.ts src/preload.ts --target=node --format=cjs --external electron --external electron-updater --outdir dist",
+    "build": "bun build src/main.ts src/preload.ts --target=node --format=cjs --external electron --external electron-updater --outdir dist && bun build src/harden-package.ts --target=node --format=cjs --external @electron/fuses --outfile dist/harden-package.js",
     "start": "electron .",
     "typecheck": "tsc --noEmit",
     "e2e": "playwright test",
     "install-electron": "install-electron",
-    "package": "electron-builder --config electron-builder.yml --publish never"
+    "package": "electron-builder --config electron-builder.yml --publish never",
+    "test": "vitest run --maxWorkers=2"
   },
   "devDependencies": {
+    "@electron/fuses": "^2.1.3",
     "@playwright/test": "^1.63.0",
     "@types/node": "^24",
     "electron": "^44.5.1",
     "electron-builder": "^26.15.3",
-    "typescript": "~6.0.2"
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.3"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"

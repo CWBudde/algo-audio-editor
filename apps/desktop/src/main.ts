@@ -7,13 +7,20 @@
  * playback ring buffer), and only a protocol handler can attach the required
  * COOP/COEP headers.
  */
-import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { app, BrowserWindow, dialog, protocol, shell } from "electron";
+import { app, BrowserWindow, dialog, protocol, session, shell } from "electron";
+
+import { appResponse } from "./app-protocol";
 
 import { registerDesktop } from "./desktop";
 import { registerEffectPresets } from "./effect-presets";
 import { OPEN_EXTENSIONS, registerFiles } from "./files";
+import {
+  allowedExternalURL,
+  isExtractionURL,
+  registerPermissions,
+  sameApplication,
+} from "./security";
 import { registerUpdates } from "./updates";
 import { loadWindowState, persistWindowState } from "./window-state";
 
@@ -23,8 +30,9 @@ const APP_URL = `${SCHEME}://${HOST}/index.html`;
 
 /** Set to the Vite dev server URL to develop against hot reload instead of dist. */
 const DEV_URL = app.isPackaged ? undefined : process.env.AAE_DEV_URL;
-// An optional separate profile also isolates packaged-runtime tests.
-if (process.env.AAE_USER_DATA) app.setPath("userData", process.env.AAE_USER_DATA);
+// Development and unpackaged tests may use a separate profile. Production ignores it.
+if (!app.isPackaged && process.env.AAE_USER_DATA)
+  app.setPath("userData", process.env.AAE_USER_DATA);
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 const initialFiles: string[] = [];
@@ -85,35 +93,6 @@ const WEB_ROOT = app.isPackaged
 const PRELOAD = path.join(app.getAppPath(), "dist", "preload.js");
 const APP_ICON = path.join(WEB_ROOT, "app-icon.png");
 
-/**
- * Production CSP. 'wasm-unsafe-eval' is what WebAssembly compilation needs;
- * inline styles come from the toast and slider components.
- */
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval'",
-  "worker-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
-  "font-src 'self'",
-  "connect-src 'self'",
-  "object-src 'none'",
-  "base-uri 'none'",
-].join("; ");
-
-const MIME: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".mjs": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json",
-  ".wasm": "application/wasm",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-  ".woff2": "font/woff2",
-};
-
 protocol.registerSchemesAsPrivileged([
   {
     scheme: SCHEME,
@@ -129,30 +108,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 function registerAppProtocol() {
-  protocol.handle(SCHEME, async (request) => {
-    const url = new URL(request.url);
-    if (url.host !== HOST) return new Response("not found", { status: 404 });
-
-    const relative = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
-    const file = path.normalize(path.join(WEB_ROOT, relative));
-    if (!file.startsWith(WEB_ROOT + path.sep)) {
-      return new Response("forbidden", { status: 403 });
-    }
-
-    try {
-      const body = await readFile(file);
-      return new Response(body, {
-        headers: {
-          "Content-Type": MIME[path.extname(file)] ?? "application/octet-stream",
-          "Cross-Origin-Opener-Policy": "same-origin",
-          "Cross-Origin-Embedder-Policy": "require-corp",
-          "Content-Security-Policy": CSP,
-        },
-      });
-    } catch {
-      return new Response("not found", { status: 404 });
-    }
-  });
+  protocol.handle(SCHEME, (request) => appResponse(request.url, WEB_ROOT));
 }
 
 let openingWindow: Promise<BrowserWindow> | undefined;
@@ -207,19 +163,15 @@ function attachWindow(win: BrowserWindow, persist = false) {
 }
 
 function secureWindow(win: BrowserWindow) {
-  const application = new URL(DEV_URL ?? APP_URL);
-  const sameApplication = (url: URL) =>
-    url.protocol === application.protocol && url.host === application.host;
-  win.webContents.on("will-navigate", (event, target) => {
-    if (!sameApplication(new URL(target))) event.preventDefault();
+  const applicationURL = DEV_URL ?? APP_URL;
+  win.webContents.on("will-navigate", (event) => {
+    if (!sameApplication(event.url, applicationURL)) event.preventDefault();
+  });
+  win.webContents.on("will-redirect", (event) => {
+    if (!sameApplication(event.url, applicationURL)) event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
-    const target = new URL(url);
-    if (
-      sameApplication(target) &&
-      target.pathname === application.pathname &&
-      /^[0-9a-f-]{36}$/i.test(target.searchParams.get("extract") ?? "")
-    ) {
+    if (isExtractionURL(url, applicationURL)) {
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
@@ -238,7 +190,8 @@ function secureWindow(win: BrowserWindow) {
         },
       };
     }
-    if (url.startsWith("https:")) void shell.openExternal(url);
+    const external = allowedExternalURL(url);
+    if (external) void shell.openExternal(external).catch(() => {});
     return { action: "deny" };
   });
   win.webContents.on("did-create-window", (child) => {
@@ -252,6 +205,7 @@ if (singleInstance) {
     .whenReady()
     .then(async () => {
       if (!app.isPackaged) app.dock?.setIcon(APP_ICON);
+      registerPermissions(session.defaultSession, DEV_URL ?? APP_URL);
       registerAppProtocol();
       registerEffectPresets(DEV_URL ?? APP_URL);
       files = registerFiles(DEV_URL ?? APP_URL);

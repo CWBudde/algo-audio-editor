@@ -28,7 +28,7 @@
 
 Completed implementation is summarized below. Unfinished acceptance, platform and feature work has moved to explicit follow-up phases; **COMPLETE applies to the scope stated in each summary**, not to its follow-up. Open requirements and partial-progress evidence are retained. Detailed completed-phase history is available in Git at `9de516f:PLAN.md`; old test counts and dependency versions describe those historical runs, not the current build.
 
-**Next review work:** R.9–R.10; R.1 still has CI/lint follow-ups. Feature phases remain separately schedulable, with Electron permission hardening in R.9 required before recording.
+**Next review work:** R.10; R.1 still has CI/lint follow-ups. Feature phases remain separately schedulable; R.9 has delivered the Electron permission prerequisite for recording.
 
 | Previous location | Remaining work | New location |
 | --- | --- | --- |
@@ -154,6 +154,12 @@ Phase IDs 0–14 and U remain as historical implementation references. Review ID
 - [x] Focusable, labeled waveform groups in `waveform-view.tsx` expose Left/Right cursor movement, stable Shift selection anchors and Home/End jumps. `use-waveform-keyboard.ts` preserves channel masks, reveals the moving endpoint and fences modifiers, composition, busy states and pointer previews; geometry/component and production browser/Electron regressions cover crossings, bounds, shortcut ownership and unchanged audio/history.
 - [x] Selection edges are labeled horizontal sliders with exact frame/second values, allowed bounds, Shift acceleration and one-/ten-second Page steps. Handles retain focus at collapsed ranges; `use-keyboard-selection.ts` coalesces selection/seek writes for 80 ms and flushes on keyup/blur. Live selection/preview ownership guards prevent stale document, session, pointer and numeric updates; fake-timer/deferred-reply and actual shell tests pass. Controls are documented in README.
 - [x] Frontend unit checks, web/desktop lint and type checks, formatting, production size budgets, all 149 Chromium cases and eight focused Electron cases pass. Kernel ABI 18 is unchanged; full CI and hardware timing gates were not run for this frontend change.
+
+### R.9: Electron hardening — COMPLETE (2026-10-05)
+
+- [x] `harden-package.ts` applies and reads back all nine Electron V1 fuses in `afterPack` before signing: Node mode/environment/inspector disabled, ASAR-only loading and embedded integrity enabled. Hook regressions reject missing ASAR, disabled integrity, mismatched bits and new fuses; the actual Linux package starts with attempted Node injections ignored. Embedded integrity enforcement is macOS/Windows only; installed platform acceptance remains Phase 19.
+- [x] `security.ts` installs both deny-default permission handlers, allowing only audio-only microphone access from the configured app origin and live main frame. Exact external links/extraction routes and navigation/redirect guards, defensive `app-protocol.ts` decoding, `satisfies DesktopBridge` preload and packaged environment fences have unit and real Electron regressions. `security.spec.ts` verifies microphone/camera/notification behavior, malformed paths, blocked external navigation and an actual HTTP redirect.
+- [x] File capability, symlink/1 GiB, quota, shortcut and saved-window regressions run through `just test-desktop` and CI. Delayed open/save/launch grants expire across navigation/close; window JSON restores only approved geometry. Web/desktop unit checks, lint/type/format/workflow checks, production budgets, all 24 development Electron cases and the hardened Linux packaged smoke pass. Kernel ABI 18 is unchanged; full CI and installed macOS/Windows acceptance were not run.
 
 ---
 
@@ -400,7 +406,7 @@ Phase IDs 0–14 and U remain as historical implementation references. Review ID
 
 ## Phase R: Review Remediation (2026-10-04)
 
-**Source:** the full-repo review in [docs/REVIEW-2026-10-04.md](docs/REVIEW-2026-10-04.md) (overall 5.5/10, CI/CD 2/10). Findings, severities and `file:line` evidence live there; each item here is one actionable line. Keep the review IDs stable. R.1 established working CI, but its remaining lint/flake tasks stay open; R.9–R.10 are next. Completed R.2–R.8 are summarized above.
+**Source:** the full-repo review in [docs/REVIEW-2026-10-04.md](docs/REVIEW-2026-10-04.md) (overall 5.5/10, CI/CD 2/10). Findings, severities and `file:line` evidence live there; each item here is one actionable line. Keep the review IDs stable. R.1 established working CI, but its remaining lint/flake tasks stay open; R.10 is next. Completed R.2–R.9 are summarized above.
 
 ### R.1 Make CI truthful (critical) — PARTIAL
 
@@ -424,18 +430,6 @@ Phase IDs 0–14 and U remain as historical implementation references. Review ID
 - [ ] Investigate the historical short-file EOF/device-clock snapshot concern from Phase 3.3: one parallel browser run reported frame 13 instead of 31; both the initial parallel and final serial 101-case sweeps passed the original assertions. The tentative snapshot-race explanation was not confirmed because the trace was cleaned. Product cursor code/assertions were unchanged; historical logs were `/tmp/phase33-browser.log` and `/tmp/phase33-transport.log` (temporary paths, not durable artifacts).
 
 ---
-
-### R.9 Electron hardening
-
-- [ ] Fuses via `@electron/fuses` at package time: RunAsNode off, `NODE_OPTIONS` off, inspect args off, embedded ASAR integrity on
-- [ ] `session.setPermissionRequestHandler` and `setPermissionCheckHandler`: deny by default, and allow the microphone only for the app origin (needed before Phase 7)
-- [ ] Protocol handler and preload:
-  - wrap `decodeURIComponent` in the `try` (`main.ts:136`)
-  - type the preload with `satisfies DesktopBridge`
-  - an external-URL allowlist
-  - a `will-redirect` guard
-  - ignore `AAE_USER_DATA` in packaged builds
-- [ ] Unit tests for `files.ts` (capability ids, symlink and size rejection), `shortcuts.ts` and the window-state validation
 
 ### R.10 Docs and process
 
