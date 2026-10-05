@@ -6,9 +6,19 @@ import (
 	"math"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
+
+func analysisTestClock(tick time.Duration) func() time.Time {
+	clock := time.Unix(0, 0)
+	return func() time.Time {
+		result := clock
+		clock = clock.Add(tick)
+		return result
+	}
+}
 
 func finishAnalysis(t *testing.T, e *Engine, r protocol.AnalysisJobResult) (protocol.AnalysisJobResult, []byte) {
 	t.Helper()
@@ -31,7 +41,7 @@ func finishAnalysis(t *testing.T, e *Engine, r protocol.AnalysisJobResult) (prot
 }
 
 func analysisParams(e *Engine, kind string, start, end int64, mask int) protocol.AnalysisStartParams {
-	return protocol.AnalysisStartParams{SelectionResult: protocol.SelectionResult{DocumentID: e.editor.documentID, SelectionRange: protocol.SelectionRange{Start: start, End: end, ChannelMask: mask}}, Kind: kind}
+	return protocol.AnalysisStartParams{SelectionResult: protocol.SelectionResult{DocumentID: e.doc.editor.documentID, SelectionRange: protocol.SelectionRange{Start: start, End: end, ChannelMask: mask}}, Kind: protocol.AnalysisKind(kind)}
 }
 
 func TestAnalysisStatisticsSelectionFiniteOwnershipAndCancellation(t *testing.T) {
@@ -55,7 +65,7 @@ func TestAnalysisStatisticsSelectionFiniteOwnershipAndCancellation(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = e.dispatchAnalysis(protocol.MethodAnalysisStep, []byte(mustJSON(t, protocol.AnalysisJobParams{DocumentID: r.DocumentID, JobID: r.JobID}))); err == nil || e.analysisJob != nil {
+	if _, err = e.dispatchAnalysis(protocol.MethodAnalysisStep, []byte(mustJSON(t, protocol.AnalysisJobParams{DocumentID: r.DocumentID, JobID: r.JobID}))); err == nil || e.analysis.analysisJob != nil {
 		t.Fatal("included nonfinite must reject and release", err)
 	}
 	p = analysisParams(e, "pitch", 1, 5, 2)
@@ -111,19 +121,19 @@ func TestAnalysisClippingBoundaryUnionSingleUndoAndStaleCommit(t *testing.T) {
 	if !reflect.DeepEqual(input, editSamples(t, e)) {
 		t.Fatal("clipping changed samples")
 	}
-	if _, err = e.navigateHistory(protocol.MethodEditUndo, e.editor.documentID, ""); err != nil {
+	if _, err = e.navigateHistory(protocol.MethodEditUndo, e.doc.editor.documentID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(before.Timeline.Markers, e.editResult(false).Timeline.Markers) {
 		t.Fatal("undo markers")
 	}
-	p.DocumentID = e.editor.documentID
+	p.DocumentID = e.doc.editor.documentID
 	r, err = e.startAnalysis(p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	r, _ = finishAnalysis(t, e, r)
-	if _, err = e.navigateHistory(protocol.MethodEditRedo, e.editor.documentID, ""); err != nil {
+	if _, err = e.navigateHistory(protocol.MethodEditRedo, e.doc.editor.documentID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = e.dispatchAnalysis(protocol.MethodAnalysisCommit, []byte(mustJSON(t, protocol.AnalysisJobParams{DocumentID: r.DocumentID, JobID: r.JobID}))); err == nil {
@@ -199,6 +209,7 @@ func TestAnalysisPitchCooperativeTracks440HzAndCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	initial := r
+	e.analysis.analysisJob.now = analysisTestClock(analysisStepBudget)
 	value, err := e.dispatchAnalysis(protocol.MethodAnalysisStep, []byte(mustJSON(t, protocol.AnalysisJobParams{DocumentID: r.DocumentID, JobID: r.JobID})))
 	if err != nil {
 		t.Fatal(err)
@@ -207,6 +218,7 @@ func TestAnalysisPitchCooperativeTracks440HzAndCancel(t *testing.T) {
 	if r.ProcessedFrames != initial.ProcessedFrames || r.Records != 0 {
 		t.Fatal("pitch did not yield within first frame")
 	}
+	e.analysis.analysisJob.now = nil
 	r, data := finishAnalysis(t, e, r)
 	if r.Records != 6 || len(data) != 6*32 {
 		t.Fatal(r, len(data))
@@ -240,6 +252,9 @@ func TestAnalysisPitchStepBudgetBoundsRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Deterministically spend 64 small YIN units per bridge call. The real
+	// clock chooses the count by elapsed time, without changing DSP work.
+	e.analysis.analysisJob.now = analysisTestClock(analysisStepBudget / 64)
 	steps := 0
 	for ; steps < 20000 && r.State != "ready"; steps++ {
 		value, err := e.dispatchAnalysis(protocol.MethodAnalysisStep, []byte(mustJSON(t, protocol.AnalysisJobParams{DocumentID: r.DocumentID, JobID: r.JobID})))
@@ -271,6 +286,7 @@ func TestAnalysisSpectrogramAllHopsProgressCacheAndTilePartition(t *testing.T) {
 		t.Fatal(err)
 	}
 	partials := 0
+	e.analysis.analysisJob.now = analysisTestClock(analysisStepBudget)
 	for r.State != "ready" {
 		v, err := e.dispatchAnalysis(protocol.MethodAnalysisStep, []byte(mustJSON(t, protocol.AnalysisJobParams{DocumentID: r.DocumentID, JobID: r.JobID})))
 		if err != nil {
@@ -288,7 +304,7 @@ func TestAnalysisSpectrogramAllHopsProgressCacheAndTilePartition(t *testing.T) {
 	if partials < 2 {
 		t.Fatal("not progressive")
 	}
-	full := append([]byte(nil), e.analysisJob.data...)
+	full := append([]byte(nil), e.analysis.analysisJob.data...)
 	visible := false
 	for row := range 64 {
 		visible = visible || full[row*8] > 0
@@ -398,7 +414,7 @@ func TestAnalysisValidationPublicEnvelopeAndNoStaleBinary(t *testing.T) {
 		{Kind: "spectrogram", Width: 1, Height: 1, MinDB: 10, MaxDB: 0},
 		{Kind: "clipping", Threshold: math.NaN()},
 	} {
-		p.SelectionResult = protocol.SelectionResult{DocumentID: e.editor.documentID, SelectionRange: protocol.SelectionRange{End: 256, ChannelMask: 1}}
+		p.SelectionResult = protocol.SelectionResult{DocumentID: e.doc.editor.documentID, SelectionRange: protocol.SelectionRange{End: 256, ChannelMask: 1}}
 		if _, err := e.startAnalysis(p); err == nil {
 			t.Fatal("invalid params", p)
 		}

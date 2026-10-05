@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"time"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
@@ -19,11 +20,10 @@ import (
 
 const (
 	analysisBlockFrames = 1024
-	// pitchStepWork bounds the YIN work units of one analysis.step: a few
-	// milliseconds in WASM, instead of one bridge round trip per 4096 units.
-	pitchStepWork = 1 << 18
-	// pitchJobStepLimit is the largest budget pitch.YINJob.Step accepts.
-	pitchJobStepLimit   = 1 << 16
+	// Preview playback has about 5 ms of refill headroom at 48 kHz. Leave room
+	// for one indivisible unit, output copying and the worker's next refill.
+	analysisStepBudget  = 2 * time.Millisecond
+	pitchUnitWork       = 1 << 12
 	analysisOutputLimit = 16 << 20
 	analysisCacheBytes  = 8 << 20
 )
@@ -58,94 +58,16 @@ type analysisJob struct {
 	encodedChannels int
 	data            []byte
 	cacheKey        string
-}
-
-func (e *Engine) dispatchAnalysis(method string, payload []byte) (any, error) {
-	if method == protocol.MethodAnalysisStart {
-		var p protocol.AnalysisStartParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.startAnalysis(p)
-	}
-	if method == protocol.MethodAnalysisSpectrum {
-		var p protocol.AnalysisSpectrumParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.playbackSpectrum(p)
-	}
-	var p protocol.AnalysisJobParams
-	if err := decode(method, payload, &p); err != nil {
-		return nil, err
-	}
-	if method == protocol.MethodAnalysisCancel && e.cancelledAnalysis != nil && e.cancelledAnalysis.JobID == p.JobID && e.cancelledAnalysis.DocumentID == p.DocumentID {
-		return *e.cancelledAnalysis, nil
-	}
-	if method == protocol.MethodAnalysisCancel {
-		if job := e.analysisJob; job != nil && job.result.JobID == p.JobID && job.result.DocumentID == p.DocumentID {
-			result := job.result
-			result.State = "cancelled"
-			result.DataBytes = 0
-			e.analysisJob = nil
-			e.cancelledAnalysis = &result
-			return result, nil
-		}
-		if job := e.spectrumJob; job != nil && job.result.JobID == p.JobID && job.documentID == p.DocumentID {
-			result := protocol.AnalysisJobResult{SelectionResult: protocol.SelectionResult{DocumentID: p.DocumentID}, JobID: p.JobID, Kind: "spectrum", State: "cancelled", SampleRate: int(job.result.SampleRate), Channels: make([]int, job.result.Channels)}
-			for c := range result.Channels {
-				result.Channels[c] = c
-			}
-			e.spectrumJob = nil
-			e.cancelledAnalysis = &result
-			return result, nil
-		}
-	}
-	job, err := e.activeAnalysis(method, p)
-	if err != nil {
-		return nil, err
-	}
-	switch method {
-	case protocol.MethodAnalysisCancel:
-		result := job.result
-		result.State = "cancelled"
-		result.DataBytes = 0
-		e.analysisJob = nil
-		e.cancelledAnalysis = &result
-		return result, nil
-	case protocol.MethodAnalysisCommit:
-		return e.commitAnalysis(job)
-	default:
-		if job.result.State != "ready" {
-			job.result.DataBytes = 0
-			if err := job.step(); err != nil {
-				e.analysisJob = nil
-				return nil, fmt.Errorf("%s: %w", method, err)
-			}
-		}
-		result := job.result
-		if result.State != "ready" && p.IncludeData != nil {
-			result.DataBytes = 0
-			if *p.IncludeData && result.Kind == "spectrogram" && result.CompletedColumns > 0 {
-				result.DataBytes = len(job.data)
-			}
-		}
-		if result.DataBytes > 0 {
-			e.bulkData = append([]byte(nil), job.data...)
-			if job.cacheKey != "" && job.result.State == "ready" {
-				e.cacheAnalysisTile(job)
-			}
-		}
-		return result, nil
-	}
+	// nil selects time.Now. Tests inject a monotonic clock to control yields.
+	now func() time.Time
 }
 
 func (e *Engine) activeAnalysis(method string, p protocol.AnalysisJobParams) (*analysisJob, error) {
 	if err := e.validateDocumentID(method, p.DocumentID); err != nil {
 		return nil, err
 	}
-	job := e.analysisJob
-	if job == nil || p.JobID == "" || job.result.JobID != p.JobID || e.history == nil || job.stateID != e.history.CurrentID() {
+	job := e.analysis.analysisJob
+	if job == nil || p.JobID == "" || job.result.JobID != p.JobID || e.historyState.history == nil || job.stateID != e.historyState.history.CurrentID() {
 		return nil, fmt.Errorf("%s: stale analysis job", method)
 	}
 	return job, nil
@@ -156,10 +78,10 @@ func (e *Engine) startAnalysis(p protocol.AnalysisStartParams) (protocol.Analysi
 	if err := e.validateDocumentID(method, p.DocumentID); err != nil {
 		return protocol.AnalysisJobResult{}, err
 	}
-	if e.history == nil {
+	if e.historyState.history == nil {
 		return protocol.AnalysisJobResult{}, fmt.Errorf("%s: analysis history unavailable", method)
 	}
-	if e.analysisJob != nil && (e.analysisJob.result.State == "running" || e.analysisJob.result.Kind == "clipping") && e.analysisJob.stateID == e.history.CurrentID() && e.analysisJob.result.DocumentID == p.DocumentID {
+	if e.analysis.analysisJob != nil && (e.analysis.analysisJob.result.State == protocol.JobRunning || e.analysis.analysisJob.result.Kind == protocol.AnalysisClipping) && e.analysis.analysisJob.stateID == e.historyState.history.CurrentID() && e.analysis.analysisJob.result.DocumentID == p.DocumentID {
 		return protocol.AnalysisJobResult{}, fmt.Errorf("%s: analysis job is already active", method)
 	}
 	if err := e.validateEditorRange(method, p.Start, p.End); err != nil {
@@ -170,28 +92,28 @@ func (e *Engine) startAnalysis(p protocol.AnalysisStartParams) (protocol.Analysi
 	}
 	if p.Start == p.End {
 		p.Start = 0
-		p.End = e.document.Frames()
+		p.End = e.doc.document.Frames()
 	}
 	if p.End <= p.Start {
 		return protocol.AnalysisJobResult{}, fmt.Errorf("%s: document is empty", method)
 	}
-	if e.analysisSequence == math.MaxUint64 {
+	if e.analysis.analysisSequence == math.MaxUint64 {
 		return protocol.AnalysisJobResult{}, fmt.Errorf("%s: analysis history or identity unavailable", method)
 	}
-	if p.Kind != "statistics" && p.Kind != "clipping" && p.Kind != "pitch" && p.Kind != "spectrum" && p.Kind != "spectrogram" {
+	if p.Kind != protocol.AnalysisStatistics && p.Kind != protocol.AnalysisClipping && p.Kind != protocol.AnalysisPitch && p.Kind != protocol.AnalysisSpectrum && p.Kind != protocol.AnalysisSpectrogram {
 		return protocol.AnalysisJobResult{}, fmt.Errorf("%s: unknown analysis kind", method)
 	}
-	job := &analysisJob{params: p, document: e.document, stateID: e.history.CurrentID(), position: p.Start, result: protocol.AnalysisJobResult{SelectionResult: p.SelectionResult, Kind: p.Kind, State: "running", TotalFrames: p.End - p.Start, SampleRate: e.document.SampleRate(), Channels: make([]int, 0)}}
-	for c := range e.document.Channels() {
+	job := &analysisJob{params: p, document: e.doc.document, stateID: e.historyState.history.CurrentID(), position: p.Start, result: protocol.AnalysisJobResult{SelectionResult: p.SelectionResult, Kind: p.Kind, State: protocol.JobRunning, TotalFrames: p.End - p.Start, SampleRate: e.doc.document.SampleRate(), Channels: make([]int, 0)}}
+	for c := range e.doc.document.Channels() {
 		if p.ChannelMask&(1<<c) != 0 {
-			channel, _ := e.document.Channel(c)
+			channel, _ := e.doc.document.Channel(c)
 			job.channels = append(job.channels, channel)
 			job.result.Channels = append(job.result.Channels, c)
 		}
 	}
 	var err error
 	switch p.Kind {
-	case "statistics", "clipping":
+	case protocol.AnalysisStatistics, protocol.AnalysisClipping:
 		job.planar = make([][]float64, len(job.channels))
 		job.statistics = make([]*timestats.Accumulator, len(job.channels))
 		if p.Threshold == 0 {
@@ -207,8 +129,8 @@ func (e *Engine) startAnalysis(p protocol.AnalysisStartParams) (protocol.Analysi
 				return protocol.AnalysisJobResult{}, err
 			}
 		}
-		if p.Kind == "statistics" {
-			weights, weightErr := loudness.BS1770ChannelWeights(e.document.Channels(), job.result.Channels)
+		if p.Kind == protocol.AnalysisStatistics {
+			weights, weightErr := loudness.BS1770ChannelWeights(e.doc.document.Channels(), job.result.Channels)
 			if weightErr != nil {
 				return protocol.AnalysisJobResult{}, fmt.Errorf("%s: channel weights: %w", method, weightErr)
 			}
@@ -228,7 +150,7 @@ func (e *Engine) startAnalysis(p protocol.AnalysisStartParams) (protocol.Analysi
 				}
 			}
 		}
-	case "pitch":
+	case protocol.AnalysisPitch:
 		if p.MinHz == 0 {
 			p.MinHz = 60
 		}
@@ -257,14 +179,14 @@ func (e *Engine) startAnalysis(p protocol.AnalysisStartParams) (protocol.Analysi
 			job.planar = [][]float64{make([]float64, job.pitch.FrameSize())}
 			job.data = make([]byte, 0, int(count)*len(job.channels)*32)
 		}
-	case "spectrum", "spectrogram":
+	case protocol.AnalysisSpectrum, protocol.AnalysisSpectrogram:
 		job.spectrum, err = newSpectrumAnalysis(float64(job.result.SampleRate), len(job.channels), p.FFTSize, p.Window, p.Averaging, p.Smoothing)
 		if err == nil {
 			p.FFTSize = job.spectrum.transform.NFFT()
 			job.result.FFTSize = p.FFTSize
 			job.result.Bins = job.spectrum.transform.Bins()
-			if p.Kind == "spectrogram" {
-				if p.Width < 1 || p.Width > 128 || p.Height < 1 || p.Height > 512 || p.Channel < 0 || p.Channel >= e.document.Channels() || p.ChannelMask&(1<<p.Channel) == 0 {
+			if p.Kind == protocol.AnalysisSpectrogram {
+				if p.Width < 1 || p.Width > 128 || p.Height < 1 || p.Height > 512 || p.Channel < 0 || p.Channel >= e.doc.document.Channels() || p.ChannelMask&(1<<p.Channel) == 0 {
 					return protocol.AnalysisJobResult{}, fmt.Errorf("%s: invalid bounded tile dimensions or channel", method)
 				}
 				if p.MinDB == 0 && p.MaxDB == 0 {
@@ -296,13 +218,13 @@ func (e *Engine) startAnalysis(p protocol.AnalysisStartParams) (protocol.Analysi
 		return protocol.AnalysisJobResult{}, fmt.Errorf("%s: prepare: %w", method, err)
 	}
 	job.params = p
-	e.analysisSequence++
-	job.result.JobID = fmt.Sprintf("analysis-%d", e.analysisSequence)
+	e.analysis.analysisSequence++
+	job.result.JobID = fmt.Sprintf("analysis-%d", e.analysis.analysisSequence)
 	if job.cacheKey != "" {
-		for _, cached := range e.analysisCache {
+		for _, cached := range e.analysis.analysisCache {
 			if cached.key == job.cacheKey {
 				job.data = append([]byte(nil), cached.data...)
-				job.result.State = "ready"
+				job.result.State = protocol.JobReady
 				job.result.ProcessedFrames = job.result.TotalFrames
 				job.result.CompletedColumns = p.Width
 				job.result.DataBytes = len(job.data)
@@ -311,16 +233,42 @@ func (e *Engine) startAnalysis(p protocol.AnalysisStartParams) (protocol.Analysi
 			}
 		}
 	}
-	e.analysisJob = job
-	e.cancelledAnalysis = nil
+	e.analysis.analysisJob = job
+	e.analysis.cancelledAnalysis = nil
 	return job.result, nil
 }
 
 func (job *analysisJob) step() error {
+	return runAnalysisBudget(job.now, func() (bool, error) {
+		err := job.stepUnit()
+		return job.result.State == protocol.JobReady, err
+	})
+}
+
+// runAnalysisBudget is a soft deadline: a call always advances one bounded
+// unit, then yields after the deadline, completion or an error. Clock readings
+// never affect DSP ordering or the resulting samples/statistics.
+func runAnalysisBudget(now func() time.Time, unit func() (bool, error)) error {
+	if now == nil {
+		now = time.Now
+	}
+	deadline := now().Add(analysisStepBudget)
+	for {
+		done, err := unit()
+		if err != nil || done {
+			return err
+		}
+		if !now().Before(deadline) {
+			return nil
+		}
+	}
+}
+
+func (job *analysisJob) stepUnit() error {
 	switch job.result.Kind {
-	case "statistics", "clipping":
+	case protocol.AnalysisStatistics, protocol.AnalysisClipping:
 		return job.stepStatistics()
-	case "pitch":
+	case protocol.AnalysisPitch:
 		return job.stepPitch()
 	default:
 		return job.stepSpectrum()
@@ -383,7 +331,7 @@ func (job *analysisJob) stepStatistics() error {
 	}
 	job.mergeClips()
 	job.result.MarkerCount = len(job.clipRuns)
-	job.result.State = "ready"
+	job.result.State = protocol.JobReady
 	return nil
 }
 
@@ -419,7 +367,7 @@ func (job *analysisJob) readWindow(channel int, center int64, input []float64) e
 	start := center - int64(len(input)/2)
 	end := start + int64(len(input))
 	lower, upper := job.params.Start, job.params.End
-	if job.result.Kind == "spectrogram" {
+	if job.result.Kind == protocol.AnalysisSpectrogram {
 		lower = 0
 		upper = job.document.Frames()
 	}
@@ -439,58 +387,53 @@ func (job *analysisJob) readWindow(channel int, center int64, input []float64) e
 	return nil
 }
 
-// stepPitch spends up to pitchStepWork YIN work units per analysis.step,
-// finishing as many frames as fit. A default-range frame needs more than the
-// budget, so a step still yields inside a frame.
+// stepPitch advances one resumable YIN unit. The outer time budget batches
+// these units without requiring a bridge round trip for each one.
 func (job *analysisJob) stepPitch() error {
-	for budget := pitchStepWork; budget > 0; {
-		if job.position >= job.params.End {
-			job.result.State = "ready"
-			job.result.DataBytes = len(job.data)
-			return nil
-		}
-		if !job.pitchStarted {
-			if err := job.readWindow(job.packed, job.position, job.planar[0]); err != nil {
-				return err
-			}
-			if err := job.pitchJob.Begin(job.planar[0]); err != nil {
-				return err
-			}
-			job.pitchStarted = true
-		}
-		work := min(budget, pitchJobStepLimit)
-		budget -= work
-		done, err := job.pitchJob.Step(work)
-		if err != nil {
+	if job.position >= job.params.End {
+		job.result.State = protocol.JobReady
+		job.result.DataBytes = len(job.data)
+		return nil
+	}
+	if !job.pitchStarted {
+		if err := job.readWindow(job.packed, job.position, job.planar[0]); err != nil {
 			return err
 		}
-		if !done {
-			continue
-		}
-		estimate, err := job.pitchJob.Result()
-		if err != nil {
+		if err := job.pitchJob.Begin(job.planar[0]); err != nil {
 			return err
 		}
-		job.pitchStarted = false
-		for _, value := range []float64{float64(job.result.Channels[job.packed]), float64(job.position), estimate.FrequencyHz, estimate.Confidence} {
-			job.data = binary.LittleEndian.AppendUint64(job.data, math.Float64bits(value))
-		}
-		job.result.Records++
-		job.packed++
-		if job.packed == len(job.channels) {
-			job.packed = 0
-			job.position = min(job.params.End, job.position+int64(job.params.HopSize))
-			job.result.ProcessedFrames = job.position - job.params.Start
-		}
+		job.pitchStarted = true
+	}
+	done, err := job.pitchJob.Step(pitchUnitWork)
+	if err != nil {
+		return err
+	}
+	if !done {
+		return nil
+	}
+	estimate, err := job.pitchJob.Result()
+	if err != nil {
+		return err
+	}
+	job.pitchStarted = false
+	for _, value := range []float64{float64(job.result.Channels[job.packed]), float64(job.position), estimate.FrequencyHz, estimate.Confidence} {
+		job.data = binary.LittleEndian.AppendUint64(job.data, math.Float64bits(value))
+	}
+	job.result.Records++
+	job.packed++
+	if job.packed == len(job.channels) {
+		job.packed = 0
+		job.position = min(job.params.End, job.position+int64(job.params.HopSize))
+		job.result.ProcessedFrames = job.position - job.params.Start
 	}
 	return nil
 }
 
 func (job *analysisJob) stepSpectrum() error {
 	s := job.spectrum
-	if job.result.Kind == "spectrogram" {
+	if job.result.Kind == protocol.AnalysisSpectrogram {
 		if job.column == job.params.Width {
-			job.result.State = "ready"
+			job.result.State = protocol.JobReady
 			job.result.DataBytes = len(job.data)
 			return nil
 		}
@@ -542,7 +485,7 @@ func (job *analysisJob) stepSpectrum() error {
 		}
 		job.encodedChannels++
 		if job.encodedChannels == len(job.channels) {
-			job.result.State = "ready"
+			job.result.State = protocol.JobReady
 			job.result.DataBytes = len(job.data)
 			job.result.ProcessedFrames = job.result.TotalFrames
 		}
@@ -599,35 +542,35 @@ func analysisColor(name string, x float64) [4]byte {
 }
 
 func (e *Engine) cacheAnalysisTile(job *analysisJob) {
-	for i, c := range e.analysisCache {
+	for i, c := range e.analysis.analysisCache {
 		if c.key == job.cacheKey {
-			e.analysisCache = append(e.analysisCache[:i], e.analysisCache[i+1:]...)
+			e.analysis.analysisCache = append(e.analysis.analysisCache[:i], e.analysis.analysisCache[i+1:]...)
 			break
 		}
 	}
-	e.analysisCache = append(e.analysisCache, analysisTileCache{key: job.cacheKey, data: append([]byte(nil), job.data...), result: job.result})
+	e.analysis.analysisCache = append(e.analysis.analysisCache, analysisTileCache{key: job.cacheKey, data: append([]byte(nil), job.data...), result: job.result})
 	bytes := 0
-	for _, c := range e.analysisCache {
+	for _, c := range e.analysis.analysisCache {
 		bytes += len(c.data)
 	}
-	for len(e.analysisCache) > 32 || bytes > analysisCacheBytes {
-		bytes -= len(e.analysisCache[0].data)
-		e.analysisCache = e.analysisCache[1:]
+	for len(e.analysis.analysisCache) > 32 || bytes > analysisCacheBytes {
+		bytes -= len(e.analysis.analysisCache[0].data)
+		e.analysis.analysisCache = e.analysis.analysisCache[1:]
 	}
 }
 
 func (e *Engine) commitAnalysis(job *analysisJob) (protocol.EditResult, error) {
-	if job.result.State != "ready" || job.result.Kind != "clipping" {
+	if job.result.State != protocol.JobReady || job.result.Kind != protocol.AnalysisClipping {
 		return protocol.EditResult{}, fmt.Errorf("analysis.commit: only ready clipping detection can create markers")
 	}
-	if e.processJob != nil || e.effectPreview != nil {
+	if e.jobs.processJob != nil || e.effectsState.effectPreview != nil {
 		return protocol.EditResult{}, fmt.Errorf("analysis.commit: processing or effects preview is active")
 	}
 	if len(job.clipRuns) == 0 {
-		e.analysisJob = nil
+		e.analysis.analysisJob = nil
 		return e.editResult(false), nil
 	}
-	timeline := e.document.Metadata().Timeline
+	timeline := e.doc.document.Metadata().Timeline
 	for _, run := range job.clipRuns {
 		id, err := nextAnchor(timeline)
 		if err != nil {
@@ -636,11 +579,11 @@ func (e *Engine) commitAnalysis(job *analysisJob) (protocol.EditResult, error) {
 		timeline.NextID++
 		timeline.Markers = append(timeline.Markers, audiobuf.Marker{ID: id, Frame: run.start, Name: fmt.Sprintf("Clipping (%d samples)", run.end-run.start), Color: "#ef4444"})
 	}
-	if _, err := e.commitTimeline(protocol.MethodAnalysisCommit, "Detect clipping", timeline, cloneEditor(e.editor)); err != nil {
+	if _, err := e.commitTimeline(protocol.MethodAnalysisCommit, "Detect clipping", timeline, cloneEditor(e.doc.editor)); err != nil {
 		return protocol.EditResult{}, err
 	}
-	e.analysisJob = nil
-	e.analysisCache = nil
+	e.analysis.analysisJob = nil
+	e.analysis.analysisCache = nil
 	return e.editResult(true), nil
 }
 
@@ -652,6 +595,7 @@ type playbackSpectrumJob struct {
 	write, count, channel, encoded int
 	stateID, documentID            string
 	data                           []byte
+	now                            func() time.Time
 }
 
 func (e *Engine) playbackSpectrum(p protocol.AnalysisSpectrumParams) (protocol.AnalysisSpectrumResult, error) {
@@ -659,17 +603,17 @@ func (e *Engine) playbackSpectrum(p protocol.AnalysisSpectrumParams) (protocol.A
 		return protocol.AnalysisSpectrumResult{}, fmt.Errorf("analysis.spectrum: source must be playback")
 	}
 	stateID := ""
-	if e.history != nil {
-		stateID = e.history.CurrentID()
+	if e.historyState.history != nil {
+		stateID = e.historyState.history.CurrentID()
 	}
-	j := e.spectrumJob
+	j := e.analysis.spectrumJob
 	jobID := p.JobID
 	p.JobID = ""
-	compatible := j != nil && j.params == p && j.result.Channels == e.channels && j.result.SampleRate == e.sampleRate && j.documentID == e.editor.documentID && j.stateID == stateID
+	compatible := j != nil && j.params == p && j.result.Channels == e.playback.channels && j.result.SampleRate == e.playback.sampleRate && j.documentID == e.doc.editor.documentID && j.stateID == stateID
 	if jobID != "" && (!compatible || j.result.JobID != jobID) {
 		return protocol.AnalysisSpectrumResult{}, fmt.Errorf("analysis.spectrum: stale live spectrum job")
 	}
-	if jobID != "" && j.result.State == "ready" {
+	if jobID != "" && j.result.State == protocol.JobReady {
 		e.bulkData = append([]byte(nil), j.data...)
 		return j.result, nil
 	}
@@ -680,7 +624,7 @@ func (e *Engine) playbackSpectrum(p protocol.AnalysisSpectrumParams) (protocol.A
 			clear(s.count)
 		} else {
 			var err error
-			s, err = newSpectrumAnalysis(e.sampleRate, e.channels, p.FFTSize, p.Window, p.Averaging, p.Smoothing)
+			s, err = newSpectrumAnalysis(e.playback.sampleRate, e.playback.channels, p.FFTSize, p.Window, p.Averaging, p.Smoothing)
 			if err != nil {
 				return protocol.AnalysisSpectrumResult{}, err
 			}
@@ -692,42 +636,50 @@ func (e *Engine) playbackSpectrum(p protocol.AnalysisSpectrumParams) (protocol.A
 				s.accumulators[c] = a
 			}
 		}
-		if e.spectrumHistory == nil {
-			e.spectrumHistory = make([]float32, playbackSpectrumFrames*e.channels)
-			e.spectrumWrite = 0
-			e.spectrumCount = 0
+		if e.analysis.spectrumHistory == nil {
+			e.analysis.spectrumHistory = make([]float32, playbackSpectrumFrames*e.playback.channels)
+			e.analysis.spectrumWrite = 0
+			e.analysis.spectrumCount = 0
 		}
-		if e.analysisSequence == math.MaxUint64 {
+		if e.analysis.analysisSequence == math.MaxUint64 {
 			return protocol.AnalysisSpectrumResult{}, fmt.Errorf("analysis.spectrum: job identity exhausted")
 		}
-		e.analysisSequence++
-		j = &playbackSpectrumJob{params: p, spectrum: s, source: append([]float32(nil), e.spectrumHistory...), write: e.spectrumWrite, count: e.spectrumCount, stateID: stateID, documentID: e.editor.documentID, data: make([]byte, e.channels*s.transform.Bins()*16), result: protocol.AnalysisSpectrumResult{DocumentID: e.editor.documentID, JobID: fmt.Sprintf("spectrum-%d", e.analysisSequence), State: "running", Source: "playback", SampleRate: e.sampleRate, Channels: e.channels, FFTSize: s.transform.NFFT(), Bins: s.transform.Bins()}}
-		e.spectrumJob = j
+		e.analysis.analysisSequence++
+		j = &playbackSpectrumJob{params: p, spectrum: s, source: append([]float32(nil), e.analysis.spectrumHistory...), write: e.analysis.spectrumWrite, count: e.analysis.spectrumCount, stateID: stateID, documentID: e.doc.editor.documentID, data: make([]byte, e.playback.channels*s.transform.Bins()*16), result: protocol.AnalysisSpectrumResult{DocumentID: e.doc.editor.documentID, JobID: fmt.Sprintf("spectrum-%d", e.analysis.analysisSequence), State: protocol.JobRunning, Source: "playback", SampleRate: e.playback.sampleRate, Channels: e.playback.channels, FFTSize: s.transform.NFFT(), Bins: s.transform.Bins()}}
+		e.analysis.spectrumJob = j
 	}
+	if err := runAnalysisBudget(j.now, j.stepUnit); err != nil {
+		e.analysis.spectrumJob = nil
+		return protocol.AnalysisSpectrumResult{}, err
+	}
+	if j.result.State == protocol.JobReady {
+		e.bulkData = append([]byte(nil), j.data...)
+	}
+	return j.result, nil
+}
+
+func (j *playbackSpectrumJob) stepUnit() (bool, error) {
 	s := j.spectrum
-	if j.channel < e.channels {
+	if j.channel < j.result.Channels {
 		clear(s.input)
 		count := min(len(s.input), j.count)
 		for frame := range count {
 			source := (j.write - count + frame + playbackSpectrumFrames) % playbackSpectrumFrames
-			s.input[len(s.input)-count+frame] = float64(j.source[source*e.channels+j.channel])
+			s.input[len(s.input)-count+frame] = float64(j.source[source*j.result.Channels+j.channel])
 		}
 		if err := s.add(j.channel); err != nil {
-			e.spectrumJob = nil
-			return protocol.AnalysisSpectrumResult{}, err
+			return false, err
 		}
 		j.channel++
-		return j.result, nil
+		return false, nil
 	}
 	if err := s.encodeChannel(j.encoded, j.data); err != nil {
-		e.spectrumJob = nil
-		return protocol.AnalysisSpectrumResult{}, err
+		return false, err
 	}
 	j.encoded++
-	if j.encoded == e.channels {
-		j.result.State = "ready"
+	if j.encoded == j.result.Channels {
+		j.result.State = protocol.JobReady
 		j.result.DataBytes = len(j.data)
-		e.bulkData = append([]byte(nil), j.data...)
 	}
-	return j.result, nil
+	return j.result.State == protocol.JobReady, nil
 }

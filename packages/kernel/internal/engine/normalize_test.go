@@ -14,7 +14,7 @@ import (
 
 func normalizationParams(e *Engine, start, end int64, mask int, operation string, target float64) protocol.ProcessStartParams {
 	params := processParams(e, start, end, mask, 0)
-	params.Operation, params.Target = operation, &target
+	params.Operation, params.Target = protocol.OperationName(operation), &target
 	return params
 }
 
@@ -54,7 +54,7 @@ func TestNormalizeEnginePeakPreviewExportAndExactUndo(t *testing.T) {
 	if _, err := e.applyEdit(editParams(e, "copy", 0, 1, 3)); err != nil {
 		t.Fatal(err)
 	}
-	e.editor.selection = cursor
+	e.doc.editor.selection = cursor
 	setTimelineFixture(t, e, []protocol.TimelineMarker{{ID: 1, Frame: 2, Name: "mid", Color: "#112233"}}, []protocol.TimelineRegion{{ID: 2, Start: 0, End: 4, Name: "whole", Color: "#445566"}})
 	baseline, memory, clipboard := e.editResult(false), e.documentMemory(), e.clipboardInfo()
 	result := startEngineProcess(t, e, normalizationParams(e, 1, 1, 3, "normalize-peak", 0))
@@ -91,7 +91,7 @@ func TestNormalizeEnginePeakPreviewExportAndExactUndo(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertEditBits(t, editSamples(t, e), want)
-	if !committed.Changed || committed.Document.DocumentID == id || committed.History.Entries[len(committed.History.Entries)-1].Label != "Normalize peak" || e.source != sourceStopped || e.transport != nil || e.clipboardInfo() != clipboard {
+	if !committed.Changed || committed.Document.DocumentID == id || committed.History.Entries[len(committed.History.Entries)-1].Label != "Normalize peak" || e.playback.source != sourceStopped || e.playback.transport != nil || e.clipboardInfo() != clipboard {
 		t.Fatal("normalization commit lost publication/history/transport invariants")
 	}
 	undone := historyNavigate(t, e, protocol.MethodEditUndo, "")
@@ -113,13 +113,13 @@ func TestNormalizeEngineSilentAndResolvedIdentityDoNotDirty(t *testing.T) {
 			input := make([]float32, 19200)
 			input[41] = math.Float32frombits(0x80000000)
 			e, _ := openEditorFixture(t, input, 1)
-			e.editor.selection = protocol.SelectionRange{Start: 41, End: 41, ChannelMask: 1}
+			e.doc.editor.selection = protocol.SelectionRange{Start: 41, End: 41, ChannelMask: 1}
 			before, memory := e.editResult(false), e.documentMemory()
 			result := finishEngineNormalization(t, e, startEngineProcess(t, e, normalizationParams(e, 41, 41, 1, operation, -23)))
 			// An identity candidate adds references to existing blocks, not new
 			// sample/peak storage. Both committed and private snapshots count.
 			candidateMemory := memory
-			candidateMemory.BlockReferences += audiobuf.CountMemory(e.document).BlockReferences
+			candidateMemory.BlockReferences += audiobuf.CountMemory(e.doc.document).BlockReferences
 			if result.UnchangedReason != "silent" || result.InputPeak != 0 || result.Peak != 0 || e.documentMemory() != candidateMemory {
 				t.Fatalf("silent candidate invented gain/storage: %+v memory=%+v want=%+v", result, e.documentMemory(), candidateMemory)
 			}
@@ -159,12 +159,12 @@ func TestNormalizeEngineValidationAndSelectedNonfiniteAtomicity(t *testing.T) {
 		{"normalize-loudness", normalizeTarget(math.Inf(1))},
 	} {
 		params := processParams(e, 0, 2, 1, 0)
-		params.Operation, params.Target = test.operation, test.target
+		params.Operation, params.Target = protocol.OperationName(test.operation), test.target
 		if _, err := e.startProcess(params); err == nil {
 			t.Fatalf("invalid normalization parameters accepted: %+v", params)
 		}
 	}
-	if e.processSequence != 0 || !reflect.DeepEqual(baseline, e.editResult(false)) {
+	if e.jobs.processSequence != 0 || !reflect.DeepEqual(baseline, e.editResult(false)) {
 		t.Fatal("invalid start changed job sequence or committed state")
 	}
 	for _, value := range []float32{float32(math.NaN()), float32(math.Inf(1))} {
@@ -174,7 +174,7 @@ func TestNormalizeEngineValidationAndSelectedNonfiniteAtomicity(t *testing.T) {
 		if _, err := e.stepProcess(jobParams(result)); err == nil || !strings.Contains(err.Error(), "finite") {
 			t.Fatal("nonfinite source normalized")
 		}
-		if e.processJob != nil || !reflect.DeepEqual(before, e.editResult(false)) || e.documentMemory() != memory {
+		if e.jobs.processJob != nil || !reflect.DeepEqual(before, e.editResult(false)) || e.documentMemory() != memory {
 			t.Fatal("failed source analysis altered committed state")
 		}
 	}
@@ -192,14 +192,14 @@ func TestNormalizeEnginePhaseCancellationAndRPCLocks(t *testing.T) {
 			e, _ := openEditorFixture(t, input, 1)
 			before, memory := e.editResult(false), e.documentMemory()
 			result := startEngineProcess(t, e, normalizationParams(e, 0, int64(len(input)), 1, "normalize-loudness", -23))
-			for attempts := 0; result.Phase != phase && attempts < 1000; attempts++ {
+			for attempts := 0; result.Phase != protocol.ProcessPhase(phase) && attempts < 1000; attempts++ {
 				var err error
 				result, err = e.stepProcess(jobParams(result))
 				if err != nil {
 					t.Fatal(err)
 				}
 			}
-			if result.Phase != phase || result.State != "running" {
+			if result.Phase != protocol.ProcessPhase(phase) || result.State != "running" {
 				t.Fatal("cancellable phase was skipped")
 			}
 			for _, method := range []string{protocol.MethodDocumentOpen, protocol.MethodEditApply, protocol.MethodSelectionSet, protocol.MethodMarkersAdd, protocol.MethodMarkSaved, protocol.MethodEditUndo, protocol.MethodTransportSeek} {
@@ -211,7 +211,7 @@ func TestNormalizeEnginePhaseCancellationAndRPCLocks(t *testing.T) {
 			if err != nil || cancelled.PhaseIndex != result.PhaseIndex || cancelled.ProcessedFrames != result.ProcessedFrames || cancelled.PlanningSteps != result.PlanningSteps {
 				t.Fatal("cancel reset progress telemetry", err)
 			}
-			if e.processJob != nil || !reflect.DeepEqual(before, e.editResult(false)) || e.documentMemory() != memory {
+			if e.jobs.processJob != nil || !reflect.DeepEqual(before, e.editResult(false)) || e.documentMemory() != memory {
 				t.Fatal("cancel retained staged samples or changed source")
 			}
 			if reply, err := e.stepProcess(jobParams(result)); err != nil || reply.State != "cancelled" {
@@ -293,7 +293,7 @@ func TestNormalizeEngineHistoryBudgetKeepsReadyCandidateAndPreviewAtomic(t *test
 	if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: 48000, Channels: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.history.SetLimits(history.Limits{MaxEntries: 100, MaxBytes: e.history.RetainedBytes()}); err != nil {
+	if err := e.historyState.history.SetLimits(history.Limits{MaxEntries: 100, MaxBytes: e.historyState.history.RetainedBytes()}); err != nil {
 		t.Fatal(err)
 	}
 	before, memory := e.editResult(false), e.documentMemory()
@@ -301,15 +301,15 @@ func TestNormalizeEngineHistoryBudgetKeepsReadyCandidateAndPreviewAtomic(t *test
 	if _, err := e.playDocument(protocol.TransportPlayParams{PreviewJobID: result.JobID}); err != nil {
 		t.Fatal(err)
 	}
-	job, transport := e.processJob, e.transport
+	job, transport := e.jobs.processJob, e.playback.transport
 	if _, err := e.commitProcess(jobParams(result)); err == nil || !strings.Contains(err.Error(), "budget") {
 		t.Fatal("normalization bypassed undo budget")
 	}
-	if e.processJob != job || e.transport != transport || !reflect.DeepEqual(before, e.editResult(false)) {
+	if e.jobs.processJob != job || e.playback.transport != transport || !reflect.DeepEqual(before, e.editResult(false)) {
 		t.Fatal("failed normalization commit published state or invalidated its private preview")
 	}
 	assertEditBits(t, editSamples(t, e), original)
-	if _, err := e.cancelProcess(jobParams(result)); err != nil || e.documentMemory() != memory || e.transport != nil {
+	if _, err := e.cancelProcess(jobParams(result)); err != nil || e.documentMemory() != memory || e.playback.transport != nil {
 		t.Fatal("budget-failed ready candidate could not be cancelled/released", err)
 	}
 }

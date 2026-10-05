@@ -6,6 +6,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 	"github.com/cwbudde/algo-dsp/dsp/resample"
 )
 
@@ -40,7 +41,7 @@ func newRateOperation(document audiobuf.Document, selected ops.Range, settings S
 	if err != nil {
 		return nil, fmt.Errorf("process.resample: output duration: %w", err)
 	}
-	b := &blockOperation{source: document, selected: ops.Range{End: document.Frames(), ChannelMask: (1 << document.Channels()) - 1}, settings: settings, outputRate: settings.SampleRate, outputChannels: document.Channels(), outputFrames: outFrames, renderFrames: outFrames, progress: Progress{FramesTotal: outFrames}, status: NormalizationStatus{Phase: "processing", PhaseCount: 1, GainResolved: true}}
+	b := &blockOperation{source: document, selected: ops.Range{End: document.Frames(), ChannelMask: (1 << document.Channels()) - 1}, settings: settings, outputRate: settings.SampleRate, outputChannels: document.Channels(), outputFrames: outFrames, renderFrames: outFrames, progress: Progress{FramesTotal: outFrames}, status: NormalizationStatus{Phase: protocol.PhaseProcessing, PhaseCount: 1, GainResolved: true}}
 	if outFrames > 1<<53-1 {
 		return nil, fmt.Errorf("process.resample: output exceeds JS-safe frame limit")
 	}

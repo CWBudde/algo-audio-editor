@@ -34,7 +34,7 @@ func validateTags(tags map[string]string) (map[string]string, error) {
 }
 
 func (e *Engine) metadataResult() protocol.MetadataResult {
-	metadata := e.document.Metadata()
+	metadata := e.doc.document.Metadata()
 	tags := metadata.Tags
 	if tags == nil {
 		tags = map[string]string{}
@@ -49,7 +49,7 @@ func (e *Engine) metadataResult() protocol.MetadataResult {
 		chunks = append(chunks, name)
 		size += 8 + len(chunk.Data) + len(chunk.Data)%2
 	}
-	return protocol.MetadataResult{DocumentID: e.editor.documentID, StateID: e.history.CurrentID(), Tags: tags, PreservedBytes: size, Chunks: chunks}
+	return protocol.MetadataResult{DocumentID: e.doc.editor.documentID, StateID: e.historyState.history.CurrentID(), Tags: tags, PreservedBytes: size, Chunks: chunks}
 }
 
 func (e *Engine) getMetadata(p protocol.MetadataGetParams) (protocol.MetadataResult, error) {
@@ -64,30 +64,30 @@ func (e *Engine) setMetadata(p protocol.MetadataSetParams) (protocol.MetadataMut
 	if err := e.validateDocumentID(method, p.DocumentID); err != nil {
 		return protocol.MetadataMutationResult{}, err
 	}
-	if e.history == nil || p.StateID == "" || p.StateID != e.history.CurrentID() {
+	if e.historyState.history == nil || p.StateID == "" || p.StateID != e.historyState.history.CurrentID() {
 		return protocol.MetadataMutationResult{}, fmt.Errorf("%s: stale or invalid history state", method)
 	}
 	tags, err := validateTags(p.Tags)
 	if err != nil {
 		return protocol.MetadataMutationResult{}, err
 	}
-	metadata := e.document.Metadata()
+	metadata := e.doc.document.Metadata()
 	changed := !maps.Equal(tags, metadata.Tags)
 	if changed {
 		metadata.Tags = tags
 		// Validate export before publishing a history entry, including unknown chunks.
-		if _, _, err := encodeWAVMetadata(metadata, e.document.Frames()); err != nil {
+		if _, _, err := encodeWAVMetadata(metadata, e.doc.document.Frames()); err != nil {
 			return protocol.MetadataMutationResult{}, fmt.Errorf("%s: export metadata: %w", method, err)
 		}
-		document, err := e.document.WithMetadata(metadata)
+		document, err := e.doc.document.WithMetadata(metadata)
 		if err != nil {
 			return protocol.MetadataMutationResult{}, fmt.Errorf("%s: snapshot: %w", method, err)
 		}
-		staged, err := e.history.StagePush("Edit metadata", historySnapshot{document: e.document, editor: e.editor}, historySnapshot{document: document, editor: e.editor})
+		staged, err := e.historyState.history.StagePush("Edit metadata", historySnapshot{document: e.doc.document, editor: e.doc.editor}, historySnapshot{document: document, editor: e.doc.editor})
 		if err != nil {
 			return protocol.MetadataMutationResult{}, fmt.Errorf("%s: history: %w", method, err)
 		}
-		e.document, e.history = document, staged
+		e.doc.document, e.historyState.history = document, staged
 	}
 	return protocol.MetadataMutationResult{MetadataResult: e.metadataResult(), History: e.historyResult(), Changed: changed}, nil
 }

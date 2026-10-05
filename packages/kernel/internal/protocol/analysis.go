@@ -33,21 +33,21 @@ type MetersConfigureResult struct {
 // Nonfinite loudness means no gated measurement; the transport is unchanged.
 type AnalysisStartParams struct {
 	SelectionResult
-	Kind      string  `json:"kind"`
-	FFTSize   int     `json:"fftSize,omitempty"`
-	Window    string  `json:"window,omitempty"`
-	Averaging int     `json:"averaging,omitempty"`
-	Smoothing float64 `json:"smoothing,omitempty"`
-	HopSize   int     `json:"hopSize,omitempty"`
-	MinHz     float64 `json:"minHz,omitempty"`
-	MaxHz     float64 `json:"maxHz,omitempty"`
-	Threshold float64 `json:"threshold,omitempty"`
-	Channel   int     `json:"channel,omitempty"`
-	Width     int     `json:"width,omitempty"`
-	Height    int     `json:"height,omitempty"`
-	MinDB     float64 `json:"minDB,omitempty"`
-	MaxDB     float64 `json:"maxDB,omitempty"`
-	ColorMap  string  `json:"colorMap,omitempty"`
+	Kind      AnalysisKind `json:"kind"`
+	FFTSize   int          `json:"fftSize,omitempty"`
+	Window    string       `json:"window,omitempty"`
+	Averaging int          `json:"averaging,omitempty"`
+	Smoothing float64      `json:"smoothing,omitempty"`
+	HopSize   int          `json:"hopSize,omitempty"`
+	MinHz     float64      `json:"minHz,omitempty"`
+	MaxHz     float64      `json:"maxHz,omitempty"`
+	Threshold float64      `json:"threshold,omitempty"`
+	Channel   int          `json:"channel,omitempty"`
+	Width     int          `json:"width,omitempty"`
+	Height    int          `json:"height,omitempty"`
+	MinDB     float64      `json:"minDB,omitempty"`
+	MaxDB     float64      `json:"maxDB,omitempty"`
+	ColorMap  string       `json:"colorMap,omitempty"`
 }
 type AnalysisJobParams struct {
 	DocumentID string `json:"documentId"`
@@ -68,8 +68,8 @@ type ChannelStatistics struct {
 type AnalysisJobResult struct {
 	SelectionResult
 	JobID            string              `json:"jobId"`
-	Kind             string              `json:"kind"`
-	State            string              `json:"state"`
+	Kind             AnalysisKind        `json:"kind"`
+	State            JobState            `json:"state"`
 	ProcessedFrames  int64               `json:"processedFrames"`
 	TotalFrames      int64               `json:"totalFrames"`
 	SampleRate       int                 `json:"sampleRate"`
@@ -100,13 +100,13 @@ type AnalysisSpectrumParams struct {
 	Smoothing float64 `json:"smoothing,omitempty"`
 }
 type AnalysisSpectrumResult struct {
-	DocumentID string  `json:"documentId"`
-	JobID      string  `json:"jobId"`
-	State      string  `json:"state"`
-	Source     string  `json:"source"`
-	SampleRate float64 `json:"sampleRate"`
-	Channels   int     `json:"channels"`
-	FFTSize    int     `json:"fftSize"`
-	Bins       int     `json:"bins"`
-	DataBytes  int     `json:"dataBytes"`
+	DocumentID string   `json:"documentId"`
+	JobID      string   `json:"jobId"`
+	State      JobState `json:"state"`
+	Source     string   `json:"source"`
+	SampleRate float64  `json:"sampleRate"`
+	Channels   int      `json:"channels"`
+	FFTSize    int      `json:"fftSize"`
+	Bins       int      `json:"bins"`
+	DataBytes  int      `json:"dataBytes"`
 }

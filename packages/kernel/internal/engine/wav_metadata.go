@@ -72,7 +72,7 @@ func wavTags(chunks []audiobuf.FileChunk) (map[string]string, error) {
 func decodeWAVMetadata(chunks []audiobuf.FileChunk, timeline audiobuf.Timeline) (audiobuf.Metadata, error) {
 	tags, err := wavTags(chunks)
 	if err != nil {
-		return audiobuf.Metadata{}, err
+		return audiobuf.Metadata{}, fmt.Errorf("wav.metadata: decode: %w", err)
 	}
 	decoder := wav.NewDecoder(bytes.NewReader(nil))
 	for _, chunk := range chunks {
@@ -86,7 +86,7 @@ func decodeWAVMetadata(chunks []audiobuf.FileChunk, timeline audiobuf.Timeline) 
 		}
 		if chunk.ID == wav.CIDList && len(chunk.Data) >= 4 && string(chunk.Data[:4]) == "adtl" {
 			if err := wav.DecodeAssociatedDataChunk(decoder, metadataChunk(chunk)); err != nil {
-				return audiobuf.Metadata{}, err
+				return audiobuf.Metadata{}, fmt.Errorf("wav.metadata: decode: %w", err)
 			}
 		}
 	}
@@ -114,7 +114,7 @@ func decodeWAVMetadata(chunks []audiobuf.FileChunk, timeline audiobuf.Timeline) 
 				if chunk.ID == wav.CIDCue {
 					cues := wav.NewDecoder(bytes.NewReader(nil))
 					if err := wav.DecodeCueChunk(cues, metadataChunk(chunk)); err != nil {
-						return audiobuf.Metadata{}, err
+						return audiobuf.Metadata{}, fmt.Errorf("wav.metadata: decode: %w", err)
 					}
 					for _, cue := range cues.Metadata.CuePoints {
 						used[binary.LittleEndian.Uint32(cue.ID[:])] = true
@@ -161,7 +161,7 @@ func decodeWAVMetadata(chunks []audiobuf.FileChunk, timeline audiobuf.Timeline) 
 		associated.Labels = nil
 		supplement, err := wav.EncodeAssociatedDataChunk(associated)
 		if err != nil {
-			return audiobuf.Metadata{}, err
+			return audiobuf.Metadata{}, fmt.Errorf("wav.metadata: decode: %w", err)
 		}
 		retained := make([]audiobuf.FileChunk, 0, len(chunks))
 		for _, chunk := range chunks {
@@ -191,10 +191,10 @@ func encodeInfoTags(tags map[string]string) ([]byte, error) {
 	encoder := wav.NewEncoder(writer, 48000, 16, 1, 1)
 	encoder.Metadata = m
 	if err := encoder.Write(&audio.Float32Buffer{Format: &audio.Format{SampleRate: 48000, NumChannels: 1}}); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("wav.metadata: codec: %w", err)
 	}
 	if err := encoder.Close(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("wav.metadata: codec: %w", err)
 	}
 	for pos := 12; pos < len(writer.data); {
 		size := int(binary.LittleEndian.Uint32(writer.data[pos+4:]))
@@ -209,11 +209,11 @@ func encodeInfoTags(tags map[string]string) ([]byte, error) {
 func encodeWAVMetadata(metadata audiobuf.Metadata, frames int64) ([]wav.RawChunk, int64, error) {
 	chunks, _, err := encodeWAVTimeline(metadata.Timeline, frames)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("wav.metadata: encode: %w", err)
 	}
 	original, err := wavTags(metadata.WAVChunks)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("wav.metadata: encode: %w", err)
 	}
 	changed := map[string]string{}
 	for key := range wavTagFields(nil) {
@@ -223,14 +223,14 @@ func encodeWAVMetadata(metadata audiobuf.Metadata, frames int64) ([]wav.RawChunk
 	}
 	newInfo, err := encodeInfoTags(changed)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("wav.metadata: encode: %w", err)
 	}
 	associated := &wav.AssociatedData{}
 	for i, chunk := range chunks {
 		if chunk.ID == wav.CIDList && string(chunk.Data[:4]) == "adtl" {
 			decoder := wav.NewDecoder(bytes.NewReader(nil))
 			if err := wav.DecodeAssociatedDataChunk(decoder, &riff.Chunk{ID: chunk.ID, Size: len(chunk.Data), R: bytes.NewReader(chunk.Data)}); err != nil {
-				return nil, 0, err
+				return nil, 0, fmt.Errorf("wav.metadata: encode: %w", err)
 			}
 			associated = decoder.Metadata.AssociatedData
 			chunks = slices.Delete(chunks, i, i+1)
@@ -269,7 +269,7 @@ func encodeWAVMetadata(metadata audiobuf.Metadata, frames int64) ([]wav.RawChunk
 			case "adtl":
 				decoder := wav.NewDecoder(bytes.NewReader(nil))
 				if err := wav.DecodeAssociatedDataChunk(decoder, metadataChunk(chunk)); err != nil {
-					return nil, 0, err
+					return nil, 0, fmt.Errorf("wav.metadata: encode: %w", err)
 				}
 				extras := decoder.Metadata.AssociatedData
 				for _, note := range extras.Notes {
@@ -298,7 +298,7 @@ func encodeWAVMetadata(metadata audiobuf.Metadata, frames int64) ([]wav.RawChunk
 	if len(associated.Labels)+len(associated.Notes)+len(associated.Regions)+len(associated.UnknownSubchunks) > 0 {
 		chunk, err := wav.EncodeAssociatedDataChunk(associated)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("wav.metadata: encode: %w", err)
 		}
 		chunks = append(chunks, chunk)
 	}
@@ -327,13 +327,13 @@ func selectionWAVChunks(chunks []audiobuf.FileChunk) ([]audiobuf.FileChunk, erro
 		case "adtl":
 			decoder := wav.NewDecoder(bytes.NewReader(nil))
 			if err := wav.DecodeAssociatedDataChunk(decoder, metadataChunk(chunk)); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("wav.metadata: codec: %w", err)
 			}
 			associated := decoder.Metadata.AssociatedData
 			associated.UnknownSubchunks = nil
 			encoded, err := wav.EncodeAssociatedDataChunk(associated)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("wav.metadata: codec: %w", err)
 			}
 			result = append(result, audiobuf.FileChunk{ID: encoded.ID, Data: encoded.Data})
 		}

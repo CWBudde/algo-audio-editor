@@ -12,15 +12,15 @@ import (
 )
 
 func editParams(e *Engine, operation string, start, end int64, mask int) protocol.EditApplyParams {
-	return protocol.EditApplyParams{SelectionResult: protocol.SelectionResult{DocumentID: e.editor.documentID, SelectionRange: protocol.SelectionRange{Start: start, End: end, ChannelMask: mask}}, Operation: operation, ClipboardVersion: e.clipboardInfo().Version}
+	return protocol.EditApplyParams{SelectionResult: protocol.SelectionResult{DocumentID: e.doc.editor.documentID, SelectionRange: protocol.SelectionRange{Start: start, End: end, ChannelMask: mask}}, Operation: protocol.OperationName(operation), ClipboardVersion: e.clipboardInfo().Version}
 }
 
 func editSamples(t *testing.T, e *Engine) []float32 {
 	t.Helper()
-	out := make([]float32, int(e.document.Frames())*e.document.Channels())
-	mono := make([]float32, int(e.document.Frames()))
-	for c := range e.document.Channels() {
-		channel, err := e.document.Channel(c)
+	out := make([]float32, int(e.doc.document.Frames())*e.doc.document.Channels())
+	mono := make([]float32, int(e.doc.document.Frames()))
+	for c := range e.doc.document.Channels() {
+		channel, err := e.doc.document.Channel(c)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -28,7 +28,7 @@ func editSamples(t *testing.T, e *Engine) []float32 {
 			t.Fatal("short read")
 		}
 		for i, sample := range mono {
-			out[i*e.document.Channels()+c] = sample
+			out[i*e.doc.document.Channels()+c] = sample
 		}
 	}
 	return out
@@ -82,10 +82,10 @@ func TestEditsAllOperationsExportReimport(t *testing.T) {
 			if result.Changed != changed || (result.Document.DocumentID != id) != changed {
 				t.Fatalf("identity/result %+v", result)
 			}
-			if changed && (e.transport != nil || e.source != sourceStopped) {
+			if changed && (e.playback.transport != nil || e.playback.source != sourceStopped) {
 				t.Fatal("mutation did not invalidate transport")
 			}
-			if !changed && (e.transport == nil || !e.transport.playing) {
+			if !changed && (e.playback.transport == nil || !e.playback.transport.playing) {
 				t.Fatal("copy stopped playback")
 			}
 			if result.Document.Name != "editor.wav" || result.Document.BitDepth != 32 || !result.Document.Float {
@@ -135,7 +135,7 @@ func TestEditClipboardIdentityMemoryAndOpenSurvival(t *testing.T) {
 	if _, err := e.applyEdit(editParams(e, "copy", 0, 1, 1)); err != nil {
 		t.Fatal(err)
 	}
-	p.DocumentID = e.editor.documentID
+	p.DocumentID = e.doc.editor.documentID
 	if _, err := e.applyEdit(p); err == nil {
 		t.Fatal("stale clipboard accepted")
 	}
@@ -149,7 +149,7 @@ func TestEditFailuresAndNoopsAreAtomic(t *testing.T) {
 		}
 		playRange(t, e, 0, 2, true)
 		result, err := e.applyEdit(editParams(e, operation, 1, 1, 1))
-		if err != nil || result.Changed || result.Document.DocumentID != id || !e.transport.playing {
+		if err != nil || result.Changed || result.Document.DocumentID != id || !e.playback.transport.playing {
 			t.Fatalf("no-op %s %+v %v", operation, result, err)
 		}
 	}
@@ -169,16 +169,16 @@ func TestEditFailuresAndNoopsAreAtomic(t *testing.T) {
 	bad = append(bad, p)
 	for _, p := range bad {
 		before := e.editResult(false)
-		transport := e.transport
+		transport := e.playback.transport
 		if _, err := e.applyEdit(p); err == nil {
 			t.Fatalf("accepted invalid %+v", p)
 		}
-		if !reflect.DeepEqual(e.editResult(false), before) || e.transport != transport || !e.transport.playing {
+		if !reflect.DeepEqual(e.editResult(false), before) || e.playback.transport != transport || !e.playback.transport.playing {
 			t.Fatalf("error mutated state %+v", p)
 		}
 		assertEditBits(t, editSamples(t, e), []float32{1, 2, 3, 4})
 	}
-	e.documentSequence = math.MaxUint64
+	e.doc.documentSequence = math.MaxUint64
 	if _, err := e.applyEdit(editParams(e, "cut", 0, 1, 3)); err == nil {
 		t.Fatal("identity overflow accepted")
 	}
@@ -189,7 +189,7 @@ func TestEditFailuresAndNoopsAreAtomic(t *testing.T) {
 
 func TestEditSelectionAndAnchorShift(t *testing.T) {
 	e, _ := openEditorFixture(t, []float32{1, 2, 3, 4}, 1)
-	e.editor.selection = protocol.SelectionRange{Start: 0, End: 1, ChannelMask: 1}
+	e.doc.editor.selection = protocol.SelectionRange{Start: 0, End: 1, ChannelMask: 1}
 	setTimelineFixture(t, e, []protocol.TimelineMarker{{ID: 1, Frame: 4, Name: "end"}}, []protocol.TimelineRegion{{ID: 2, Start: 3, End: 4, Name: "drop"}, {ID: 3, Start: 1, End: 4, Name: "keep"}})
 	r, err := e.applyEdit(editParams(e, "delete", 2, 4, 1))
 	if err != nil {
@@ -282,18 +282,18 @@ func TestEditMixMaterializedBudgetFailureIsAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.clipboard, err = ops.NewClipboard(document, ops.Range{End: document.Frames(), ChannelMask: 3})
+	e.doc.clipboard, err = ops.NewClipboard(document, ops.Range{End: document.Frames(), ChannelMask: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.clipboardSequence = 1
-	e.editor.selection = protocol.SelectionRange{Start: 2, End: 4, ChannelMask: 2}
+	e.doc.clipboardSequence = 1
+	e.doc.editor.selection = protocol.SelectionRange{Start: 2, End: 4, ChannelMask: 2}
 	setTimelineFixture(t, e, []protocol.TimelineMarker{{ID: 1, Frame: 4, Name: "end"}}, []protocol.TimelineRegion{{ID: 2, Start: 1, End: 4, Name: "keep"}})
 	playRange(t, e, 1, 4, true)
 	before := e.editResult(false)
 	beforeMemory := e.documentMemory()
-	transport, position := e.transport, e.transport.result()
-	source, documentSequence, clipboardSequence := e.source, e.documentSequence, e.clipboardSequence
+	transport, position := e.playback.transport, e.playback.transport.result()
+	source, documentSequence, clipboardSequence := e.playback.source, e.doc.documentSequence, e.doc.clipboardSequence
 	response := editorCall(t, e, protocol.MethodEditApply, editParams(e, "paste-mix", 0, 1, 3))
 	if response.OK || !strings.Contains(response.Error, "budget") {
 		t.Fatalf("expected mix budget error, got %+v", response)
@@ -301,10 +301,10 @@ func TestEditMixMaterializedBudgetFailureIsAtomic(t *testing.T) {
 	if !reflect.DeepEqual(before, e.editResult(false)) || e.documentMemory() != beforeMemory {
 		t.Fatal("mix budget failure changed document/selection/anchors/clipboard/storage")
 	}
-	if e.transport != transport || e.transport.result() != position || !e.transport.playing || e.source != source {
+	if e.playback.transport != transport || e.playback.transport.result() != position || !e.playback.transport.playing || e.playback.source != source {
 		t.Fatal("mix budget failure changed active transport")
 	}
-	if e.documentSequence != documentSequence || e.clipboardSequence != clipboardSequence {
+	if e.doc.documentSequence != documentSequence || e.doc.clipboardSequence != clipboardSequence {
 		t.Fatal("mix budget failure consumed an identity")
 	}
 	assertEditBits(t, editSamples(t, e), []float32{1, 10, 2, 20, 3, 30, 4, 40})

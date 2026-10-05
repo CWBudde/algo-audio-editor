@@ -22,8 +22,8 @@ func restorationFixture(frames, channels int) []float32 {
 }
 
 func restorationParams(e *Engine, op string) protocol.ProcessStartParams {
-	p := processParams(e, 0, e.document.Frames(), (1<<e.document.Channels())-1, 0)
-	p.Operation = op
+	p := processParams(e, 0, e.doc.document.Frames(), (1<<e.doc.document.Channels())-1, 0)
+	p.Operation = protocol.OperationName(op)
 	p.FFTSize = 2048
 	p.ReductionDB = 24
 	p.NoiseMethod = "wiener"
@@ -175,7 +175,7 @@ func TestRestorationFailureCancelAndABI(t *testing.T) {
 		p.HumHz = 55
 		raw, _ := json.Marshal(p)
 		var reply protocol.Response
-		if err := json.Unmarshal(e.Call(protocol.MethodProcessStart, raw), &reply); err != nil || reply.OK || e.processJob != nil || !reflect.DeepEqual(before, e.editResult(false)) {
+		if err := json.Unmarshal(e.Call(protocol.MethodProcessStart, raw), &reply); err != nil || reply.OK || e.jobs.processJob != nil || !reflect.DeepEqual(before, e.editResult(false)) {
 			t.Fatal("bad ABI mutated", op, reply)
 		}
 	}
@@ -213,7 +213,7 @@ func TestRestorationFailureCancelAndABI(t *testing.T) {
 		if _, err := e.cancelProcess(jobParams(started)); err != nil {
 			t.Fatal(err)
 		}
-		if e.processJob != nil || !reflect.DeepEqual(before, e.editResult(false)) {
+		if e.jobs.processJob != nil || !reflect.DeepEqual(before, e.editResult(false)) {
 			t.Fatal("cancel mutated source")
 		}
 		if _, err := e.commitProcess(jobParams(started)); err == nil {

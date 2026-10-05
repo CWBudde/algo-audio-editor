@@ -11,6 +11,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 	"github.com/cwbudde/algo-dsp/measure/loudness"
 )
 
@@ -174,7 +175,7 @@ func TestNormalizeSilenceIdentityAndShortLoudness(t *testing.T) {
 			input := make([]float32, 19200)
 			input[23] = math.Float32frombits(0x80000000)
 			document := fixture(t, input)
-			normalizer, err := NewNormalizer(document, ops.Range{End: 19200, ChannelMask: 1}, operation, -23, Limits{MaxOutputBytes: 1})
+			normalizer, err := NewNormalizer(document, ops.Range{End: 19200, ChannelMask: 1}, protocol.OperationName(operation), -23, Limits{MaxOutputBytes: 1})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -222,12 +223,12 @@ func TestNormalizeRejectsSelectedNonfiniteAndCancelEveryPhase(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for attempts := 0; normalizer.Status().Phase != phase && attempts < 1000; attempts++ {
+			for attempts := 0; normalizer.Status().Phase != protocol.ProcessPhase(phase) && attempts < 1000; attempts++ {
 				if _, err := normalizer.Step(context.Background()); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if normalizer.Status().Phase != phase {
+			if normalizer.Status().Phase != protocol.ProcessPhase(phase) {
 				t.Fatal("requested cancellation phase not reached")
 			}
 			normalizer.Cancel()

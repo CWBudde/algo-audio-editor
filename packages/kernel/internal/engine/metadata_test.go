@@ -38,9 +38,9 @@ func TestMetadataTransactions(t *testing.T) {
 	e, _ := metadataFixture(t)
 	before := e.editResult(false)
 	memory := e.documentMemory()
-	selection := e.editor.selection
-	pcm := e.document
-	initial, err := e.getMetadata(protocol.MetadataGetParams{DocumentID: e.editor.documentID})
+	selection := e.doc.editor.selection
+	pcm := e.doc.document
+	initial, err := e.getMetadata(protocol.MetadataGetParams{DocumentID: e.doc.editor.documentID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,53 +53,53 @@ func TestMetadataTransactions(t *testing.T) {
 	if _, err := e.playDocument(protocol.TransportPlayParams{Loop: true}); err != nil {
 		t.Fatal(err)
 	}
-	transport := e.transport
+	transport := e.playback.transport
 	initial.Tags["title"] = "caller"
-	if e.document.Metadata().Tags["title"] != "Before" {
+	if e.doc.document.Metadata().Tags["title"] != "Before" {
 		t.Fatal("metadata reply aliases document")
 	}
-	changed, err := e.setMetadata(protocol.MetadataSetParams{DocumentID: e.editor.documentID, StateID: e.history.CurrentID(), Tags: map[string]string{"title": "Après 🎵", "artist": "Artist", "comment": "line 1\nline 2"}})
+	changed, err := e.setMetadata(protocol.MetadataSetParams{DocumentID: e.doc.editor.documentID, StateID: e.historyState.history.CurrentID(), Tags: map[string]string{"title": "Après 🎵", "artist": "Artist", "comment": "line 1\nline 2"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !changed.Changed || !changed.History.Dirty || len(changed.History.Entries) != len(before.History.Entries)+1 {
 		t.Fatalf("transaction: %#v", changed)
 	}
-	if memory.SampleBytes != e.documentMemory().SampleBytes || memory.PeakBytes != e.documentMemory().PeakBytes || !reflect.DeepEqual(selection, e.editor.selection) {
+	if memory.SampleBytes != e.documentMemory().SampleBytes || memory.PeakBytes != e.documentMemory().PeakBytes || !reflect.DeepEqual(selection, e.doc.editor.selection) {
 		t.Fatal("metadata changed audio/selection")
 	}
-	if e.transport != transport || e.source != sourceDocument || !e.transport.playing {
+	if e.playback.transport != transport || e.playback.source != sourceDocument || !e.playback.transport.playing {
 		t.Fatal("metadata interrupted playback")
 	}
-	if audiobuf.CountMemory(pcm, e.document).SampleBytes != memory.SampleBytes {
+	if audiobuf.CountMemory(pcm, e.doc.document).SampleBytes != memory.SampleBytes {
 		t.Fatal("metadata did not share sample storage")
 	}
-	noOp, err := e.setMetadata(protocol.MetadataSetParams{DocumentID: e.editor.documentID, StateID: e.history.CurrentID(), Tags: changed.Tags})
+	noOp, err := e.setMetadata(protocol.MetadataSetParams{DocumentID: e.doc.editor.documentID, StateID: e.historyState.history.CurrentID(), Tags: changed.Tags})
 	if err != nil || noOp.Changed || noOp.StateID != changed.StateID {
 		t.Fatalf("no-op: %#v, %v", noOp, err)
 	}
-	if _, err := e.navigateHistory(protocol.MethodEditUndo, e.editor.documentID, ""); err != nil {
+	if _, err := e.navigateHistory(protocol.MethodEditUndo, e.doc.editor.documentID, ""); err != nil {
 		t.Fatal(err)
 	}
-	if e.document.Metadata().Tags["title"] != "Before" || e.historyResult().Dirty {
+	if e.doc.document.Metadata().Tags["title"] != "Before" || e.historyResult().Dirty {
 		t.Fatal("undo did not restore tags and save point")
 	}
-	if _, err := e.navigateHistory(protocol.MethodEditRedo, e.editor.documentID, ""); err != nil {
+	if _, err := e.navigateHistory(protocol.MethodEditRedo, e.doc.editor.documentID, ""); err != nil {
 		t.Fatal(err)
 	}
-	if e.document.Metadata().Tags["title"] != "Après 🎵" {
+	if e.doc.document.Metadata().Tags["title"] != "Après 🎵" {
 		t.Fatal("redo did not restore tags")
 	}
 	for _, tc := range []struct {
 		name string
 		p    protocol.MetadataSetParams
 	}{
-		{"stale document", protocol.MetadataSetParams{DocumentID: "old", StateID: e.history.CurrentID()}},
-		{"stale history", protocol.MetadataSetParams{DocumentID: e.editor.documentID, StateID: initial.StateID}},
-		{"unknown tag", protocol.MetadataSetParams{DocumentID: e.editor.documentID, StateID: e.history.CurrentID(), Tags: map[string]string{"bogus": "x"}}},
-		{"NUL", protocol.MetadataSetParams{DocumentID: e.editor.documentID, StateID: e.history.CurrentID(), Tags: map[string]string{"title": "x\x00y"}}},
-		{"invalid UTF8", protocol.MetadataSetParams{DocumentID: e.editor.documentID, StateID: e.history.CurrentID(), Tags: map[string]string{"title": string([]byte{255})}}},
-		{"oversized", protocol.MetadataSetParams{DocumentID: e.editor.documentID, StateID: e.history.CurrentID(), Tags: map[string]string{"title": strings.Repeat("a", maxTagBytes+1)}}},
+		{"stale document", protocol.MetadataSetParams{DocumentID: "old", StateID: e.historyState.history.CurrentID()}},
+		{"stale history", protocol.MetadataSetParams{DocumentID: e.doc.editor.documentID, StateID: initial.StateID}},
+		{"unknown tag", protocol.MetadataSetParams{DocumentID: e.doc.editor.documentID, StateID: e.historyState.history.CurrentID(), Tags: map[string]string{"bogus": "x"}}},
+		{"NUL", protocol.MetadataSetParams{DocumentID: e.doc.editor.documentID, StateID: e.historyState.history.CurrentID(), Tags: map[string]string{"title": "x\x00y"}}},
+		{"invalid UTF8", protocol.MetadataSetParams{DocumentID: e.doc.editor.documentID, StateID: e.historyState.history.CurrentID(), Tags: map[string]string{"title": string([]byte{255})}}},
+		{"oversized", protocol.MetadataSetParams{DocumentID: e.doc.editor.documentID, StateID: e.historyState.history.CurrentID(), Tags: map[string]string{"title": strings.Repeat("a", maxTagBytes+1)}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := e.metadataResult()
@@ -122,7 +122,7 @@ func TestWAVMetadataPreservation(t *testing.T) {
 				t.Fatal(err)
 			}
 			if edit {
-				if _, err := e.setMetadata(protocol.MetadataSetParams{DocumentID: e.editor.documentID, StateID: e.history.CurrentID(), Tags: map[string]string{"title": "New odd-size 🎵", "artist": "Artist"}}); err != nil {
+				if _, err := e.setMetadata(protocol.MetadataSetParams{DocumentID: e.doc.editor.documentID, StateID: e.historyState.history.CurrentID(), Tags: map[string]string{"title": "New odd-size 🎵", "artist": "Artist"}}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -162,13 +162,13 @@ func TestWAVMetadataPreservation(t *testing.T) {
 			if edit {
 				title = "New odd-size 🎵"
 			}
-			if reopened.document.Metadata().Tags["title"] != title {
+			if reopened.doc.document.Metadata().Tags["title"] != title {
 				t.Fatal("tag roundtrip failed")
 			}
 			if _, err := e.exportDocument(protocol.DocumentExportParams{Format: "flac", BitDepth: 16}); err == nil {
 				t.Fatal("silently dropped metadata in FLAC")
 			}
-			e.editor.selection = protocol.SelectionRange{Start: 1, End: 3, ChannelMask: 1}
+			e.doc.editor.selection = protocol.SelectionRange{Start: 1, End: 3, ChannelMask: 1}
 			if _, err := e.exportDocument(protocol.DocumentExportParams{Format: "wav", BitDepth: 32, Float: true, Scope: "selection"}); err != nil {
 				t.Fatal(err)
 			}
@@ -205,8 +205,8 @@ func TestWAVAssociatedMetadataSurvivesTimelineEdits(t *testing.T) {
 			if _, err := e.openWAVDocument(protocol.DocumentOpenParams{Name: "associated.wav"}, input); err != nil {
 				t.Fatal(err)
 			}
-			anchor := e.document.Metadata().Timeline.Regions[0]
-			if _, err := e.updateRegion(protocol.RegionUpdateParams{ID: anchor.ID, RegionAddParams: protocol.RegionAddParams{DocumentID: e.editor.documentID, Start: 1, End: 3, Name: "Renamed", Color: anchor.Color}}); err != nil {
+			anchor := e.doc.document.Metadata().Timeline.Regions[0]
+			if _, err := e.updateRegion(protocol.RegionUpdateParams{ID: anchor.ID, RegionAddParams: protocol.RegionAddParams{DocumentID: e.doc.editor.documentID, Start: 1, End: 3, Name: "Renamed", Color: anchor.Color}}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := e.exportDocument(protocol.DocumentExportParams{Format: "wav", BitDepth: 32, Float: true}); err != nil {
@@ -235,7 +235,7 @@ func TestWAVAssociatedMetadataSurvivesTimelineEdits(t *testing.T) {
 			if associated.Labels[0].Text != "Renamed" || len(associated.UnknownSubchunks) != 1 {
 				t.Fatal("lost renamed label/unknown record")
 			}
-			e.editor.selection = protocol.SelectionRange{Start: 0, End: 2, ChannelMask: 1}
+			e.doc.editor.selection = protocol.SelectionRange{Start: 0, End: 2, ChannelMask: 1}
 			if _, err := e.exportDocument(protocol.DocumentExportParams{Format: "wav", BitDepth: 32, Float: true, Scope: "selection"}); err != nil {
 				t.Fatal(err)
 			}
@@ -243,14 +243,14 @@ func TestWAVAssociatedMetadataSurvivesTimelineEdits(t *testing.T) {
 			if _, err := selected.openWAVDocument(protocol.DocumentOpenParams{}, e.bulkData); err != nil {
 				t.Fatal(err)
 			}
-			cropped := selected.document.Metadata().Timeline.Regions[0]
+			cropped := selected.doc.document.Metadata().Timeline.Regions[0]
 			if cropped.Start != 1 || cropped.End != 2 {
 				t.Fatalf("wrong cropped annotation: %#v", cropped)
 			}
 			if !bytes.Contains(e.bulkData, []byte("Note 🎵")) || bytes.Contains(e.bulkData, []byte("zzzz")) {
 				t.Fatal("selection lost surviving note or retained opaque associated data")
 			}
-			if _, err := e.removeAnchor(protocol.MethodRegionsRemove, protocol.TimelineRemoveParams{DocumentID: e.editor.documentID, ID: anchor.ID}); err != nil {
+			if _, err := e.removeAnchor(protocol.MethodRegionsRemove, protocol.TimelineRemoveParams{DocumentID: e.doc.editor.documentID, ID: anchor.ID}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := e.exportDocument(protocol.DocumentExportParams{Format: "wav", BitDepth: 32, Float: true}); err != nil {
@@ -279,12 +279,12 @@ func TestWAVMetadataMalformedAndOwnership(t *testing.T) {
 			t.Fatal("failed import replaced document")
 		}
 	}
-	metadata := e.document.Metadata()
+	metadata := e.doc.document.Metadata()
 	metadata.WAVChunks[0].Data[0] = 99
-	if e.document.Metadata().WAVChunks[0].Data[0] == 99 {
+	if e.doc.document.Metadata().WAVChunks[0].Data[0] == 99 {
 		t.Fatal("metadata output aliases storage")
 	}
-	snapshot, err := e.document.WithMetadata(metadata)
+	snapshot, err := e.doc.document.WithMetadata(metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,10 +306,10 @@ func TestWAVLegacyInfoAndTagDeletion(t *testing.T) {
 	if _, err := e.openWAVDocument(protocol.DocumentOpenParams{}, input); err != nil {
 		t.Fatal(err)
 	}
-	if e.document.Metadata().Tags["title"] != "é" {
+	if e.doc.document.Metadata().Tags["title"] != "é" {
 		t.Fatal("legacy INFO display fallback failed")
 	}
-	if _, err := e.setMetadata(protocol.MetadataSetParams{DocumentID: e.editor.documentID, StateID: e.history.CurrentID(), Tags: map[string]string{"title": "é", "artist": "New artist"}}); err != nil {
+	if _, err := e.setMetadata(protocol.MetadataSetParams{DocumentID: e.doc.editor.documentID, StateID: e.historyState.history.CurrentID(), Tags: map[string]string{"title": "é", "artist": "New artist"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.exportDocument(protocol.DocumentExportParams{Format: "wav", BitDepth: 32, Float: true}); err != nil {
@@ -318,7 +318,7 @@ func TestWAVLegacyInfoAndTagDeletion(t *testing.T) {
 	if !bytes.Contains(e.bulkData, legacy) {
 		t.Fatal("editing another field rewrote legacy INFO bytes")
 	}
-	if _, err := e.setMetadata(protocol.MetadataSetParams{DocumentID: e.editor.documentID, StateID: e.history.CurrentID(), Tags: map[string]string{"artist": "New artist", "title": ""}}); err != nil {
+	if _, err := e.setMetadata(protocol.MetadataSetParams{DocumentID: e.doc.editor.documentID, StateID: e.historyState.history.CurrentID(), Tags: map[string]string{"artist": "New artist", "title": ""}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.exportDocument(protocol.DocumentExportParams{Format: "wav", BitDepth: 32, Float: true}); err != nil {
@@ -331,7 +331,7 @@ func TestWAVLegacyInfoAndTagDeletion(t *testing.T) {
 	if _, err := reopened.openWAVDocument(protocol.DocumentOpenParams{}, e.bulkData); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(reopened.document.Metadata().Tags, map[string]string{"artist": "New artist"}) {
+	if !reflect.DeepEqual(reopened.doc.document.Metadata().Tags, map[string]string{"artist": "New artist"}) {
 		t.Fatal("tag deletion changed other fields")
 	}
 }

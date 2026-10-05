@@ -59,7 +59,7 @@ func TestTransportResampleDurationReferenceAndChunkParity(t *testing.T) {
 			if n := whole.RenderWithPositions(want, wantTags); n != outputs {
 				t.Fatalf("%d->%d %d frames rendered %d of %d", inRate, outRate, frames, n, outputs)
 			}
-			if whole.Render(make([]float32, 16)) != 0 || whole.transport.position != int64(frames) || whole.transport.playing {
+			if whole.Render(make([]float32, 16)) != 0 || whole.playback.transport.position != int64(frames) || whole.playback.transport.playing {
 				t.Fatal("resampled EOF state incorrect")
 			}
 			for i, position := range wantTags {
@@ -208,7 +208,7 @@ func TestTransportExtremeDownsampleAntiAlias(t *testing.T) {
 
 func TestTransportResampleWorkspaceFailureIsAtomic(t *testing.T) {
 	e := transportEngine(t, []float32{0, 1, 0}, 1, 383999, 384000)
-	if _, err := e.playDocument(protocol.TransportPlayParams{}); err == nil || e.transport != nil || e.source != sourceStopped {
+	if _, err := e.playDocument(protocol.TransportPlayParams{}); err == nil || e.playback.transport != nil || e.playback.source != sourceStopped {
 		t.Fatalf("unbounded exact-ratio workspace accepted or changed state: %v", err)
 	}
 }

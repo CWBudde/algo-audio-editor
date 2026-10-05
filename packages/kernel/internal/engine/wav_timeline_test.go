@@ -86,10 +86,10 @@ func TestWAVTimelineRoundTripAndStandardChunks(t *testing.T) {
 		[]protocol.TimelineMarker{{ID: 3, Frame: 3, Name: "EOF 🎵", Color: "#123456"}},
 		[]protocol.TimelineRegion{{ID: 8, Start: 0, End: 2, Name: "résumé, \"one\"", Color: "#abcdef"}},
 	)
-	metadata := e.document.Metadata()
+	metadata := e.doc.document.Metadata()
 	metadata.Timeline.NextID = 42 // Removed identities must not be reused after reopen.
 	var err error
-	e.document, err = e.document.WithMetadata(metadata)
+	e.doc.document, err = e.doc.document.WithMetadata(metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,14 +131,14 @@ func TestWAVTimelineRoundTripAndStandardChunks(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertEditBits(t, editSamples(t, reopened), original)
-	if !reflect.DeepEqual(reopened.document.Metadata().Timeline, metadata.Timeline) {
-		t.Fatalf("timeline changed: %+v", reopened.document.Metadata().Timeline)
+	if !reflect.DeepEqual(reopened.doc.document.Metadata().Timeline, metadata.Timeline) {
+		t.Fatalf("timeline changed: %+v", reopened.doc.document.Metadata().Timeline)
 	}
 	if reopened.historyResult().Dirty || reopened.historyResult().CanUndo {
 		t.Fatal("import did not start a clean base history")
 	}
 	clear(output)
-	if !reflect.DeepEqual(reopened.document.Metadata().Timeline, metadata.Timeline) {
+	if !reflect.DeepEqual(reopened.doc.document.Metadata().Timeline, metadata.Timeline) {
 		t.Fatal("import retained mutable file storage")
 	}
 }
@@ -154,7 +154,7 @@ func TestWAVForeignTimelineOrderPaddingAndIDs(t *testing.T) {
 			if _, err := e.openDocument(protocol.DocumentOpenParams{}, input); err != nil {
 				t.Fatalf("before=%t id=%d: %v", before, id, err)
 			}
-			got := e.document.Metadata().Timeline
+			got := e.doc.document.Metadata().Timeline
 			wantID := int64(id)
 			if wantID == 0 {
 				wantID = 1
@@ -170,7 +170,7 @@ func TestWAVForeignTimelineOrderPaddingAndIDs(t *testing.T) {
 	if _, err := e.openDocument(protocol.DocumentOpenParams{}, wavWithTimeline(base, false, timelineTwoCues(0, math.MaxUint32))); err != nil {
 		t.Fatal(err)
 	}
-	if timeline := e.document.Metadata().Timeline; len(timeline.Markers) != 2 || timeline.Markers[0].ID != 1 || timeline.Markers[1].ID != math.MaxUint32 || timeline.NextID != audiobuf.MaxAnchorID+1 {
+	if timeline := e.doc.document.Metadata().Timeline; len(timeline.Markers) != 2 || timeline.Markers[0].ID != 1 || timeline.Markers[1].ID != math.MaxUint32 || timeline.NextID != audiobuf.MaxAnchorID+1 {
 		t.Fatalf("zero identity remapping collided: %+v", timeline)
 	}
 	// Deleted anchors still consume identities, even in an otherwise empty file.
@@ -212,18 +212,18 @@ func TestWAVTimelineInvalidImportsAreAtomic(t *testing.T) {
 			if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: 48000, Channels: 1}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := e.addMarker(protocol.MarkerAddParams{DocumentID: e.editor.documentID, Frame: 1, Name: "keep"}); err != nil {
+			if _, err := e.addMarker(protocol.MarkerAddParams{DocumentID: e.doc.editor.documentID, Frame: 1, Name: "keep"}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := e.applyEdit(editParams(e, "copy", 0, 1, 1)); err != nil {
 				t.Fatal(err)
 			}
 			playRange(t, e, 0, 3, true)
-			before, transport, clipboard := e.editResult(false), e.transport, e.clipboardInfo()
+			before, transport, clipboard := e.editResult(false), e.playback.transport, e.clipboardInfo()
 			if _, err := e.openDocument(protocol.DocumentOpenParams{}, wavWithTimeline(base, true, tt.chunks...)); err == nil {
 				t.Fatal("invalid annotation accepted")
 			}
-			if !reflect.DeepEqual(before, e.editResult(false)) || e.transport != transport || !transport.playing || e.clipboardInfo() != clipboard {
+			if !reflect.DeepEqual(before, e.editResult(false)) || e.playback.transport != transport || !transport.playing || e.clipboardInfo() != clipboard {
 				t.Fatal("failed annotation import changed live document/history/transport/clipboard")
 			}
 		})

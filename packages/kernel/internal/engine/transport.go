@@ -40,21 +40,21 @@ func (e *Engine) playDocument(p protocol.TransportPlayParams) (protocol.Transpor
 		return protocol.TransportResult{}, fmt.Errorf("transport.play: only one preview source is permitted")
 	}
 	if p.EffectPreviewID != "" {
-		if _, err := e.activeEffectSession("transport.play", protocol.EffectsSessionParams{DocumentID: e.editor.documentID, PreviewID: p.EffectPreviewID}); err != nil {
+		if _, err := e.activeEffectSession("transport.play", protocol.EffectsSessionParams{DocumentID: e.doc.editor.documentID, PreviewID: p.EffectPreviewID}); err != nil {
 			return protocol.TransportResult{}, err
 		}
 	}
-	document := e.document
+	document := e.doc.document
 	if p.PreviewJobID != "" {
-		job := e.processJob
-		if job == nil || job.result.JobID != p.PreviewJobID || job.result.State != "ready" {
+		job := e.jobs.processJob
+		if job == nil || job.result.JobID != p.PreviewJobID || job.result.State != protocol.JobReady {
 			return protocol.TransportResult{}, fmt.Errorf("transport.play: preview job is not ready or is stale")
 		}
 		if err := e.validateProcessSource("transport.play", job); err != nil {
 			return protocol.TransportResult{}, err
 		}
 		document = job.candidate
-	} else if e.processJob != nil {
+	} else if e.jobs.processJob != nil {
 		return protocol.TransportResult{}, fmt.Errorf("transport.play: processing job is active")
 	}
 	if document.Channels() == 0 {
@@ -77,13 +77,13 @@ func (e *Engine) playDocument(p protocol.TransportPlayParams) (protocol.Transpor
 			return protocol.TransportResult{}, fmt.Errorf("transport.play: prepare effect preview: %w", err)
 		}
 	}
-	e.transport, e.source = t, sourceDocument
+	e.playback.transport, e.playback.source = t, sourceDocument
 	e.resetMeters()
 	return t.result(), nil
 }
 
 func (e *Engine) attachEffectPreview(t *documentTransport, id string) error {
-	session := e.effectPreview
+	session := e.effectsState.effectPreview
 	if session == nil || session.result.PreviewID != id {
 		return fmt.Errorf("stale effect preview")
 	}
@@ -93,10 +93,10 @@ func (e *Engine) attachEffectPreview(t *documentTransport, id string) error {
 	}
 	// A playing stream must remain untouched if private lookahead preparation
 	// fails. Initial Play and replay after Stop reuse the session's prepared DSP.
-	if e.source == sourceDocument && e.transport != nil && e.transport.playing && e.transport.effects == stream {
+	if e.playback.source == sourceDocument && e.playback.transport != nil && e.playback.transport.playing && e.playback.transport.effects == stream {
 		selection := session.result.SelectionRange
 		var err error
-		stream, err = effects.NewStream(e.document, ops.Range{Start: selection.Start, End: selection.End, ChannelMask: selection.ChannelMask}, session.config)
+		stream, err = effects.NewStream(e.doc.document, ops.Range{Start: selection.Start, End: selection.End, ChannelMask: selection.ChannelMask}, session.config)
 		if err != nil {
 			return err
 		}
@@ -115,16 +115,16 @@ func (e *Engine) attachEffectPreview(t *documentTransport, id string) error {
 }
 
 func (e *Engine) makeTransport(start, end, position int64, loop, playing bool) (*documentTransport, error) {
-	return e.makeTransportFromDocument(e.document, start, end, position, loop, playing)
+	return e.makeTransportFromDocument(e.doc.document, start, end, position, loop, playing)
 }
 
 func (e *Engine) makeTransportFromDocument(document audiobuf.Document, start, end, position int64, loop, playing bool) (*documentTransport, error) {
-	if e.channels != document.Channels() {
-		return nil, fmt.Errorf("render channels %d must match document channels %d", e.channels, document.Channels())
+	if e.playback.channels != document.Channels() {
+		return nil, fmt.Errorf("render channels %d must match document channels %d", e.playback.channels, document.Channels())
 	}
 	t := &documentTransport{
 		start: start, end: end, position: position, loop: loop, playing: playing,
-		channels: make([]audiobuf.Channel, e.channels), mono: make([]float32, transportBlockFrames),
+		channels: make([]audiobuf.Channel, e.playback.channels), mono: make([]float32, transportBlockFrames),
 	}
 	for i := range t.channels {
 		var err error
@@ -133,9 +133,9 @@ func (e *Engine) makeTransportFromDocument(document audiobuf.Document, start, en
 			return nil, fmt.Errorf("read channel %d: %w", i, err)
 		}
 	}
-	if playing && document.SampleRate() != int(e.sampleRate) {
+	if playing && document.SampleRate() != int(e.playback.sampleRate) {
 		var err error
-		t.resampled, err = newDocumentResampler(t, document.SampleRate(), int(e.sampleRate))
+		t.resampled, err = newDocumentResampler(t, document.SampleRate(), int(e.playback.sampleRate))
 		if err != nil {
 			return nil, fmt.Errorf("sample-rate conversion: %w", err)
 		}
@@ -144,33 +144,33 @@ func (e *Engine) makeTransportFromDocument(document audiobuf.Document, start, en
 }
 
 func (e *Engine) stopDocument() protocol.TransportResult {
-	if e.meters != nil && e.meters.frames > 0 {
-		e.meters.flush()
+	if e.playback.meters != nil && e.playback.meters.frames > 0 {
+		e.playback.meters.flush()
 	}
-	e.source = sourceStopped
-	if e.transport == nil {
-		return protocol.TransportResult{End: e.document.Frames()}
+	e.playback.source = sourceStopped
+	if e.playback.transport == nil {
+		return protocol.TransportResult{End: e.doc.document.Frames()}
 	}
-	e.transport.playing = false
-	return e.transport.result()
+	e.playback.transport.playing = false
+	return e.playback.transport.result()
 }
 
 func (e *Engine) seekDocument(p protocol.TransportSeekParams) (protocol.TransportResult, error) {
-	if e.processJob != nil {
+	if e.jobs.processJob != nil {
 		return protocol.TransportResult{}, fmt.Errorf("transport.seek: processing job is active")
 	}
-	if e.document.Channels() == 0 {
+	if e.doc.document.Channels() == 0 {
 		return protocol.TransportResult{}, fmt.Errorf("transport.seek: no document is open")
 	}
-	if p.Frame < 0 || p.Frame > e.document.Frames() || p.Frame > 1<<53-1 {
-		return protocol.TransportResult{}, fmt.Errorf("transport.seek: frame %d must be inside [0, %d]", p.Frame, e.document.Frames())
+	if p.Frame < 0 || p.Frame > e.doc.document.Frames() || p.Frame > 1<<53-1 {
+		return protocol.TransportResult{}, fmt.Errorf("transport.seek: frame %d must be inside [0, %d]", p.Frame, e.doc.document.Frames())
 	}
-	start, end, loop, playing := int64(0), e.document.Frames(), false, false
-	if e.transport != nil {
-		start, end, loop = e.transport.start, e.transport.end, e.transport.loop
-		playing = e.source == sourceDocument && e.transport.playing
+	start, end, loop, playing := int64(0), e.doc.document.Frames(), false, false
+	if e.playback.transport != nil {
+		start, end, loop = e.playback.transport.start, e.playback.transport.end, e.playback.transport.loop
+		playing = e.playback.source == sourceDocument && e.playback.transport.playing
 		if p.Frame < start || p.Frame > end {
-			start, end = 0, e.document.Frames()
+			start, end = 0, e.doc.document.Frames()
 		}
 	}
 	if p.Frame == end {
@@ -185,15 +185,15 @@ func (e *Engine) seekDocument(p protocol.TransportSeekParams) (protocol.Transpor
 		if err != nil {
 			return protocol.TransportResult{}, fmt.Errorf("transport.seek: prepare playback: %w", err)
 		}
-		if e.transport != nil && e.transport.effectPreviewID != "" {
-			if err := e.attachEffectPreview(t, e.transport.effectPreviewID); err != nil {
+		if e.playback.transport != nil && e.playback.transport.effectPreviewID != "" {
+			if err := e.attachEffectPreview(t, e.playback.transport.effectPreviewID); err != nil {
 				return protocol.TransportResult{}, fmt.Errorf("transport.seek: prepare effects: %w", err)
 			}
 		}
 	} else {
 		t = &documentTransport{start: start, end: end, position: p.Frame, loop: loop}
 	}
-	e.transport, e.source = t, sourceDocument
+	e.playback.transport, e.playback.source = t, sourceDocument
 	e.resetMeters()
 	return t.result(), nil
 }
@@ -203,30 +203,30 @@ func (e *Engine) seekDocument(p protocol.TransportSeekParams) (protocol.Transpor
 // The worklet publishes only consumed tags, so render-ahead never moves the
 // visible cursor early. A short result marks EOF; unused whole frames are silent.
 func (e *Engine) RenderWithPositions(dst []float32, positions []int64) int {
-	if e.channels < 1 {
+	if e.playback.channels < 1 {
 		clear(dst)
 		clear(positions)
 		return 0
 	}
-	frames := len(dst) / e.channels
+	frames := len(dst) / e.playback.channels
 	if positions != nil {
 		frames = min(frames, len(positions))
 		clear(positions[:frames])
 	}
-	output := dst[:frames*e.channels]
+	output := dst[:frames*e.playback.channels]
 	clear(output)
-	if frames == 0 || e.source == sourceStopped {
+	if frames == 0 || e.playback.source == sourceStopped {
 		return 0
 	}
-	if e.source == sourceTone {
-		if e.tone == nil {
+	if e.playback.source == sourceTone {
+		if e.playback.tone == nil {
 			return 0
 		}
-		e.tone.render(output, e.channels)
+		e.playback.tone.render(output, e.playback.channels)
 		e.recordOutput(output, frames)
 		return frames
 	}
-	t := e.transport
+	t := e.playback.transport
 	if t == nil || !t.playing {
 		return 0
 	}
@@ -258,14 +258,14 @@ func (e *Engine) RenderWithPositions(dst []float32, positions []int64) int {
 					if needRaw && (selection.ChannelMask&(1<<channel) == 0 || position < selection.Start || position >= selection.End) {
 						value = t.mono[frame]
 					}
-					output[(written+frame)*e.channels+channel] = value
+					output[(written+frame)*e.playback.channels+channel] = value
 				}
 			}
 		} else {
 			for channel, data := range t.channels {
 				data.Read(t.mono[:count], t.position)
 				for frame := range count {
-					output[(written+frame)*e.channels+channel] = t.mono[frame]
+					output[(written+frame)*e.playback.channels+channel] = t.mono[frame]
 				}
 			}
 		}

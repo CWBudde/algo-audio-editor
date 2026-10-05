@@ -80,7 +80,7 @@ func TestMetersActualOutputEOFPaddingResetAndReadOnly(t *testing.T) {
 }
 
 func reflectMetersSource(before protocol.EditResult, e *Engine) bool {
-	return before.History.CurrentStateID == e.history.CurrentID() && before.Document.DocumentID == e.editor.documentID
+	return before.History.CurrentStateID == e.historyState.history.CurrentID() && before.Document.DocumentID == e.doc.editor.documentID
 }
 
 func TestMetersEffectAndResamplerMeasureRenderedOutput(t *testing.T) {
@@ -166,11 +166,11 @@ func TestMetersPreparedRenderAndCopyZeroAllocations(t *testing.T) {
 	if allocations := testing.AllocsPerRun(20, func() { e.Render(output); _ = e.MeterData() }); allocations != 0 {
 		t.Fatal(allocations)
 	}
-	old := e.meters
-	if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: math.NaN(), Channels: 2}); err == nil || e.meters != old {
+	old := e.playback.meters
+	if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: math.NaN(), Channels: 2}); err == nil || e.playback.meters != old {
 		t.Fatal("failed format configure altered meters")
 	}
-	if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: 96000, Channels: 6}); err != nil || e.meters == old || e.meters.channels != 6 {
+	if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: 96000, Channels: 6}); err != nil || e.playback.meters == old || e.playback.meters.channels != 6 {
 		t.Fatal("successful format configure", err)
 	}
 }
@@ -226,11 +226,11 @@ func TestAnalysisLiveSpectrumSteppedIdentityRolling64AndCancellation(t *testing.
 		t.Fatal(err)
 	}
 	setHistory := func(amplitude float32) {
-		e.spectrumCount = 256
-		e.spectrumWrite = 256
+		e.analysis.spectrumCount = 256
+		e.analysis.spectrumWrite = 256
 		for i := range 256 {
 			for c := range 2 {
-				e.spectrumHistory[i*2+c] = amplitude
+				e.analysis.spectrumHistory[i*2+c] = amplitude
 			}
 		}
 	}
@@ -244,7 +244,7 @@ func TestAnalysisLiveSpectrumSteppedIdentityRolling64AndCancellation(t *testing.
 		if err != nil {
 			t.Fatal(err)
 		}
-		if r.State != "running" || r.DataBytes != 0 {
+		if (r.State != "running" && r.State != "ready") || (r.State == "running" && r.DataBytes != 0) {
 			t.Fatal("unbounded first call", r)
 		}
 		step := p

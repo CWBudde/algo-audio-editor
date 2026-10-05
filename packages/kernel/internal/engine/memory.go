@@ -20,16 +20,21 @@ func (b memoryBudget) capacity() int64 {
 }
 
 func (e *Engine) retainedStorage() int64 {
-	documents := []audiobuf.Document{e.document}
-	if e.history != nil {
-		documents = e.history.Documents()
+	documents := []audiobuf.Document{e.doc.document}
+	if e.historyState.history != nil {
+		documents = nil
 	}
-	if job := e.processJob; job != nil && job.reservedBytes == 0 && job.candidate.Channels() > 0 {
+	if job := e.jobs.processJob; job != nil && job.reservedBytes == 0 && job.candidate.Channels() > 0 {
 		documents = append(documents, job.candidate)
 	}
-	stats := audiobuf.CountMemoryWithWindows(documents, e.clipboard.Windows()...)
-	bytes := stats.SampleBytes + stats.PeakBytes + int64(stats.UniqueBlocks)*128 + int64(stats.BlockReferences)*16 + e.impulseBytes + int64(cap(e.bulkData))
-	if job := e.processJob; job != nil {
+	var stats audiobuf.MemoryStats
+	if e.historyState.history != nil {
+		stats = e.historyState.history.MemoryStats(documents, e.doc.clipboard.Windows()...)
+	} else {
+		stats = audiobuf.CountMemoryWithWindows(documents, e.doc.clipboard.Windows()...)
+	}
+	bytes := stats.SampleBytes + stats.PeakBytes + int64(stats.UniqueBlocks)*128 + int64(stats.BlockReferences)*16 + e.effectsState.impulseBytes + int64(cap(e.bulkData))
+	if job := e.jobs.processJob; job != nil {
 		// This reservation includes future blocks as well as partial/ready
 		// output. Counting its actual blocks again would double-charge them.
 		bytes += job.reservedBytes
@@ -94,7 +99,7 @@ func (e *Engine) reserveProcess(method string, samples int64) (int64, error) {
 	bytes := samples * 2
 	if samples > 0 {
 		// Result assembly can copy two source boundaries per channel.
-		bytes += decodedStorage(min(e.document.Frames(), 2*audiobuf.BlockFrames), e.document.Channels(), audiobuf.BlockFrames)
+		bytes += decodedStorage(min(e.doc.document.Frames(), 2*audiobuf.BlockFrames), e.doc.document.Channels(), audiobuf.BlockFrames)
 	}
 	return bytes, e.checkStorage(method, bytes)
 }

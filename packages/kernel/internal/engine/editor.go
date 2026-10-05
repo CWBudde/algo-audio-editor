@@ -21,92 +21,25 @@ type editorState struct {
 	selection  protocol.SelectionRange
 }
 
-func (e *Engine) dispatchEditor(method string, payload []byte) (any, error) {
-	switch method {
-	case protocol.MethodSelectionGet:
-		var p protocol.SelectionGetParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.getSelection(p)
-	case protocol.MethodSelectionSet:
-		var p protocol.SelectionSetParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.setSelection(p)
-	case protocol.MethodSelectionSnap:
-		var p protocol.SelectionSnapParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.snapSelection(p)
-	case protocol.MethodTimelineGet:
-		var p protocol.TimelineGetParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.getTimeline(p)
-	case protocol.MethodMarkersAdd:
-		var p protocol.MarkerAddParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.addMarker(p)
-	case protocol.MethodRegionsAdd:
-		var p protocol.RegionAddParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.addRegion(p)
-	case protocol.MethodMarkersUpdate:
-		var p protocol.MarkerUpdateParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.updateMarker(p)
-	case protocol.MethodRegionsUpdate:
-		var p protocol.RegionUpdateParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.updateRegion(p)
-	case protocol.MethodMarkersRemove, protocol.MethodRegionsRemove:
-		var p protocol.TimelineRemoveParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.removeAnchor(method, p)
-	case protocol.MethodTimelineExport:
-		var p protocol.TimelineExportParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.exportTimeline(p)
-	default:
-		return nil, fmt.Errorf("unknown editor method %q", method)
-	}
-}
-
 func (e *Engine) validateDocumentID(method, id string) error {
-	if e.document.Channels() == 0 || e.editor.documentID == "" {
+	if e.doc.document.Channels() == 0 || e.doc.editor.documentID == "" {
 		return fmt.Errorf("%s: no document is open", method)
 	}
-	if id != e.editor.documentID {
+	if id != e.doc.editor.documentID {
 		return fmt.Errorf("%s: stale or invalid document identity", method)
 	}
 	return nil
 }
 
 func (e *Engine) validateEditorRange(method string, start, end int64) error {
-	if start < 0 || end < start || end > e.document.Frames() || end > maxEditorFrame {
-		return fmt.Errorf("%s: range [%d, %d) must be within the JS-safe document frames [0, %d]", method, start, end, e.document.Frames())
+	if start < 0 || end < start || end > e.doc.document.Frames() || end > maxEditorFrame {
+		return fmt.Errorf("%s: range [%d, %d) must be within the JS-safe document frames [0, %d]", method, start, end, e.doc.document.Frames())
 	}
 	return nil
 }
 
 func (e *Engine) validateChannelMask(method string, mask int) error {
-	available := (1 << e.document.Channels()) - 1
+	available := (1 << e.doc.document.Channels()) - 1
 	if mask <= 0 || mask&available != mask {
 		return fmt.Errorf("%s: channel mask %d must be a positive subset of %d", method, mask, available)
 	}
@@ -114,7 +47,7 @@ func (e *Engine) validateChannelMask(method string, mask int) error {
 }
 
 func (e *Engine) selectionResult() protocol.SelectionResult {
-	return protocol.SelectionResult{DocumentID: e.editor.documentID, SelectionRange: e.editor.selection}
+	return protocol.SelectionResult{DocumentID: e.doc.editor.documentID, SelectionRange: e.doc.editor.selection}
 }
 
 func (e *Engine) getSelection(p protocol.SelectionGetParams) (protocol.SelectionResult, error) {
@@ -135,7 +68,7 @@ func (e *Engine) setSelection(p protocol.SelectionSetParams) (protocol.Selection
 	if err := e.validateChannelMask(method, p.ChannelMask); err != nil {
 		return protocol.SelectionResult{}, err
 	}
-	e.editor.selection = p.SelectionRange
+	e.doc.editor.selection = p.SelectionRange
 	return e.selectionResult(), nil
 }
 
@@ -157,17 +90,17 @@ func (e *Engine) snapSelection(p protocol.SelectionSnapParams) (protocol.Selecti
 	// The extra predecessor detects a crossing exactly at the left radius
 	// boundary. At most 2*radius+2 samples are copied, one channel at a time.
 	start := max(int64(0), p.Frame-p.Radius-1)
-	end := min(e.document.Frames(), p.Frame+p.Radius+1)
+	end := min(e.doc.document.Frames(), p.Frame+p.Radius+1)
 	if start == end {
 		return result, nil
 	}
 	window := make([]float32, int(end-start))
 	bestDistance := p.Radius + 1
-	for channel := range e.document.Channels() {
+	for channel := range e.doc.document.Channels() {
 		if p.ChannelMask&(1<<channel) == 0 {
 			continue
 		}
-		source, err := e.document.Channel(channel)
+		source, err := e.doc.document.Channel(channel)
 		if err != nil {
 			return protocol.SelectionSnapResult{}, fmt.Errorf("%s: channel %d: %w", method, channel, err)
 		}
@@ -191,9 +124,9 @@ func (e *Engine) snapSelection(p protocol.SelectionSnapParams) (protocol.Selecti
 }
 
 func (e *Engine) timelineResult() protocol.TimelineResult {
-	timeline := e.document.Metadata().Timeline
+	timeline := e.doc.document.Metadata().Timeline
 	result := protocol.TimelineResult{
-		DocumentID: e.editor.documentID,
+		DocumentID: e.doc.editor.documentID,
 		Markers:    make([]protocol.TimelineMarker, len(timeline.Markers)),
 		Regions:    make([]protocol.TimelineRegion, len(timeline.Regions)),
 	}

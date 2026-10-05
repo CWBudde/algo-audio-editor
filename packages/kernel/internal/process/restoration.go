@@ -9,6 +9,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 	"github.com/cwbudde/algo-dsp/dsp/effects/pitch"
 	"github.com/cwbudde/algo-dsp/dsp/effects/restoration"
 )
@@ -54,9 +55,9 @@ func newRestorationOperation(document audiobuf.Document, selected ops.Range, set
 		return nil, fmt.Errorf("process.restoration: nonempty audio required")
 	}
 	c := settings.Restoration
-	b := &blockOperation{source: document, selected: selected, outputSelection: selected, settings: settings, outputRate: document.SampleRate(), outputChannels: document.Channels(), outputFrames: document.Frames(), renderFrames: selected.End - selected.Start, status: NormalizationStatus{Phase: "processing", PhaseCount: 1, GainResolved: true, GainDB: c.GainDB}}
+	b := &blockOperation{source: document, selected: selected, outputSelection: selected, settings: settings, outputRate: document.SampleRate(), outputChannels: document.Channels(), outputFrames: document.Frames(), renderFrames: selected.End - selected.Start, status: NormalizationStatus{Phase: protocol.PhaseProcessing, PhaseCount: 1, GainResolved: true, GainDB: c.GainDB}}
 	r := &restorationOperation{blockOperation: b}
-	if settings.Operation == "time-stretch" {
+	if settings.Operation == protocol.OperationTimeStretch {
 		if selected.ChannelMask != (1<<document.Channels())-1 || math.IsNaN(c.DurationRatio) || math.IsInf(c.DurationRatio, 0) || c.DurationRatio < 0.25 || c.DurationRatio > 4 {
 			return nil, fmt.Errorf("process.stretch: duration ratio [0.25,4] and all channels required")
 		}
@@ -73,27 +74,27 @@ func newRestorationOperation(document audiobuf.Document, selected ops.Range, set
 		return nil, fmt.Errorf("process.restoration: %w", err)
 	}
 	switch settings.Operation {
-	case "remove-clicks":
+	case protocol.OperationRemoveClicks:
 		if !finiteControl(c.Sensitivity, 3, 30) || c.MaxGap < 1 || c.MaxGap > 256 {
 			return nil, fmt.Errorf("process.clicks: sensitivity [3,30] and gap [1,256] required")
 		}
-	case "declip":
+	case protocol.OperationDeclip:
 		if !finiteControl(c.ClipThreshold, 0.1, 1) || c.MaxGap < 1 || c.MaxGap > 256 {
 			return nil, fmt.Errorf("process.declip: threshold [0.1,1] and gap [1,256] required")
 		}
-	case "noise-reduce":
+	case protocol.OperationNoiseReduce:
 		if c.ProfileStart < 0 || c.ProfileEnd <= c.ProfileStart || c.ProfileEnd > document.Frames() || c.ProfileEnd-c.ProfileStart < int64(c.FFTSize/2) || !finiteControl(c.ReductionDB, 0, 60) || (c.NoiseMethod != "wiener" && c.NoiseMethod != "subtraction" && c.NoiseMethod != "gate") {
 			return nil, fmt.Errorf("process.noise: invalid profile or reduction settings")
 		}
-	case "spectral-attenuate", "spectral-remove", "spectral-heal":
+	case protocol.OperationSpectralAttenuate, protocol.OperationSpectralRemove, protocol.OperationSpectralHeal:
 		if c.Mask.Start != selected.Start || c.Mask.End != selected.End {
 			return nil, fmt.Errorf("process.restoration: spectral mask must match selected time")
 		}
 		if err := c.Mask.Validate(document.Frames(), float64(document.SampleRate())); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("process.restoration: spectral mask: %w", err)
 		}
 	}
-	if strings.HasPrefix(settings.Operation, "spectral-") || settings.Operation == "noise-reduce" {
+	if strings.HasPrefix(string(settings.Operation), "spectral-") || settings.Operation == protocol.OperationNoiseReduce {
 		if c.FFTSize < 256 || c.FFTSize > 8192 || c.FFTSize&(c.FFTSize-1) != 0 {
 			return nil, fmt.Errorf("process.restoration: invalid FFT size")
 		}
@@ -122,19 +123,19 @@ func newRestorationOperation(document audiobuf.Document, selected ops.Range, set
 	}
 	var err error
 	switch settings.Operation {
-	case "time-stretch":
+	case protocol.OperationTimeStretch:
 		r.stretch, err = pitch.NewStretchStream(float64(document.SampleRate()), c.DurationRatio, selected.End-selected.Start, count, func(channel int, start int64, dst []float64) int {
 			return r.channels[channel].ReadFloat64(dst, selected.Start+start)
 		})
-	case "remove-hum":
+	case protocol.OperationRemoveHum:
 		for range count {
 			h, e := restoration.NewHumRemover(float64(document.SampleRate()), c.HumHz, c.HumQ, c.Harmonics)
 			if e != nil {
-				return nil, e
+				return nil, fmt.Errorf("process.restoration: hum filter: %w", e)
 			}
 			r.hum = append(r.hum, h)
 		}
-	case "noise-reduce":
+	case protocol.OperationNoiseReduce:
 		for i := range count {
 			capture, captureErr := restoration.NewNoiseCapture(c.ProfileEnd-c.ProfileStart, func(dst []float64, start int64) int { return r.channels[i].ReadFloat64(dst, c.ProfileStart+start) }, c.FFTSize, float64(document.SampleRate()))
 			if captureErr != nil {
@@ -142,9 +143,9 @@ func newRestorationOperation(document audiobuf.Document, selected ops.Range, set
 			}
 			r.captures = append(r.captures, capture)
 		}
-		r.status.Phase, r.status.PhaseCount = "analyzing", 2
+		r.status.Phase, r.status.PhaseCount = protocol.PhaseAnalyzing, 2
 		r.progress.FramesTotal = c.ProfileEnd - c.ProfileStart
-	case "spectral-attenuate", "spectral-remove", "spectral-heal":
+	case protocol.OperationSpectralAttenuate, protocol.OperationSpectralRemove, protocol.OperationSpectralHeal:
 		err = r.prepareSpectral()
 	}
 	if err != nil {
@@ -162,8 +163,8 @@ func finiteControl(x, minValue, maxValue float64) bool {
 
 func (r *restorationOperation) prepareSpectral() error {
 	c := r.settings.Restoration
-	mode := strings.TrimPrefix(r.settings.Operation, "spectral-")
-	if r.settings.Operation == "noise-reduce" {
+	mode := strings.TrimPrefix(string(r.settings.Operation), "spectral-")
+	if r.settings.Operation == protocol.OperationNoiseReduce {
 		mode = "noise"
 	}
 	mask := c.Mask
@@ -180,7 +181,7 @@ func (r *restorationOperation) prepareSpectral() error {
 		}
 		processor, err := restoration.NewSpectralProcessor(r.regionEnd-r.regionStart, func(dst []float64, start int64) int { return r.channels[i].ReadFloat64(dst, r.regionStart+start) }, cfg)
 		if err != nil {
-			return err
+			return fmt.Errorf("process.restoration: spectral processor: %w", err)
 		}
 		r.spectral = append(r.spectral, processor)
 	}
@@ -200,7 +201,7 @@ func (r *restorationOperation) Step(ctx context.Context) (Progress, error) {
 	if err := ctx.Err(); err != nil {
 		return r.fail(fmt.Errorf("process.restoration: %w", err))
 	}
-	if r.status.Phase == "analyzing" {
+	if r.status.Phase == protocol.PhaseAnalyzing {
 		done := false
 		for _, capture := range r.captures {
 			var err error
@@ -222,7 +223,7 @@ func (r *restorationOperation) Step(ctx context.Context) (Progress, error) {
 			if err := r.prepareSpectral(); err != nil {
 				return r.fail(err)
 			}
-			r.status.Phase, r.status.PhaseIndex = "processing", 1
+			r.status.Phase, r.status.PhaseIndex = protocol.PhaseProcessing, 1
 			r.progress.FramesDone, r.progress.FramesTotal = 0, r.renderFrames
 		}
 		return r.progress, nil
@@ -278,7 +279,7 @@ func (r *restorationOperation) Step(ctx context.Context) (Progress, error) {
 				break
 			}
 			readStart, readEnd := start, start+int64(count)
-			if r.settings.Operation == "remove-clicks" || r.settings.Operation == "declip" {
+			if r.settings.Operation == protocol.OperationRemoveClicks || r.settings.Operation == protocol.OperationDeclip {
 				readStart = max(0, start-repairContext)
 				readEnd = min(r.source.Frames(), readEnd+repairContext)
 			}
@@ -288,11 +289,11 @@ func (r *restorationOperation) Step(ctx context.Context) (Progress, error) {
 				break
 			}
 			switch r.settings.Operation {
-			case "remove-clicks":
+			case protocol.OperationRemoveClicks:
 				err = restoration.RepairClicks(raw, c.Sensitivity, c.MaxGap)
-			case "declip":
+			case protocol.OperationDeclip:
 				err = restoration.Declip(raw, c.ClipThreshold, c.MaxGap)
-			case "remove-hum":
+			case protocol.OperationRemoveHum:
 				err = r.hum[i].ProcessInPlace(raw)
 			}
 			if err != nil {
@@ -369,7 +370,7 @@ func (r *restorationOperation) release() {
 
 func (r *restorationOperation) fail(err error) (Progress, error) {
 	r.release()
-	return r.blockOperation.fail(err)
+	return r.blockOperation.fail(fmt.Errorf("process.restoration: %w", err))
 }
 
 func (r *restorationOperation) Cancel() {

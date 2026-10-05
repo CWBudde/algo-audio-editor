@@ -21,10 +21,10 @@ func codecFixture(t *testing.T, name string) []byte {
 
 func codecSamples(t *testing.T, e *Engine) [][]float32 {
 	t.Helper()
-	out := make([][]float32, e.document.Channels())
+	out := make([][]float32, e.doc.document.Channels())
 	for ch := range out {
-		c, _ := e.document.Channel(ch)
-		out[ch] = make([]float32, e.document.Frames())
+		c, _ := e.doc.document.Channel(ch)
+		out[ch] = make([]float32, e.doc.document.Frames())
 		c.Read(out[ch], 0)
 	}
 	return out
@@ -137,7 +137,7 @@ func TestCodecFailuresPreserveDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := e.editor.documentID
+	id := e.doc.editor.documentID
 	want := codecSamples(t, e)
 	for _, format := range []string{"aiff", "flac"} {
 		input := codecFixture(t, format)
@@ -145,7 +145,7 @@ func TestCodecFailuresPreserveDocument(t *testing.T) {
 			if _, err = e.openDocument(protocol.DocumentOpenParams{}, p); err == nil {
 				t.Fatal("accepted truncation", format)
 			}
-			if id != e.editor.documentID {
+			if id != e.doc.editor.documentID {
 				t.Fatal("identity replaced")
 			}
 			assertCodecSamples(t, e, want)
@@ -196,7 +196,7 @@ func TestBrowserPCMReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := e.editor.documentID
+	id := e.doc.editor.documentID
 	p := protocol.BinaryDocumentParams{Name: "browser.opus", SampleRate: 48000, Channels: 1, Frames: 2, NextAnchorID: 1}
 	raw := make([]byte, 8)
 	binary.LittleEndian.PutUint32(raw, math.Float32bits(.25))
@@ -204,7 +204,7 @@ func TestBrowserPCMReplacement(t *testing.T) {
 	if _, err = e.importBinaryDocument(p, raw); err == nil {
 		t.Fatal("extraction must require empty editor")
 	}
-	if _, err = e.importBinaryDocumentMode(p, raw[:4], true); err == nil || e.editor.documentID != id {
+	if _, err = e.importBinaryDocumentMode(p, raw[:4], true); err == nil || e.doc.editor.documentID != id {
 		t.Fatal("invalid PCM replaced document")
 	}
 	info, err := e.importBinaryDocumentMode(p, raw, true)

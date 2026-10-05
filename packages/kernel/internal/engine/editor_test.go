@@ -59,7 +59,7 @@ func TestEditorDocumentIdentityAndReset(t *testing.T) {
 	if _, err := e.openDocument(protocol.DocumentOpenParams{Name: "bad.wav"}, []byte("bad")); err == nil {
 		t.Fatal("malformed open succeeded")
 	}
-	if e.selectionResult() != beforeSelection || !reflect.DeepEqual(e.timelineResult(), beforeTimeline) || e.documentSequence != 1 {
+	if e.selectionResult() != beforeSelection || !reflect.DeepEqual(e.timelineResult(), beforeTimeline) || e.doc.documentSequence != 1 {
 		t.Fatal("failed open changed editor state or identity sequence")
 	}
 	// Reopening the same name and exact bytes still creates a fresh identity.
@@ -68,7 +68,7 @@ func TestEditorDocumentIdentityAndReset(t *testing.T) {
 		binary.LittleEndian.PutUint32(pcm[i*4:], math.Float32bits(sample))
 	}
 	info, err := e.openDocument(protocol.DocumentOpenParams{Name: "editor.wav"}, rawWAV(3, 32, 2, 48000, pcm, false))
-	if err != nil || info.DocumentID == id || e.documentSequence != 2 {
+	if err != nil || info.DocumentID == id || e.doc.documentSequence != 2 {
 		t.Fatalf("reopen identity %+v, %v", info, err)
 	}
 	if e.selectionResult().SelectionRange != (protocol.SelectionRange{ChannelMask: 3}) || len(e.timelineResult().Markers)+len(e.timelineResult().Regions) != 0 {
@@ -79,7 +79,7 @@ func TestEditorDocumentIdentityAndReset(t *testing.T) {
 			t.Fatalf("%s accepted stale document identity", method)
 		}
 	}
-	e.documentSequence = math.MaxUint64
+	e.doc.documentSequence = math.MaxUint64
 	current := e.selectionResult()
 	if _, err := e.openDocument(protocol.DocumentOpenParams{}, minimalPCM16WAV()); err == nil || current != e.selectionResult() {
 		t.Fatal("exhausted identity sequence was not rejected atomically")
@@ -272,7 +272,7 @@ func TestEditorFramesBeyondInt32AndBoundedSnap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.document, err = audiobuf.NewDocument([]audiobuf.Channel{channel}, 48000, audiobuf.Metadata{})
+	e.doc.document, err = audiobuf.NewDocument([]audiobuf.Channel{channel}, 48000, audiobuf.Metadata{})
 	if err != nil {
 		t.Fatal(err)
 	}

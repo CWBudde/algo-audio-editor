@@ -17,7 +17,7 @@ import (
 
 func processParams(e *Engine, start, end int64, mask int, gain float64) protocol.ProcessStartParams {
 	return protocol.ProcessStartParams{
-		SelectionResult: protocol.SelectionResult{DocumentID: e.editor.documentID, SelectionRange: protocol.SelectionRange{Start: start, End: end, ChannelMask: mask}},
+		SelectionResult: protocol.SelectionResult{DocumentID: e.doc.editor.documentID, SelectionRange: protocol.SelectionRange{Start: start, End: end, ChannelMask: mask}},
 		Operation:       "gain", GainDB: gain,
 	}
 }
@@ -68,7 +68,7 @@ func TestProcessCommitAndHistoryExactSnapshots(t *testing.T) {
 	}
 	result = finishEngineProcess(t, e, result)
 	assertEditBits(t, editSamples(t, e), original)
-	if e.editor.documentID != id || !reflect.DeepEqual(initialHistory, e.historyResult()) || !reflect.DeepEqual(initialTimeline, e.timelineResult()) || e.clipboardInfo() != clip {
+	if e.doc.editor.documentID != id || !reflect.DeepEqual(initialHistory, e.historyResult()) || !reflect.DeepEqual(initialTimeline, e.timelineResult()) || e.clipboardInfo() != clip {
 		t.Fatal("private processing changed committed state")
 	}
 	want := append([]float32(nil), original...)
@@ -78,7 +78,7 @@ func TestProcessCommitAndHistoryExactSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertEditBits(t, editSamples(t, e), want)
-	if !committed.Changed || committed.Document.DocumentID == id || len(committed.History.Entries) != 2 || !committed.History.Dirty || committed.Selection.SelectionRange != result.SelectionRange || e.processJob != nil || e.transport != nil || e.source != sourceStopped || e.clipboardInfo() != clip {
+	if !committed.Changed || committed.Document.DocumentID == id || len(committed.History.Entries) != 2 || !committed.History.Dirty || committed.Selection.SelectionRange != result.SelectionRange || e.jobs.processJob != nil || e.playback.transport != nil || e.playback.source != sourceStopped || e.clipboardInfo() != clip {
 		t.Fatalf("commit invariants %+v", committed)
 	}
 	if committed.Document.Name != "editor.wav" || committed.Document.BitDepth != 32 || !committed.Document.Float {
@@ -109,7 +109,7 @@ func TestProcessPreviewNeverChangesExportAndCancelReleasesMemory(t *testing.T) {
 	if _, err := e.playDocument(protocol.TransportPlayParams{Start: 0, End: &end, PreviewJobID: result.JobID}); err != nil {
 		t.Fatal(err)
 	}
-	if e.transport.resampled == nil || e.transport.previewJobID != result.JobID {
+	if e.playback.transport.resampled == nil || e.playback.transport.previewJobID != result.JobID {
 		t.Fatal("preview did not use candidate resampling transport")
 	}
 	if _, err := e.seekDocument(protocol.TransportSeekParams{Frame: 1}); err == nil {
@@ -123,14 +123,14 @@ func TestProcessPreviewNeverChangesExportAndCancelReleasesMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertEditBits(t, editSamples(t, other), original)
-	if e.editor.documentID != id || !reflect.DeepEqual(initialHistory, e.historyResult()) {
+	if e.doc.editor.documentID != id || !reflect.DeepEqual(initialHistory, e.historyResult()) {
 		t.Fatal("preview dirtied the document")
 	}
 	cancelled, err := e.cancelProcess(jobParams(result))
 	if err != nil || cancelled.State != "cancelled" {
 		t.Fatalf("cancel %+v %v", cancelled, err)
 	}
-	if e.transport != nil || e.processJob != nil || e.source != sourceStopped || e.documentMemory() != initialMemory {
+	if e.playback.transport != nil || e.jobs.processJob != nil || e.playback.source != sourceStopped || e.documentMemory() != initialMemory {
 		t.Fatal("cancel retained preview/workspace memory or audio")
 	}
 }
@@ -143,7 +143,7 @@ func TestProcessPreviewRendersCandidateAndZeroGainKeepsBits(t *testing.T) {
 			if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: 48000, Channels: 1}); err != nil {
 				t.Fatal(err)
 			}
-			initialHistory, initialMemory, initialSelection := e.historyResult(), e.documentMemory(), e.editor.selection
+			initialHistory, initialMemory, initialSelection := e.historyResult(), e.documentMemory(), e.doc.editor.selection
 			result := finishEngineProcess(t, e, startEngineProcess(t, e, processParams(e, 2, 2, 1, gain)))
 			if result.Start != 0 || result.End != 4 || !result.NonFinite || math.IsNaN(result.Peak) || math.IsInf(result.Peak, 0) {
 				t.Fatalf("range/stats %+v", result)
@@ -168,7 +168,7 @@ func TestProcessPreviewRendersCandidateAndZeroGainKeepsBits(t *testing.T) {
 			}
 			if gain == 0 {
 				assertEditBits(t, editSamples(t, e), original)
-				if committed.Changed || e.editor.documentID != id || e.editor.selection != initialSelection || !reflect.DeepEqual(initialHistory, e.historyResult()) || e.documentMemory().SampleBytes != initialMemory.SampleBytes {
+				if committed.Changed || e.doc.editor.documentID != id || e.doc.editor.selection != initialSelection || !reflect.DeepEqual(initialHistory, e.historyResult()) || e.documentMemory().SampleBytes != initialMemory.SampleBytes {
 					t.Fatal("identity committed audio/history")
 				}
 			}
@@ -198,7 +198,11 @@ func TestProcessLocksMutatingRPCsAndAllowsCommittedReads(t *testing.T) {
 			}
 		}
 		for _, method := range []string{protocol.MethodHello, protocol.MethodDocumentInfo, protocol.MethodDocumentMemory, protocol.MethodEditState, protocol.MethodHistoryList, protocol.MethodSelectionGet, protocol.MethodTimelineGet} {
-			if response := editorCall(t, e, method, map[string]any{"documentId": id}); !response.OK {
+			var params any
+			if method == protocol.MethodHistoryList || method == protocol.MethodSelectionGet || method == protocol.MethodTimelineGet {
+				params = map[string]any{"documentId": id}
+			}
+			if response := editorCall(t, e, method, params); !response.OK {
 				t.Fatalf("read %s rejected: %s", method, response.Error)
 			}
 		}
@@ -225,14 +229,14 @@ func TestProcessCancelledStepsAndStaleIdentities(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := startEngineProcess(t, e, processParams(e, 0, 4, 1, 3))
-	current := e.processJob
+	current := e.jobs.processJob
 	for _, action := range []func(protocol.ProcessJobParams) (protocol.ProcessJobResult, error){e.stepProcess, e.cancelProcess} {
 		result, err := action(jobParams(first))
-		if err != nil || result.State != "cancelled" || e.processJob != current || current.result.ProcessedFrames != 0 {
+		if err != nil || result.State != "cancelled" || e.jobs.processJob != current || current.result.ProcessedFrames != 0 {
 			t.Fatal("cancelled tombstone changed a newer job")
 		}
 		for _, bad := range []protocol.ProcessJobParams{{DocumentID: "old", JobID: second.JobID}, {DocumentID: second.DocumentID, JobID: "old"}, {DocumentID: second.DocumentID}} {
-			if _, err := action(bad); err == nil || e.processJob != current {
+			if _, err := action(bad); err == nil || e.jobs.processJob != current {
 				t.Fatal("stale request altered the current job")
 			}
 		}
@@ -240,7 +244,7 @@ func TestProcessCancelledStepsAndStaleIdentities(t *testing.T) {
 	if _, err := e.commitProcess(jobParams(first)); err == nil {
 		t.Fatal("cancelled job committed")
 	}
-	if _, err := e.startProcess(processParams(e, 0, 4, 1, 1)); err == nil || e.processJob != current {
+	if _, err := e.startProcess(processParams(e, 0, 4, 1, 1)); err == nil || e.jobs.processJob != current {
 		t.Fatal("start replaced active work")
 	}
 	if _, err := e.cancelProcess(jobParams(second)); err != nil {
@@ -253,7 +257,7 @@ func TestProcessHistoryBudgetAndSourceValidationAreAtomic(t *testing.T) {
 	if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: 48000, Channels: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.history.SetLimits(history.Limits{MaxEntries: 100, MaxBytes: e.history.RetainedBytes()}); err != nil {
+	if err := e.historyState.history.SetLimits(history.Limits{MaxEntries: 100, MaxBytes: e.historyState.history.RetainedBytes()}); err != nil {
 		t.Fatal(err)
 	}
 	initial := e.historyResult()
@@ -261,21 +265,21 @@ func TestProcessHistoryBudgetAndSourceValidationAreAtomic(t *testing.T) {
 	if _, err := e.playDocument(protocol.TransportPlayParams{PreviewJobID: result.JobID}); err != nil {
 		t.Fatal(err)
 	}
-	job, transport, documentID := e.processJob, e.transport, e.editor.documentID
+	job, transport, documentID := e.jobs.processJob, e.playback.transport, e.doc.editor.documentID
 	if _, err := e.commitProcess(jobParams(result)); err == nil || !strings.Contains(err.Error(), "budget") {
 		t.Fatal("history budget was bypassed")
 	}
-	if e.processJob != job || e.transport != transport || e.editor.documentID != documentID || !reflect.DeepEqual(initial, e.historyResult()) {
+	if e.jobs.processJob != job || e.playback.transport != transport || e.doc.editor.documentID != documentID || !reflect.DeepEqual(initial, e.historyResult()) {
 		t.Fatal("failed history staging published state or stopped preview")
 	}
 	assertEditBits(t, editSamples(t, e), []float32{1, 2, 3, 4})
-	e.documentSequence = math.MaxUint64
-	if _, err := e.commitProcess(jobParams(result)); err == nil || e.processJob != job || e.transport != transport {
+	e.doc.documentSequence = math.MaxUint64
+	if _, err := e.commitProcess(jobParams(result)); err == nil || e.jobs.processJob != job || e.playback.transport != transport {
 		t.Fatal("exhausted document sequence was not atomic")
 	}
-	e.documentSequence = 1
+	e.doc.documentSequence = 1
 	job.historyState = "old"
-	if _, err := e.commitProcess(jobParams(result)); err == nil || e.processJob != job {
+	if _, err := e.commitProcess(jobParams(result)); err == nil || e.jobs.processJob != job {
 		t.Fatal("stale history source committed")
 	}
 	if _, err := e.cancelProcess(jobParams(result)); err != nil {
@@ -289,28 +293,28 @@ func TestProcessStartValidationAndFailureKeepOrdinaryPlayback(t *testing.T) {
 		t.Fatal(err)
 	}
 	playRange(t, e, 0, 4, true)
-	transport, initialHistory := e.transport, e.historyResult()
+	transport, initialHistory := e.playback.transport, e.historyResult()
 	for _, params := range []protocol.ProcessStartParams{
 		processParams(e, -1, 4, 1, 6), processParams(e, 0, 5, 1, 6), processParams(e, 0, 4, 2, 6),
 		processParams(e, 0, 4, 1, math.NaN()), processParams(e, 0, 4, 1, math.Inf(1)),
 		processParams(e, 0, 4, 1, -121), processParams(e, 0, 4, 1, 61),
 	} {
-		if _, err := e.startProcess(params); err == nil || e.processJob != nil || e.transport != transport || !transport.playing {
+		if _, err := e.startProcess(params); err == nil || e.jobs.processJob != nil || e.playback.transport != transport || !transport.playing {
 			t.Fatal("invalid start changed playback/job state")
 		}
 	}
 	result := startEngineProcess(t, e, processParams(e, 0, 4, 1, 6))
-	if _, err := e.cancelProcess(jobParams(result)); err != nil || e.transport != transport || !transport.playing {
+	if _, err := e.cancelProcess(jobParams(result)); err != nil || e.playback.transport != transport || !transport.playing {
 		t.Fatal("cancel stopped ordinary playback")
 	}
 	result = startEngineProcess(t, e, processParams(e, 0, 4, 1, 6))
-	e.processJob.builder.Cancel()
-	failing, err := processing.NewBuilder(e.document, ops.Range{Start: 0, End: 4, ChannelMask: 1}, engineFailingProcess{}, processing.Limits{})
+	e.jobs.processJob.builder.Cancel()
+	failing, err := processing.NewBuilder(e.doc.document, ops.Range{Start: 0, End: 4, ChannelMask: 1}, engineFailingProcess{}, processing.Limits{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.processJob.builder = failing
-	if _, err := e.stepProcess(jobParams(result)); err == nil || e.processJob != nil || e.transport != transport || !transport.playing || !reflect.DeepEqual(initialHistory, e.historyResult()) {
+	e.jobs.processJob.builder = failing
+	if _, err := e.stepProcess(jobParams(result)); err == nil || e.jobs.processJob != nil || e.playback.transport != transport || !transport.playing || !reflect.DeepEqual(initialHistory, e.historyResult()) {
 		t.Fatal("processing failure changed committed state or retained workspace")
 	}
 }
@@ -406,14 +410,14 @@ func TestProcessRPCLifecycleAndFiniteProgress(t *testing.T) {
 func TestProcessCollapsedRangeUndoRestoresOriginalCursor(t *testing.T) {
 	e, _ := openEditorFixture(t, []float32{.25, -.5, .75, 1}, 1)
 	cursor := protocol.SelectionRange{Start: 2, End: 2, ChannelMask: 1}
-	if _, err := e.setSelection(protocol.SelectionSetParams{DocumentID: e.editor.documentID, SelectionRange: cursor}); err != nil {
+	if _, err := e.setSelection(protocol.SelectionSetParams{DocumentID: e.doc.editor.documentID, SelectionRange: cursor}); err != nil {
 		t.Fatal(err)
 	}
 	result := finishEngineProcess(t, e, startEngineProcess(t, e, processParams(e, 2, 2, 1, 6)))
 	if _, err := e.commitProcess(jobParams(result)); err != nil {
 		t.Fatal(err)
 	}
-	if e.editor.selection.Start != 0 || e.editor.selection.End != 4 {
+	if e.doc.editor.selection.Start != 0 || e.doc.editor.selection.End != 4 {
 		t.Fatal("commit did not publish the processed whole range")
 	}
 	undone := historyNavigate(t, e, protocol.MethodEditUndo, "")
@@ -424,18 +428,18 @@ func TestProcessCollapsedRangeUndoRestoresOriginalCursor(t *testing.T) {
 
 func TestProcessEmptyDocumentAndIdentitySequenceGuard(t *testing.T) {
 	e, _ := openEditorFixture(t, nil, 1)
-	if _, err := e.startProcess(processParams(e, 0, 0, 1, 6)); err == nil || e.processJob != nil {
+	if _, err := e.startProcess(processParams(e, 0, 0, 1, 6)); err == nil || e.jobs.processJob != nil {
 		t.Fatal("processing accepted an empty document")
 	}
 	e, _ = openEditorFixture(t, []float32{.25}, 1)
-	e.processSequence = math.MaxUint64
-	if _, err := e.startProcess(processParams(e, 0, 1, 1, 6)); err == nil || e.processJob != nil {
+	e.jobs.processSequence = math.MaxUint64
+	if _, err := e.startProcess(processParams(e, 0, 1, 1, 6)); err == nil || e.jobs.processJob != nil {
 		t.Fatal("job sequence wrapped")
 	}
 	p := processParams(e, 0, 1, 1, 6)
 	p.Operation = "unsupported"
-	e.processSequence = 0
-	if _, err := e.startProcess(p); err == nil || e.processSequence != 0 {
+	e.jobs.processSequence = 0
+	if _, err := e.startProcess(p); err == nil || e.jobs.processSequence != 0 {
 		t.Fatal("unsupported operation consumed an identity")
 	}
 }
@@ -479,10 +483,10 @@ func logicalProcessDocument(t testing.TB, frames int64, channels int) audiobuf.D
 func processEngineWithDocument(t testing.TB, document audiobuf.Document) *Engine {
 	t.Helper()
 	e := New()
-	e.document, e.documentSequence, e.sourceBitDepth, e.sourceFloat = document, 1, 32, true
-	e.editor = editorState{documentID: "doc-1", selection: protocol.SelectionRange{ChannelMask: (1 << document.Channels()) - 1}}
+	e.doc.document, e.doc.documentSequence, e.doc.sourceBitDepth, e.doc.sourceFloat = document, 1, 32, true
+	e.doc.editor = editorState{documentID: "doc-1", selection: protocol.SelectionRange{ChannelMask: (1 << document.Channels()) - 1}}
 	var err error
-	e.history, err = newDocumentHistory(document, e.editor)
+	e.historyState.history, err = newDocumentHistory(document, e.doc.editor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +500,7 @@ func TestProcessOutputBudgetRejectsLogicalLargeInputBeforeAllocating(t *testing.
 	if _, err := e.startProcess(processParams(e, 0, document.Frames(), 1, 6)); err == nil || !strings.Contains(err.Error(), "budget") {
 		t.Fatal("materialization budget was bypassed")
 	}
-	if e.processJob != nil || e.processSequence != 0 || !reflect.DeepEqual(before, e.editResult(false)) || e.documentMemory() != memory {
+	if e.jobs.processJob != nil || e.jobs.processSequence != 0 || !reflect.DeepEqual(before, e.editResult(false)) || e.documentMemory() != memory {
 		t.Fatal("rejected materialization altered engine state")
 	}
 	identity := startEngineProcess(t, e, processParams(e, 0, document.Frames(), 1, 0))

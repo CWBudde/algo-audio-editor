@@ -284,10 +284,10 @@ type ClipboardInfo struct {
 // channel or rate conversion additionally requires explicit Convert consent.
 type EditApplyParams struct {
 	SelectionResult
-	Operation        string `json:"operation"`
-	Frames           *int64 `json:"frames,omitempty"`
-	Convert          bool   `json:"convert,omitempty"`
-	ClipboardVersion string `json:"clipboardVersion,omitempty"`
+	Operation        OperationName `json:"operation"`
+	Frames           *int64        `json:"frames,omitempty"`
+	Convert          bool          `json:"convert,omitempty"`
+	ClipboardVersion string        `json:"clipboardVersion,omitempty"`
 }
 
 type EditResult struct {
@@ -303,7 +303,7 @@ type EditResult struct {
 // publishes it; preview playback and cancellation leave the document unchanged.
 type ProcessStartParams struct {
 	SelectionResult
-	Operation      string           `json:"operation"`
+	Operation      OperationName    `json:"operation"`
 	GainDB         float64          `json:"gainDb"`
 	Target         *float64         `json:"target,omitempty"`
 	Curve          string           `json:"curve,omitempty"`
@@ -399,14 +399,14 @@ type ProcessJobResult struct {
 	SelectionResult
 	Candidate       *ProcessCandidate `json:"candidate"`
 	JobID           string            `json:"jobId"`
-	State           string            `json:"state"`
-	Operation       string            `json:"operation"`
+	State           JobState          `json:"state"`
+	Operation       OperationName     `json:"operation"`
 	GainDB          float64           `json:"gainDb"`
 	ProcessedFrames int64             `json:"processedFrames"`
 	TotalFrames     int64             `json:"totalFrames"`
 	Peak            float64           `json:"peak"`
 	NonFinite       bool              `json:"nonFinite"`
-	Phase           string            `json:"phase"`
+	Phase           ProcessPhase      `json:"phase"`
 	PhaseIndex      int               `json:"phaseIndex"`
 	PhaseCount      int               `json:"phaseCount"`
 	GainResolved    bool              `json:"gainResolved"`

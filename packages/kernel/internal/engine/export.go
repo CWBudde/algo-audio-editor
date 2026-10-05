@@ -76,7 +76,7 @@ func exportShaping(value string) (dither.Option, error) {
 // exportSource captures a private immutable view. Exports never stage an edit,
 // mark a history state saved, or change the authoritative selection.
 func (e *Engine) exportSource(p protocol.DocumentExportParams) (audiobuf.Document, []int, error) {
-	if e.document.Channels() == 0 {
+	if e.doc.document.Channels() == 0 {
 		return audiobuf.Document{}, nil, fmt.Errorf("doc.export: no document is open")
 	}
 	if p.DocumentID != "" {
@@ -97,11 +97,11 @@ func (e *Engine) exportSource(p protocol.DocumentExportParams) (audiobuf.Documen
 	if p.Float && (kind != dither.DitherNone || (p.NoiseShaping != "" && p.NoiseShaping != "none")) {
 		return audiobuf.Document{}, nil, fmt.Errorf("doc.export: dither and noise shaping require integer PCM")
 	}
-	start, end, mask := int64(0), e.document.Frames(), (1<<e.document.Channels())-1
+	start, end, mask := int64(0), e.doc.document.Frames(), (1<<e.doc.document.Channels())-1
 	switch p.Scope {
 	case "", "document":
 	case "selection":
-		selection := e.editor.selection
+		selection := e.doc.editor.selection
 		if err := e.validateEditorRange(protocol.MethodDocumentExport, selection.Start, selection.End); err != nil {
 			return audiobuf.Document{}, nil, err
 		}
@@ -115,13 +115,13 @@ func (e *Engine) exportSource(p protocol.DocumentExportParams) (audiobuf.Documen
 	default:
 		return audiobuf.Document{}, nil, fmt.Errorf("doc.export: unsupported scope %q", p.Scope)
 	}
-	channels := make([]audiobuf.Channel, 0, e.document.Channels())
-	indices := make([]int, 0, e.document.Channels())
-	for index := range e.document.Channels() {
+	channels := make([]audiobuf.Channel, 0, e.doc.document.Channels())
+	indices := make([]int, 0, e.doc.document.Channels())
+	for index := range e.doc.document.Channels() {
 		if mask&(1<<index) == 0 {
 			continue
 		}
-		channel, err := e.document.Channel(index)
+		channel, err := e.doc.document.Channel(index)
 		if err != nil {
 			return audiobuf.Document{}, nil, fmt.Errorf("doc.export: channel %d: %w", index, err)
 		}
@@ -136,7 +136,7 @@ func (e *Engine) exportSource(p protocol.DocumentExportParams) (audiobuf.Documen
 		}
 		channels, indices = append(channels, part), append(indices, index)
 	}
-	metadata := e.document.Metadata()
+	metadata := e.doc.document.Metadata()
 	if p.Scope == "selection" {
 		// Opaque chunks may reference original file offsets/lengths. Partial
 		// exports retain text tags and ID-filtered annotation supplements only.
@@ -145,11 +145,11 @@ func (e *Engine) exportSource(p protocol.DocumentExportParams) (audiobuf.Documen
 			return audiobuf.Document{}, nil, fmt.Errorf("doc.export: selection metadata: %w", err)
 		}
 	}
-	metadata.Timeline, err = metadata.Timeline.Crop(e.document.Frames(), start, end)
+	metadata.Timeline, err = metadata.Timeline.Crop(e.doc.document.Frames(), start, end)
 	if err != nil {
 		return audiobuf.Document{}, nil, fmt.Errorf("doc.export: annotations: %w", err)
 	}
-	document, err := audiobuf.NewDocument(channels, e.document.SampleRate(), metadata)
+	document, err := audiobuf.NewDocument(channels, e.doc.document.SampleRate(), metadata)
 	if err != nil {
 		return audiobuf.Document{}, nil, fmt.Errorf("doc.export: view: %w", err)
 	}

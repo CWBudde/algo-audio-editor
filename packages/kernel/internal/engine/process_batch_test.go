@@ -58,9 +58,9 @@ func TestProcessBatchHasFourStepBoundAndPreservesSingleStep(t *testing.T) {
 	}
 	e := batchBlockEngine(t)
 	before := e.editResult(false)
-	result := startEngineProcess(t, e, processParams(e, 0, e.document.Frames(), 1, 0))
-	observed := &batchObservedStepper{Stepper: e.processJob.builder}
-	e.processJob.builder = observed
+	result := startEngineProcess(t, e, processParams(e, 0, e.doc.document.Frames(), 1, 0))
+	observed := &batchObservedStepper{Stepper: e.jobs.processJob.builder}
+	e.jobs.processJob.builder = observed
 	result, err := e.stepProcessBatch(jobParams(result))
 	if err != nil || observed.calls != maxProcessBatchSteps || result.ProcessedFrames != maxProcessBatchSteps*audiobuf.BlockFrames || result.State != "running" {
 		t.Fatal("batch exceeded or failed its fixed bound", observed.calls, result, err)
@@ -185,16 +185,16 @@ func TestProcessBatchCancelledTombstoneDoesNotStepNewJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, err := e.stepProcessBatch(jobParams(first)); err != nil || !reflect.DeepEqual(result, cancelled) || e.processJob != nil {
+	if result, err := e.stepProcessBatch(jobParams(first)); err != nil || !reflect.DeepEqual(result, cancelled) || e.jobs.processJob != nil {
 		t.Fatal("cancelled batch dereferenced or resurrected a builder", err)
 	}
 	second := startEngineProcess(t, e, processParams(e, 0, 2, 1, 0))
-	current := e.processJob
-	if result, err := e.stepProcessBatch(jobParams(first)); err != nil || !reflect.DeepEqual(result, cancelled) || e.processJob != current || current.result.ProcessedFrames != 0 {
+	current := e.jobs.processJob
+	if result, err := e.stepProcessBatch(jobParams(first)); err != nil || !reflect.DeepEqual(result, cancelled) || e.jobs.processJob != current || current.result.ProcessedFrames != 0 {
 		t.Fatal("old cancelled batch stepped a newer active job", err)
 	}
 	for _, params := range []protocol.ProcessJobParams{{DocumentID: second.DocumentID}, {DocumentID: "stale", JobID: second.JobID}, {DocumentID: second.DocumentID, JobID: "stale"}} {
-		if _, err := e.stepProcessBatch(params); err == nil || e.processJob != current || current.result.ProcessedFrames != 0 {
+		if _, err := e.stepProcessBatch(params); err == nil || e.jobs.processJob != current || current.result.ProcessedFrames != 0 {
 			t.Fatal("invalid batch identity altered newer work", err)
 		}
 	}
@@ -229,20 +229,20 @@ func TestProcessBatchInnerProcessorFailureReleasesPartialOutput(t *testing.T) {
 		if _, err := e.playDocument(protocol.TransportPlayParams{}); err != nil {
 			t.Fatal(err)
 		}
-		before, memory, transport := e.editResult(false), e.documentMemory(), e.transport
-		result := startEngineProcess(t, e, processParams(e, 0, e.document.Frames(), 1, 6))
+		before, memory, transport := e.editResult(false), e.documentMemory(), e.playback.transport
+		result := startEngineProcess(t, e, processParams(e, 0, e.doc.document.Frames(), 1, 6))
 		calls := 0
 		sentinel := errors.New("delayed inner processor failure")
-		builder, err := processing.NewBuilder(e.document, ops.Range{End: e.document.Frames(), ChannelMask: 1}, batchFailingProcess{calls: &calls, failure: sentinel, failAt: failAt}, processing.Limits{})
+		builder, err := processing.NewBuilder(e.doc.document, ops.Range{End: e.doc.document.Frames(), ChannelMask: 1}, batchFailingProcess{calls: &calls, failure: sentinel, failAt: failAt}, processing.Limits{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		e.processJob.builder.Cancel()
-		e.processJob.builder = builder
+		e.jobs.processJob.builder.Cancel()
+		e.jobs.processJob.builder = builder
 		if _, err := e.stepProcessBatch(jobParams(result)); !errors.Is(err, sentinel) || !strings.Contains(err.Error(), protocol.MethodProcessStepBatch) || calls != failAt {
 			t.Fatal("batch did not stop on its failing inner processor", calls, err)
 		}
-		if e.processJob != nil || e.documentMemory() != memory || e.transport != transport || !transport.playing || !reflect.DeepEqual(before, e.editResult(false)) {
+		if e.jobs.processJob != nil || e.documentMemory() != memory || e.playback.transport != transport || !transport.playing || !reflect.DeepEqual(before, e.editResult(false)) {
 			t.Fatal("inner batch failure retained output or changed committed source/history/playback")
 		}
 		if _, err := builder.MemoryDocument(); err == nil {
@@ -254,11 +254,11 @@ func TestProcessBatchInnerProcessorFailureReleasesPartialOutput(t *testing.T) {
 func TestProcessBatchValidatesSourceBeforeEveryInnerStep(t *testing.T) {
 	e := batchBlockEngine(t)
 	before, memory := e.editResult(false), e.documentMemory()
-	result := startEngineProcess(t, e, processParams(e, 0, e.document.Frames(), 1, 6))
-	job := e.processJob
+	result := startEngineProcess(t, e, processParams(e, 0, e.doc.document.Frames(), 1, 6))
+	job := e.jobs.processJob
 	observed := &batchObservedStepper{Stepper: job.builder, after: func(int) { job.historyState = "stale" }}
 	job.builder = observed
-	if _, err := e.stepProcessBatch(jobParams(result)); err == nil || observed.calls != 1 || e.processJob != job || !reflect.DeepEqual(before, e.editResult(false)) {
+	if _, err := e.stepProcessBatch(jobParams(result)); err == nil || observed.calls != 1 || e.jobs.processJob != job || !reflect.DeepEqual(before, e.editResult(false)) {
 		t.Fatal("batch failed to revalidate source before its second step", err)
 	}
 	if e.documentMemory().SampleBytes <= memory.SampleBytes {
@@ -271,7 +271,7 @@ func TestProcessBatchValidatesSourceBeforeEveryInnerStep(t *testing.T) {
 
 func TestProcessBatchRPCDispatchAndSilentNoop(t *testing.T) {
 	e, _ := openEditorFixture(t, make([]float32, 19200), 1)
-	e.editor.selection = protocol.SelectionRange{Start: 17, End: 17, ChannelMask: 1}
+	e.doc.editor.selection = protocol.SelectionRange{Start: 17, End: 17, ChannelMask: 1}
 	before := e.editResult(false)
 	result := startEngineProcess(t, e, normalizationParams(e, 17, 17, 1, "normalize-loudness", -23))
 	response := editorCall(t, e, protocol.MethodProcessStepBatch, jobParams(result))

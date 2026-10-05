@@ -31,7 +31,7 @@ func (e *Engine) timelineControls(method, id string, selection *protocol.Selecti
 	if err := e.validateDocumentID(method, id); err != nil {
 		return editorState{}, err
 	}
-	editor := e.editor
+	editor := e.doc.editor
 	if selection != nil {
 		if err := e.validateEditorRange(method, selection.Start, selection.End); err != nil {
 			return editorState{}, err
@@ -51,24 +51,24 @@ func (e *Engine) timelineMutationResult(changed bool) protocol.TimelineMutationR
 // Metadata-only transactions share all audio and leave playback, peak request
 // identities and clipboard untouched. Every fallible step precedes publication.
 func (e *Engine) commitTimeline(method, label string, timeline audiobuf.Timeline, editor editorState) (protocol.TimelineMutationResult, error) {
-	metadata := e.document.Metadata()
+	metadata := e.doc.document.Metadata()
 	metadata.Timeline = timeline
-	document, err := e.document.WithMetadata(metadata)
+	document, err := e.doc.document.WithMetadata(metadata)
 	if err != nil {
 		return protocol.TimelineMutationResult{}, fmt.Errorf("%s: metadata: %w", method, err)
 	}
-	staged := e.history
+	staged := e.historyState.history
 	if staged == nil {
-		staged, err = e.newDocumentHistory(e.document, e.editor)
+		staged, err = e.newDocumentHistory(e.doc.document, e.doc.editor)
 		if err != nil {
 			return protocol.TimelineMutationResult{}, fmt.Errorf("%s: initialize history: %w", method, err)
 		}
 	}
-	staged, err = staged.StagePush(label, historySnapshot{document: e.document, editor: editor}, historySnapshot{document: document, editor: editor})
+	staged, err = staged.StagePush(label, historySnapshot{document: e.doc.document, editor: editor}, historySnapshot{document: document, editor: editor})
 	if err != nil {
 		return protocol.TimelineMutationResult{}, fmt.Errorf("%s: retain undo history: %w", method, err)
 	}
-	e.document, e.editor, e.history = document, editor, staged
+	e.doc.document, e.doc.editor, e.historyState.history = document, editor, staged
 	return e.timelineMutationResult(true), nil
 }
 
@@ -91,7 +91,7 @@ func (e *Engine) addMarker(p protocol.MarkerAddParams) (protocol.TimelineMutatio
 	if err := e.validateEditorRange(method, p.Frame, p.Frame); err != nil {
 		return protocol.TimelineMutationResult{}, err
 	}
-	timeline := e.document.Metadata().Timeline
+	timeline := e.doc.document.Metadata().Timeline
 	id, err := nextAnchor(timeline)
 	if err != nil {
 		return protocol.TimelineMutationResult{}, fmt.Errorf("%s: %w", method, err)
@@ -117,7 +117,7 @@ func (e *Engine) addRegion(p protocol.RegionAddParams) (protocol.TimelineMutatio
 	if p.Start == p.End {
 		return protocol.TimelineMutationResult{}, fmt.Errorf("%s: region must be nonempty", method)
 	}
-	timeline := e.document.Metadata().Timeline
+	timeline := e.doc.document.Metadata().Timeline
 	id, err := nextAnchor(timeline)
 	if err != nil {
 		return protocol.TimelineMutationResult{}, fmt.Errorf("%s: %w", method, err)
@@ -144,7 +144,7 @@ func (e *Engine) updateMarker(p protocol.MarkerUpdateParams) (protocol.TimelineM
 	if err != nil {
 		return protocol.TimelineMutationResult{}, fmt.Errorf("%s: %w", method, err)
 	}
-	timeline := e.document.Metadata().Timeline
+	timeline := e.doc.document.Metadata().Timeline
 	for i, marker := range timeline.Markers {
 		if marker.ID != p.ID {
 			continue
@@ -175,7 +175,7 @@ func (e *Engine) updateRegion(p protocol.RegionUpdateParams) (protocol.TimelineM
 	if err != nil {
 		return protocol.TimelineMutationResult{}, fmt.Errorf("%s: %w", method, err)
 	}
-	timeline := e.document.Metadata().Timeline
+	timeline := e.doc.document.Metadata().Timeline
 	for i, region := range timeline.Regions {
 		if region.ID != p.ID {
 			continue
@@ -195,7 +195,7 @@ func (e *Engine) removeAnchor(method string, p protocol.TimelineRemoveParams) (p
 	if err != nil {
 		return protocol.TimelineMutationResult{}, err
 	}
-	timeline := e.document.Metadata().Timeline
+	timeline := e.doc.document.Metadata().Timeline
 	if method == protocol.MethodMarkersRemove {
 		for i, marker := range timeline.Markers {
 			if marker.ID == p.ID {

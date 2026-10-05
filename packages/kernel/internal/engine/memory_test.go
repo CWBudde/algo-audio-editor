@@ -46,7 +46,7 @@ func TestBudgetReservesCandidateUntilCancelOrCommit(t *testing.T) {
 	e.memory.limit = initial + samples*2 + boundary + 1
 	job := startEngineProcess(t, e, processParams(e, 0, 4096, 1, 6))
 	reserved := e.retainedStorage()
-	if reserved <= initial || e.processJob.reservedBytes != samples*2+boundary {
+	if reserved <= initial || e.jobs.processJob.reservedBytes != samples*2+boundary {
 		t.Fatal("candidate was not reserved before stepping")
 	}
 	if _, err := e.exportDocument(protocol.DocumentExportParams{Format: "wav", BitDepth: 16}); err == nil {
@@ -70,20 +70,20 @@ func TestBudgetReservesCandidateUntilCancelOrCommit(t *testing.T) {
 	if _, err := e.commitProcess(jobParams(job)); err != nil {
 		t.Fatal(err)
 	}
-	if e.processJob != nil || e.retainedStorage() > reserved {
+	if e.jobs.processJob != nil || e.retainedStorage() > reserved {
 		t.Fatal("commit leaked reservation or exceeded budget")
 	}
 }
 
 func TestBudgetIncludesClipboardAfterDocumentReplacement(t *testing.T) {
 	e, _ := openEditorFixture(t, make([]float32, audiobuf.BlockFrames), 1)
-	if _, err := e.applyEdit(editParams(e, "copy", 0, e.document.Frames(), 1)); err != nil {
+	if _, err := e.applyEdit(editParams(e, "copy", 0, e.doc.document.Frames(), 1)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.openDocument(protocol.DocumentOpenParams{}, rawWAV(1, 16, 1, 48000, []byte{0, 0}, false)); err != nil {
 		t.Fatal(err)
 	}
-	stats := audiobuf.CountMemory(e.document)
+	stats := audiobuf.CountMemory(e.doc.document)
 	if e.retainedStorage() <= stats.SampleBytes+stats.PeakBytes {
 		t.Fatal("clipboard retention not counted")
 	}
@@ -170,11 +170,11 @@ func TestHistoryUsesOwnerCeiling(t *testing.T) {
 	if _, err := e.openDocument(protocol.DocumentOpenParams{}, rawWAV(1, 16, 1, 48000, make([]byte, 256), false)); err != nil {
 		t.Fatal(err)
 	}
-	if e.history.Limits().MaxBytes != e.memory.capacity() {
+	if e.historyState.history.Limits().MaxBytes != e.memory.capacity() {
 		t.Fatal("history uses a separate ceiling")
 	}
 	before := e.editResult(false)
-	if _, err := e.startProcess(processParams(e, 0, e.document.Frames(), 1, 6)); err == nil {
+	if _, err := e.startProcess(processParams(e, 0, e.doc.document.Frames(), 1, 6)); err == nil {
 		t.Fatal("candidate ignored retained history")
 	}
 	if !reflect.DeepEqual(before, e.editResult(false)) {
@@ -205,7 +205,7 @@ func TestInputGateRejectsBeforeBridgeAllocation(t *testing.T) {
 			t.Fatal("input allocation bypassed budget", bytes, err)
 		}
 	}
-	if e.document.Channels() != 0 || e.bulkData != nil {
+	if e.doc.document.Channels() != 0 || e.bulkData != nil {
 		t.Fatal("input gate changed editor")
 	}
 }

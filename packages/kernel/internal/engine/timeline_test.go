@@ -13,7 +13,7 @@ import (
 
 func setTimelineFixture(t testing.TB, e *Engine, markers []protocol.TimelineMarker, regions []protocol.TimelineRegion) {
 	t.Helper()
-	metadata := e.document.Metadata()
+	metadata := e.doc.document.Metadata()
 	metadata.Timeline = audiobuf.Timeline{NextID: 1}
 	for _, marker := range markers {
 		if marker.Name == "" {
@@ -35,13 +35,13 @@ func setTimelineFixture(t testing.TB, e *Engine, markers []protocol.TimelineMark
 		metadata.Timeline.Regions = append(metadata.Timeline.Regions, audiobuf.Region{ID: region.ID, Start: region.Start, End: region.End, Name: region.Name, Color: region.Color})
 		metadata.Timeline.NextID = max(metadata.Timeline.NextID, region.ID+1)
 	}
-	document, err := e.document.WithMetadata(metadata)
+	document, err := e.doc.document.WithMetadata(metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.document = document
-	if e.history != nil {
-		if err := e.history.ReplaceCurrent(historySnapshot{document: document, editor: e.editor}); err != nil {
+	e.doc.document = document
+	if e.historyState.history != nil {
+		if err := e.historyState.history.ReplaceCurrent(historySnapshot{document: document, editor: e.doc.editor}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -53,7 +53,7 @@ func TestTimelineMutationsKeepPlaybackAndAudioIdentity(t *testing.T) {
 	if _, err := e.applyEdit(editParams(e, "copy", 0, 1, 3)); err != nil {
 		t.Fatal(err)
 	}
-	transport, sequence, memory, clipboard := e.transport, e.documentSequence, e.documentMemory(), e.clipboardInfo()
+	transport, sequence, memory, clipboard := e.playback.transport, e.doc.documentSequence, e.documentMemory(), e.clipboardInfo()
 	initial := e.historyResult().CurrentStateID
 	selection := protocol.SelectionRange{Start: 1, End: 2, ChannelMask: 2}
 	marker, err := e.addMarker(protocol.MarkerAddParams{DocumentID: id, Frame: 1, Color: "#ABCDEF", Selection: &selection})
@@ -61,13 +61,13 @@ func TestTimelineMutationsKeepPlaybackAndAudioIdentity(t *testing.T) {
 		t.Fatalf("add marker %+v, %v", marker, err)
 	}
 	retained := e.documentMemory()
-	if e.editor.selection != selection || e.transport != transport || !transport.playing || e.source != sourceDocument || e.documentSequence != sequence || retained.SampleBytes != memory.SampleBytes || retained.PeakBytes != memory.PeakBytes || retained.UniqueBlocks != memory.UniqueBlocks || e.clipboardInfo() != clipboard {
+	if e.doc.editor.selection != selection || e.playback.transport != transport || !transport.playing || e.playback.source != sourceDocument || e.doc.documentSequence != sequence || retained.SampleBytes != memory.SampleBytes || retained.PeakBytes != memory.PeakBytes || retained.UniqueBlocks != memory.UniqueBlocks || e.clipboardInfo() != clipboard {
 		t.Fatal("metadata mutation changed audio/transport/identity/clip or lost selection")
 	}
 	state := marker.History.CurrentStateID
 	otherSelection := protocol.SelectionRange{ChannelMask: 1}
 	unchanged, err := e.updateMarker(protocol.MarkerUpdateParams{ID: 1, MarkerAddParams: protocol.MarkerAddParams{DocumentID: id, Frame: 1, Name: "Marker 1", Color: "#abcdef", Selection: &otherSelection}})
-	if err != nil || unchanged.Changed || unchanged.History.CurrentStateID != state || e.editor.selection != selection {
+	if err != nil || unchanged.Changed || unchanged.History.CurrentStateID != state || e.doc.editor.selection != selection {
 		t.Fatal("no-op update changed history/selection", err)
 	}
 	if _, err := e.updateMarker(protocol.MarkerUpdateParams{ID: 1, MarkerAddParams: protocol.MarkerAddParams{DocumentID: id, Frame: 3, Name: "End", Color: "#123456"}}); err != nil {
@@ -86,7 +86,7 @@ func TestTimelineMutationsKeepPlaybackAndAudioIdentity(t *testing.T) {
 	if _, err := e.removeAnchor(protocol.MethodRegionsRemove, protocol.TimelineRemoveParams{DocumentID: id, ID: 2}); err != nil {
 		t.Fatal(err)
 	}
-	if len(e.timelineResult().Markers)+len(e.timelineResult().Regions) != 0 || e.document.Metadata().Timeline.NextID != 3 || e.transport != transport || !transport.playing {
+	if len(e.timelineResult().Markers)+len(e.timelineResult().Regions) != 0 || e.doc.document.Metadata().Timeline.NextID != 3 || e.playback.transport != transport || !transport.playing {
 		t.Fatal("remove lost allocator or stopped playback")
 	}
 	for range 6 {
@@ -98,7 +98,7 @@ func TestTimelineMutationsKeepPlaybackAndAudioIdentity(t *testing.T) {
 	for range 6 {
 		historyNavigate(t, e, protocol.MethodEditRedo, "")
 	}
-	if !e.historyResult().Dirty || e.document.Metadata().Timeline.NextID != 3 {
+	if !e.historyResult().Dirty || e.doc.document.Metadata().Timeline.NextID != 3 {
 		t.Fatal("metadata redo did not restore exact allocator")
 	}
 }
@@ -128,18 +128,18 @@ func TestTimelineMutationErrorsAtomic(t *testing.T) {
 		{protocol.MethodMarkersRemove, protocol.TimelineRemoveParams{DocumentID: id, ID: 0}},
 		{protocol.MethodRegionsRemove, protocol.TimelineRemoveParams{DocumentID: id, ID: 1}},
 	} {
-		before, transport := e.editResult(false), e.transport
+		before, transport := e.editResult(false), e.playback.transport
 		if response := editorCall(t, e, tt.method, tt.params); response.OK {
 			t.Fatalf("invalid %s accepted", tt.method)
 		}
-		if !reflect.DeepEqual(before, e.editResult(false)) || e.transport != transport || !transport.playing {
+		if !reflect.DeepEqual(before, e.editResult(false)) || e.playback.transport != transport || !transport.playing {
 			t.Fatalf("%s error changed state", tt.method)
 		}
 	}
-	metadata := e.document.Metadata()
+	metadata := e.doc.document.Metadata()
 	metadata.Timeline.NextID = audiobuf.MaxAnchorID + 1
 	var err error
-	e.document, err = e.document.WithMetadata(metadata)
+	e.doc.document, err = e.doc.document.WithMetadata(metadata)
 	if err != nil {
 		t.Fatal(err)
 	}

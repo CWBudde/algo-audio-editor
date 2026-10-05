@@ -108,7 +108,7 @@ func TestPasteConversionConfirmationVersionAndTargetFrames(t *testing.T) {
 	if _, err := e.applyEdit(editParams(e, "copy", 0, 3, 1)); err != nil {
 		t.Fatal(err)
 	}
-	planParams := protocol.PreparePasteParams{DocumentID: e.editor.documentID, ChannelMask: 3, ClipboardVersion: e.clipboardInfo().Version}
+	planParams := protocol.PreparePasteParams{DocumentID: e.doc.editor.documentID, ChannelMask: 3, ClipboardVersion: e.clipboardInfo().Version}
 	plan, err := e.preparePaste(planParams)
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +138,7 @@ func TestPasteConversionConfirmationVersionAndTargetFrames(t *testing.T) {
 	if _, err := e.openDocument(protocol.DocumentOpenParams{}, rawWAV(3, 32, 1, 96000, floatPayload(32, []float64{0}), false)); err != nil {
 		t.Fatal(err)
 	}
-	planParams.DocumentID, planParams.ChannelMask = e.editor.documentID, 1
+	planParams.DocumentID, planParams.ChannelMask = e.doc.editor.documentID, 1
 	plan, err = e.preparePaste(planParams)
 	if err != nil || plan.Frames != 6 || !plan.ConversionRequired {
 		t.Fatalf("rate plan %+v %v", plan, err)

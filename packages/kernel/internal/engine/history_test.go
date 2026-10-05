@@ -13,7 +13,7 @@ import (
 
 func historyNavigate(t *testing.T, e *Engine, method, stateID string) protocol.EditResult {
 	t.Helper()
-	result, err := e.navigateHistory(method, e.editor.documentID, stateID)
+	result, err := e.navigateHistory(method, e.doc.editor.documentID, stateID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,17 +43,17 @@ func TestHistoryAllAudioEditsRestoreExactSnapshots(t *testing.T) {
 			}
 			afterSamples := editSamples(t, e)
 			clip := e.clipboardInfo()
-			playRange(t, e, 0, e.document.Frames(), true)
+			playRange(t, e, 0, e.doc.document.Frames(), true)
 			undone := historyNavigate(t, e, protocol.MethodEditUndo, "")
 			if !undone.Changed || undone.History.Dirty || undone.History.CanUndo || !undone.History.CanRedo || undone.Document.DocumentID == initialDocID || undone.Document.DocumentID == after.Document.DocumentID {
 				t.Fatalf("undo %+v", undone)
 			}
-			if e.transport != nil || e.source != sourceStopped || e.clipboardInfo() != clip {
+			if e.playback.transport != nil || e.playback.source != sourceStopped || e.clipboardInfo() != clip {
 				t.Fatal("undo transport/clipboard invariant")
 			}
 			assertEditBits(t, editSamples(t, e), original)
 			beforeTimeline.DocumentID = undone.Document.DocumentID
-			if !reflect.DeepEqual(undone.Timeline, beforeTimeline) || undone.Selection.SelectionRange != p.SelectionRange || e.document.Metadata().Timeline.NextID != 3 {
+			if !reflect.DeepEqual(undone.Timeline, beforeTimeline) || undone.Selection.SelectionRange != p.SelectionRange || e.doc.document.Metadata().Timeline.NextID != 3 {
 				t.Fatal("undo selection/anchor snapshot mismatch")
 			}
 			redone := historyNavigate(t, e, protocol.MethodEditRedo, "")
@@ -77,7 +77,7 @@ func TestHistoryLiveControlsBranchingAndNoops(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := e.setSelection(protocol.SelectionSetParams{DocumentID: e.editor.documentID, SelectionRange: protocol.SelectionRange{Start: 1, End: 2, ChannelMask: 1}}); err != nil {
+	if _, err := e.setSelection(protocol.SelectionSetParams{DocumentID: e.doc.editor.documentID, SelectionRange: protocol.SelectionRange{Start: 1, End: 2, ChannelMask: 1}}); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(initial, e.historyResult()) {
@@ -87,10 +87,10 @@ func TestHistoryLiveControlsBranchingAndNoops(t *testing.T) {
 		t.Fatal(err)
 	}
 	live := protocol.SelectionRange{Start: 2, End: 3, ChannelMask: 2}
-	if _, err := e.setSelection(protocol.SelectionSetParams{DocumentID: e.editor.documentID, SelectionRange: live}); err != nil {
+	if _, err := e.setSelection(protocol.SelectionSetParams{DocumentID: e.doc.editor.documentID, SelectionRange: live}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.addMarker(protocol.MarkerAddParams{DocumentID: e.editor.documentID, Frame: 2, Name: "late"}); err != nil {
+	if _, err := e.addMarker(protocol.MarkerAddParams{DocumentID: e.doc.editor.documentID, Frame: 2, Name: "late"}); err != nil {
 		t.Fatal(err)
 	}
 	state := e.historyResult().CurrentStateID
@@ -115,7 +115,7 @@ func TestHistoryLiveControlsBranchingAndNoops(t *testing.T) {
 	if e.historyResult().CanRedo || e.historyResult().CurrentStateID == state {
 		t.Fatal("branch failed to truncate redo/use freshstateID")
 	}
-	if _, err := e.navigateHistory(protocol.MethodHistoryJump, e.editor.documentID, state); err == nil {
+	if _, err := e.navigateHistory(protocol.MethodHistoryJump, e.doc.editor.documentID, state); err == nil {
 		t.Fatal("discarded redo state was reachable")
 	}
 }
@@ -136,12 +136,12 @@ func TestHistorySavepointsExportAndOpenLifecycle(t *testing.T) {
 	if !e.historyResult().Dirty {
 		t.Fatal("export alone marked saved")
 	}
-	for _, p := range []protocol.MarkSavedParams{{DocumentID: id, StateID: initial.CurrentStateID}, {DocumentID: e.editor.documentID, StateID: initial.CurrentStateID}, {DocumentID: e.editor.documentID, StateID: "unknown"}} {
+	for _, p := range []protocol.MarkSavedParams{{DocumentID: id, StateID: initial.CurrentStateID}, {DocumentID: e.doc.editor.documentID, StateID: initial.CurrentStateID}, {DocumentID: e.doc.editor.documentID, StateID: "unknown"}} {
 		if _, err := e.markSaved(p); err == nil {
 			t.Fatal("stale save ack accepted")
 		}
 	}
-	saved, err := e.markSaved(protocol.MarkSavedParams{DocumentID: e.editor.documentID, StateID: dirty.CurrentStateID})
+	saved, err := e.markSaved(protocol.MarkSavedParams{DocumentID: e.doc.editor.documentID, StateID: dirty.CurrentStateID})
 	if err != nil || saved.Dirty {
 		t.Fatalf("save %+v %v", saved, err)
 	}
@@ -179,37 +179,37 @@ func TestHistoryNavigationStaleIDsNoopAndRPC(t *testing.T) {
 	}
 	playRange(t, e, 0, 3, true)
 	before := e.editResult(false)
-	transport := e.transport
+	transport := e.playback.transport
 	noop := historyNavigate(t, e, protocol.MethodHistoryJump, before.History.CurrentStateID)
-	if noop.Changed || !reflect.DeepEqual(before, noop) || e.transport != transport || !transport.playing {
+	if noop.Changed || !reflect.DeepEqual(before, noop) || e.playback.transport != transport || !transport.playing {
 		t.Fatal("current jump changedstate/playback")
 	}
-	for _, args := range [][3]string{{protocol.MethodHistoryJump, e.editor.documentID, "missing"}, {protocol.MethodEditUndo, "stale", ""}, {protocol.MethodEditRedo, e.editor.documentID, ""}} {
+	for _, args := range [][3]string{{protocol.MethodHistoryJump, e.doc.editor.documentID, "missing"}, {protocol.MethodEditUndo, "stale", ""}, {protocol.MethodEditRedo, e.doc.editor.documentID, ""}} {
 		if _, err := e.navigateHistory(args[0], args[1], args[2]); err == nil {
 			t.Fatal("invalid navigation accepted")
 		}
-		if !reflect.DeepEqual(before, e.editResult(false)) || e.transport != transport || !transport.playing {
+		if !reflect.DeepEqual(before, e.editResult(false)) || e.playback.transport != transport || !transport.playing {
 			t.Fatal("invalidnavigation changedstate")
 		}
 	}
-	e.documentSequence = math.MaxUint64
-	if _, err := e.navigateHistory(protocol.MethodEditUndo, e.editor.documentID, ""); err == nil {
+	e.doc.documentSequence = math.MaxUint64
+	if _, err := e.navigateHistory(protocol.MethodEditUndo, e.doc.editor.documentID, ""); err == nil {
 		t.Fatal("identityoverflow accepted")
 	}
 	if !reflect.DeepEqual(before, e.editResult(false)) {
 		t.Fatal("failed overflow advancedhistory")
 	}
-	e.documentSequence = 2
-	if !editorCall(t, e, protocol.MethodHistoryList, protocol.HistoryListParams{DocumentID: e.editor.documentID}).OK {
+	e.doc.documentSequence = 2
+	if !editorCall(t, e, protocol.MethodHistoryList, protocol.HistoryListParams{DocumentID: e.doc.editor.documentID}).OK {
 		t.Fatal("listdispatch")
 	}
-	if !editorCall(t, e, protocol.MethodEditUndo, protocol.HistoryListParams{DocumentID: e.editor.documentID}).OK {
+	if !editorCall(t, e, protocol.MethodEditUndo, protocol.HistoryListParams{DocumentID: e.doc.editor.documentID}).OK {
 		t.Fatal("undodispatch")
 	}
-	if !editorCall(t, e, protocol.MethodHistoryJump, protocol.HistoryJumpParams{DocumentID: e.editor.documentID, StateID: before.History.CurrentStateID}).OK {
+	if !editorCall(t, e, protocol.MethodHistoryJump, protocol.HistoryJumpParams{DocumentID: e.doc.editor.documentID, StateID: before.History.CurrentStateID}).OK {
 		t.Fatal("jumpdispatch")
 	}
-	if !editorCall(t, e, protocol.MethodMarkSaved, protocol.MarkSavedParams{DocumentID: e.editor.documentID, StateID: before.History.CurrentStateID}).OK {
+	if !editorCall(t, e, protocol.MethodMarkSaved, protocol.MarkSavedParams{DocumentID: e.doc.editor.documentID, StateID: before.History.CurrentStateID}).OK {
 		t.Fatal("saveddispatch")
 	}
 }
@@ -231,7 +231,7 @@ func TestHistoryCountRetentionMemoryAndEvictedSavepoint(t *testing.T) {
 			t.Fatal("old base not evicted")
 		}
 	}
-	stats := audiobuf.CountMemory(e.history.Documents()...)
+	stats := audiobuf.CountMemory(e.historyState.history.Documents()...)
 	if list.RetainedBytes != stats.SampleBytes+stats.PeakBytes || e.documentMemory().SampleBytes != stats.SampleBytes || e.documentMemory().PeakBytes != stats.PeakBytes {
 		t.Fatal("history memory doublecounted")
 	}
@@ -248,23 +248,23 @@ func TestHistoryBudgetRejectsEditAtomically(t *testing.T) {
 	if _, err := e.applyEdit(editParams(e, "copy", 0, 1, 1)); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := historySnapshot{document: e.document, editor: cloneEditor(e.editor)}
-	stats := audiobuf.CountMemory(e.document)
+	snapshot := historySnapshot{document: e.doc.document, editor: cloneEditor(e.doc.editor)}
+	stats := audiobuf.CountMemory(e.doc.document)
 	var err error
-	e.history, err = history.New(snapshot, "Opened", history.Limits{MaxEntries: 100, MaxBytes: stats.SampleBytes + stats.PeakBytes}, func(s historySnapshot) audiobuf.Document { return s.document })
+	e.historyState.history, err = history.New(snapshot, "Opened", history.Limits{MaxEntries: 100, MaxBytes: stats.SampleBytes + stats.PeakBytes}, func(s historySnapshot) audiobuf.Document { return s.document })
 	if err != nil {
 		t.Fatal(err)
 	}
 	setTimelineFixture(t, e, []protocol.TimelineMarker{{ID: 1, Frame: 4, Name: "end"}}, nil)
 	playRange(t, e, 0, 4, true)
 	before := e.editResult(false)
-	transport := e.transport
+	transport := e.playback.transport
 	memory := e.documentMemory()
 	response := editorCall(t, e, protocol.MethodEditApply, editParams(e, "cut", 1, 3, 3))
 	if response.OK || !strings.Contains(response.Error, "budget") {
 		t.Fatalf("expected historybudgeterror %+v", response)
 	}
-	if !reflect.DeepEqual(before, e.editResult(false)) || e.documentMemory() != memory || e.transport != transport || !transport.playing {
+	if !reflect.DeepEqual(before, e.editResult(false)) || e.documentMemory() != memory || e.playback.transport != transport || !transport.playing {
 		t.Fatal("budgeterror mutated document/editor/clip/history/transport")
 	}
 	assertEditBits(t, editSamples(t, e), []float32{1, 10, 2, 20, 3, 30, 4, 40})
@@ -272,32 +272,32 @@ func TestHistoryBudgetRejectsEditAtomically(t *testing.T) {
 
 func TestHistoryAnchorSequenceRestoredAfterDroppedRegions(t *testing.T) {
 	e, _ := openEditorFixture(t, []float32{1, 2, 3, 4}, 1)
-	if _, err := e.addMarker(protocol.MarkerAddParams{DocumentID: e.editor.documentID, Frame: 0}); err != nil {
+	if _, err := e.addMarker(protocol.MarkerAddParams{DocumentID: e.doc.editor.documentID, Frame: 0}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.addRegion(protocol.RegionAddParams{DocumentID: e.editor.documentID, Start: 2, End: 4}); err != nil {
+	if _, err := e.addRegion(protocol.RegionAddParams{DocumentID: e.doc.editor.documentID, Start: 2, End: 4}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.applyEdit(editParams(e, "delete", 2, 4, 1)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.addMarker(protocol.MarkerAddParams{DocumentID: e.editor.documentID, Frame: 2}); err != nil {
+	if _, err := e.addMarker(protocol.MarkerAddParams{DocumentID: e.doc.editor.documentID, Frame: 2}); err != nil {
 		t.Fatal(err)
 	}
 	if e.timelineResult().Markers[1].ID != 3 {
 		t.Fatal("droppedregion reusedanchorID")
 	}
 	historyNavigate(t, e, protocol.MethodEditUndo, "")
-	if e.document.Metadata().Timeline.NextID != 3 || len(e.timelineResult().Regions) != 0 {
+	if e.doc.document.Metadata().Timeline.NextID != 3 || len(e.timelineResult().Regions) != 0 {
 		t.Fatal("metadata-only undo failedrestore")
 	}
 	historyNavigate(t, e, protocol.MethodEditUndo, "")
-	if e.document.Metadata().Timeline.NextID != 3 || len(e.timelineResult().Regions) != 1 {
+	if e.doc.document.Metadata().Timeline.NextID != 3 || len(e.timelineResult().Regions) != 1 {
 		t.Fatal("anchor sequence/snapshot failedrestore")
 	}
 	historyNavigate(t, e, protocol.MethodEditRedo, "")
 	historyNavigate(t, e, protocol.MethodEditRedo, "")
-	if e.document.Metadata().Timeline.NextID != 4 || len(e.timelineResult().Regions) != 0 || len(e.timelineResult().Markers) != 2 {
+	if e.doc.document.Metadata().Timeline.NextID != 4 || len(e.timelineResult().Regions) != 0 || len(e.timelineResult().Markers) != 2 {
 		t.Fatal("liveanchor edits lost acrossnavigation")
 	}
 }
@@ -335,12 +335,12 @@ func oneHourHistoryEngine(t testing.TB) *Engine {
 		t.Fatal(err)
 	}
 	e := New()
-	e.document = document
-	e.documentSequence = 1
-	e.sourceBitDepth = 32
-	e.sourceFloat = true
-	e.editor = editorState{documentID: "doc-1", selection: protocol.SelectionRange{ChannelMask: 3}}
-	e.history, err = newDocumentHistory(document, e.editor)
+	e.doc.document = document
+	e.doc.documentSequence = 1
+	e.doc.sourceBitDepth = 32
+	e.doc.sourceFloat = true
+	e.doc.editor = editorState{documentID: "doc-1", selection: protocol.SelectionRange{ChannelMask: 3}}
+	e.historyState.history, err = newDocumentHistory(document, e.doc.editor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func oneHourHistoryEngine(t testing.TB) *Engine {
 
 func TestHistoryOneHourHundredEditsUnderTwiceUniqueMemory(t *testing.T) {
 	e := oneHourHistoryEngine(t)
-	initial := e.document
+	initial := e.doc.document
 	before := e.documentMemory()
 	for i := range 100 {
 		start := int64(i * audiobuf.BlockFrames)
@@ -369,7 +369,7 @@ func TestHistoryOneHourHundredEditsUnderTwiceUniqueMemory(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		gotChannel, err := e.document.Channel(c)
+		gotChannel, err := e.doc.document.Channel(c)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -399,7 +399,7 @@ func BenchmarkEngineCutPasteHourHistory100(b *testing.B) {
 		if _, err := e.applyEdit(editParams(e, "paste-insert", start, start, 3)); err != nil {
 			b.Fatal(err)
 		}
-		if e.document.Frames() != 48000*3600 || len(e.historyResult().Entries) != 101 {
+		if e.doc.document.Frames() != 48000*3600 || len(e.historyResult().Entries) != 101 {
 			b.Fatal("duration/historylimit changed")
 		}
 	}

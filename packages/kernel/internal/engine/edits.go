@@ -11,9 +11,9 @@ import (
 )
 
 func (e *Engine) clipboardInfo() protocol.ClipboardInfo {
-	info := protocol.ClipboardInfo{Available: e.clipboard.Channels() > 0, SampleRate: e.clipboard.SampleRate(), Channels: e.clipboard.Channels(), Frames: e.clipboard.Frames()}
+	info := protocol.ClipboardInfo{Available: e.doc.clipboard.Channels() > 0, SampleRate: e.doc.clipboard.SampleRate(), Channels: e.doc.clipboard.Channels(), Frames: e.doc.clipboard.Frames()}
 	if info.Available {
-		info.Version = fmt.Sprintf("clip-%d", e.clipboardSequence)
+		info.Version = fmt.Sprintf("clip-%d", e.doc.clipboardSequence)
 	}
 	return info
 }
@@ -30,12 +30,12 @@ func (e *Engine) preparePaste(p protocol.PreparePasteParams) (protocol.PastePlan
 	if !clip.Available || p.ClipboardVersion == "" || p.ClipboardVersion != clip.Version {
 		return protocol.PastePlan{}, fmt.Errorf("%s: missing or stale clipboard version", method)
 	}
-	frames, err := clipboardOutputFrames(clip.Frames, clip.SampleRate, e.document.SampleRate())
+	frames, err := clipboardOutputFrames(clip.Frames, clip.SampleRate, e.doc.document.SampleRate())
 	if err != nil {
 		return protocol.PastePlan{}, fmt.Errorf("%s: %w", method, err)
 	}
 	targetChannels := bits.OnesCount(uint(p.ChannelMask))
-	return protocol.PastePlan{ConversionRequired: clip.SampleRate != e.document.SampleRate() || clip.Channels != targetChannels, SourceRate: clip.SampleRate, TargetRate: e.document.SampleRate(), SourceChannels: clip.Channels, TargetChannels: targetChannels, Frames: frames, ClipboardVersion: clip.Version}, nil
+	return protocol.PastePlan{ConversionRequired: clip.SampleRate != e.doc.document.SampleRate() || clip.Channels != targetChannels, SourceRate: clip.SampleRate, TargetRate: e.doc.document.SampleRate(), SourceChannels: clip.Channels, TargetChannels: targetChannels, Frames: frames, ClipboardVersion: clip.Version}, nil
 }
 
 func (e *Engine) editResult(changed bool) protocol.EditResult {
@@ -59,22 +59,22 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 	}
 	selected := ops.Range{Start: p.Start, End: p.End, ChannelMask: p.ChannelMask}
 	selection := p.SelectionRange
-	clip := e.clipboard
-	copying := p.Operation == "copy" || p.Operation == "cut"
+	clip := e.doc.clipboard
+	copying := p.Operation == protocol.OperationCopy || p.Operation == protocol.OperationCut
 	if copying {
-		if e.clipboardSequence == math.MaxUint64 {
+		if e.doc.clipboardSequence == math.MaxUint64 {
 			return protocol.EditResult{}, fmt.Errorf("%s: clipboard identity exhausted", method)
 		}
 		var err error
-		clip, err = ops.NewClipboard(e.document, selected)
+		clip, err = ops.NewClipboard(e.doc.document, selected)
 		if err != nil {
 			return protocol.EditResult{}, fmt.Errorf("%s: %w", method, err)
 		}
 	}
 	// Edits share whole blocks but may copy fractional boundaries. Reserve
 	// those before any conversion or operation publishes newly owned audio.
-	extra := decodedStorage(min(e.document.Frames(), 6*audiobuf.BlockFrames), e.document.Channels(), audiobuf.BlockFrames)
-	if p.Operation == "copy" || p.Operation == "swap-channels" {
+	extra := decodedStorage(min(e.doc.document.Frames(), 6*audiobuf.BlockFrames), e.doc.document.Channels(), audiobuf.BlockFrames)
+	if p.Operation == protocol.OperationCopy || p.Operation == protocol.OperationSwapChannels {
 		extra = 0
 	}
 	if err := e.checkStorage(method, extra); err != nil {
@@ -83,40 +83,40 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 	var operation ops.Operation
 	changed := true
 	switch p.Operation {
-	case "copy":
+	case protocol.OperationCopy:
 		changed = false
-	case "delete", "cut":
+	case protocol.OperationDelete, protocol.OperationCut:
 		operation = ops.Delete{Range: selected}
 		selection.End = selection.Start
 		changed = p.Start != p.End
-	case "crop":
+	case protocol.OperationCrop:
 		operation = ops.Crop{Range: selected}
 		selection.Start, selection.End = 0, p.End-p.Start
-	case "mute":
+	case protocol.OperationMute:
 		operation = ops.Mute{Range: selected}
 		changed = p.Start != p.End
-	case "duplicate":
+	case protocol.OperationDuplicate:
 		operation = ops.Duplicate{Range: selected}
 		selection.Start, selection.End = p.End, p.End+(p.End-p.Start)
 		changed = p.Start != p.End
-	case "swap-channels":
+	case protocol.OperationSwapChannels:
 		if bits.OnesCount(uint(p.ChannelMask)) != 2 {
 			return protocol.EditResult{}, fmt.Errorf("%s: swap requires exactly two selected channels", method)
 		}
 		operation = ops.SwapChannels{Range: selected}
-		changed = e.document.Frames() != 0
-	case "insert-silence":
-		if p.Frames == nil || *p.Frames <= 0 || *p.Frames > maxEditorFrame-e.document.Frames() {
+		changed = e.doc.document.Frames() != 0
+	case protocol.OperationInsertSilence:
+		if p.Frames == nil || *p.Frames <= 0 || *p.Frames > maxEditorFrame-e.doc.document.Frames() {
 			return protocol.EditResult{}, fmt.Errorf("%s: positive silence duration must keep the result JS-safe", method)
 		}
 		extra += decodedStorage(min(*p.Frames, 2*audiobuf.BlockFrames), 1, audiobuf.BlockFrames)
-		extra += (*p.Frames/audiobuf.BlockFrames + 1) * int64(e.document.Channels()) * 32
+		extra += (*p.Frames/audiobuf.BlockFrames + 1) * int64(e.doc.document.Channels()) * 32
 		if err := e.checkStorage(method, extra); err != nil {
 			return protocol.EditResult{}, err
 		}
 		operation = ops.InsertSilence{Range: selected, Frames: *p.Frames}
 		selection.End = p.Start + *p.Frames
-	case "paste-insert", "paste-replace", "paste-mix":
+	case protocol.OperationPasteInsert, protocol.OperationPasteReplace, protocol.OperationPasteMix:
 		plan, err := e.preparePaste(protocol.PreparePasteParams{DocumentID: p.DocumentID, ChannelMask: p.ChannelMask, ClipboardVersion: p.ClipboardVersion})
 		if err != nil {
 			return protocol.EditResult{}, fmt.Errorf("%s: %w", method, err)
@@ -125,12 +125,12 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 			return protocol.EditResult{}, fmt.Errorf("%s: sample-rate/channel conversion requires explicit confirmation", method)
 		}
 		// Check result duration before conversion allocates any sample storage.
-		resultFrames := e.document.Frames() + plan.Frames
-		if p.Operation == "paste-replace" {
+		resultFrames := e.doc.document.Frames() + plan.Frames
+		if p.Operation == protocol.OperationPasteReplace {
 			resultFrames -= p.End - p.Start
 		}
-		if p.Operation == "paste-mix" {
-			resultFrames = max(e.document.Frames(), p.Start+plan.Frames)
+		if p.Operation == protocol.OperationPasteMix {
+			resultFrames = max(e.doc.document.Frames(), p.Start+plan.Frames)
 		}
 		if resultFrames > maxEditorFrame {
 			return protocol.EditResult{}, fmt.Errorf("%s: result exceeds JS-safe frame limit", method)
@@ -142,7 +142,7 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 			}
 			extra += storage
 		}
-		if p.Operation == "paste-mix" {
+		if p.Operation == protocol.OperationPasteMix {
 			storage := decodedStorage(plan.Frames, plan.TargetChannels, audiobuf.BlockFrames)
 			if err := e.checkStorage(method, storage); err != nil {
 				return protocol.EditResult{}, err
@@ -163,10 +163,10 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 			}
 		}
 		mode := ops.PasteInsert
-		if p.Operation == "paste-replace" {
+		if p.Operation == protocol.OperationPasteReplace {
 			mode = ops.PasteReplace
 		}
-		if p.Operation == "paste-mix" {
+		if p.Operation == protocol.OperationPasteMix {
 			mode = ops.PasteMix
 		}
 		operation = ops.Paste{Range: selected, Clipboard: clip, Mode: mode}
@@ -174,12 +174,12 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 	default:
 		return protocol.EditResult{}, fmt.Errorf("%s: unknown operation %q", method, p.Operation)
 	}
-	if changed && e.documentSequence == math.MaxUint64 {
+	if changed && e.doc.documentSequence == math.MaxUint64 {
 		return protocol.EditResult{}, fmt.Errorf("%s: document identity exhausted", method)
 	}
-	document := e.document
-	editor := cloneEditor(e.editor)
-	stagedHistory := e.history
+	document := e.doc.document
+	editor := cloneEditor(e.doc.editor)
+	stagedHistory := e.historyState.history
 	if changed {
 		var err error
 		document, err = operation.Apply(document)
@@ -192,29 +192,29 @@ func (e *Engine) applyEdit(p protocol.EditApplyParams) (protocol.EditResult, err
 	if changed {
 		if stagedHistory == nil {
 			var err error
-			stagedHistory, err = e.newDocumentHistory(e.document, e.editor)
+			stagedHistory, err = e.newDocumentHistory(e.doc.document, e.doc.editor)
 			if err != nil {
 				return protocol.EditResult{}, fmt.Errorf("%s: initialize history: %w", method, err)
 			}
 		}
-		before := cloneEditor(e.editor)
+		before := cloneEditor(e.doc.editor)
 		before.selection = p.SelectionRange
 		var err error
-		stagedHistory, err = stagedHistory.StagePush(editHistoryLabel(p.Operation), historySnapshot{document: e.document, editor: before}, historySnapshot{document: document, editor: cloneEditor(editor)})
+		stagedHistory, err = stagedHistory.StagePush(editHistoryLabel(p.Operation), historySnapshot{document: e.doc.document, editor: before}, historySnapshot{document: document, editor: cloneEditor(editor)})
 		if err != nil {
 			return protocol.EditResult{}, fmt.Errorf("%s: retain undo history: %w", method, err)
 		}
 	}
 	if copying {
-		e.clipboard = clip
-		e.clipboardSequence++
+		e.doc.clipboard = clip
+		e.doc.clipboardSequence++
 	}
 	if changed {
-		e.document, e.history = document, stagedHistory
-		e.documentSequence++
-		editor.documentID = fmt.Sprintf("doc-%d", e.documentSequence)
-		e.transport, e.source = nil, sourceStopped
+		e.doc.document, e.historyState.history = document, stagedHistory
+		e.doc.documentSequence++
+		editor.documentID = fmt.Sprintf("doc-%d", e.doc.documentSequence)
+		e.playback.transport, e.playback.source = nil, sourceStopped
 	}
-	e.editor = editor
+	e.doc.editor = editor
 	return e.editResult(changed), nil
 }

@@ -25,7 +25,7 @@ func TestNewProcessesPrivateCommitUndoAndCandidateGeometry(t *testing.T) {
 			setTimelineFixture(t, e, []protocol.TimelineMarker{{ID: 1, Frame: 10, Name: "tail", Color: "#112233"}}, nil)
 			before := e.editResult(false)
 			p := processParams(e, 2, 8, (1<<channels)-1, 0)
-			p.Operation = operation
+			p.Operation = protocol.OperationName(operation)
 			p.Curve = "linear"
 			p.ChannelMode = "mix"
 			p.SampleRate = 24000
@@ -114,7 +114,7 @@ func TestExtractBinaryHandoffExactUnsavedAndFailureAtomic(t *testing.T) {
 	target := New()
 	wrong := info.BinaryDocumentParams
 	wrong.Frames++
-	if _, err := target.importBinaryDocument(wrong, bytes); err == nil || target.document.Channels() != 0 || target.history != nil {
+	if _, err := target.importBinaryDocument(wrong, bytes); err == nil || target.doc.document.Channels() != 0 || target.historyState.history != nil {
 		t.Fatal("bad import mutated destination")
 	}
 	imported, err := target.importBinaryDocument(info.BinaryDocumentParams, bytes)

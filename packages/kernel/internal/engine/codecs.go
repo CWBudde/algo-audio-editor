@@ -68,25 +68,25 @@ func validateDecodedFormat(rate, channels, depth int, frames int64) error {
 
 // installDocument stages history before replacing any live state.
 func (e *Engine) installDocument(document audiobuf.Document, depth int, isFloat bool, format string) (protocol.DocumentInfoResult, error) {
-	if e.documentSequence == math.MaxUint64 {
+	if e.doc.documentSequence == math.MaxUint64 {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: document identity exhausted")
 	}
-	editor := editorState{documentID: fmt.Sprintf("doc-%d", e.documentSequence+1), selection: protocol.SelectionRange{ChannelMask: (1 << document.Channels()) - 1}}
+	editor := editorState{documentID: fmt.Sprintf("doc-%d", e.doc.documentSequence+1), selection: protocol.SelectionRange{ChannelMask: (1 << document.Channels()) - 1}}
 	history, err := e.newDocumentHistory(document, editor)
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: initialize history: %w", err)
 	}
-	e.document, e.sourceBitDepth, e.sourceFloat = document, depth, isFloat
-	e.documentSequence++
-	e.sourceFormat = format
-	e.editor, e.history = editor, history
-	e.transport, e.source = nil, sourceStopped
-	e.impulseResponses = nil
-	e.impulseBytes = 0
+	e.doc.document, e.doc.sourceBitDepth, e.doc.sourceFloat = document, depth, isFloat
+	e.doc.documentSequence++
+	e.doc.sourceFormat = format
+	e.doc.editor, e.historyState.history = editor, history
+	e.playback.transport, e.playback.source = nil, sourceStopped
+	e.effectsState.impulseResponses = nil
+	e.effectsState.impulseBytes = 0
 	e.resetMeters()
-	e.analysisJob = nil
-	e.analysisCache = nil
-	e.cancelledAnalysis = nil
+	e.analysis.analysisJob = nil
+	e.analysis.analysisCache = nil
+	e.analysis.cancelledAnalysis = nil
 	return e.documentInfo()
 }
 
@@ -150,8 +150,11 @@ func (e *Engine) openAIFF(p protocol.DocumentOpenParams, input []byte) (protocol
 	for remaining := f.Frames; remaining > 0; {
 		count := int(min(int64(audiobuf.BlockFrames), remaining))
 		n, err := d.ReadPCM(interleaved[:count*f.Channels])
-		if err != nil || n != count*f.Channels {
-			return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: incomplete AIFF PCM: %v", err)
+		if err != nil {
+			return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: AIFF PCM: %w", err)
+		}
+		if n != count*f.Channels {
+			return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: incomplete AIFF PCM (%d/%d): %w", n, count*f.Channels, io.ErrUnexpectedEOF)
 		}
 		for ch := range pcm {
 			pcm[ch] = pcm[ch][:count]
@@ -379,7 +382,7 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 	case "aiff":
 		enc, err := aiff.NewPCMWriter(writer, aiff.PCMFormat{SampleRate: document.SampleRate(), Channels: document.Channels(), BitDepth: p.BitDepth, Frames: document.Frames()})
 		if err != nil {
-			return protocol.DocumentExportInfo{}, err
+			return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: initialize AIFF encoder: %w", err)
 		}
 		interleaved := make([]int32, 4096*document.Channels())
 		write = func(pcm [][]int32) error {
@@ -398,7 +401,7 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 		}
 		enc, err := flac.NewEncoder(writer, &meta.StreamInfo{SampleRate: uint32(document.SampleRate()), NChannels: uint8(document.Channels()), BitsPerSample: uint8(p.BitDepth), BlockSizeMin: 4096, BlockSizeMax: 4096})
 		if err != nil {
-			return protocol.DocumentExportInfo{}, err
+			return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: initialize FLAC encoder: %w", err)
 		}
 		write = func(pcm [][]int32) error {
 			n := len(pcm[0])

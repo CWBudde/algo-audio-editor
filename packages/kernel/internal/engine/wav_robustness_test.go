@@ -119,7 +119,7 @@ func TestRF64SizeTableAndMalformedMetadata(t *testing.T) {
 			if _, err := e.openDocument(protocol.DocumentOpenParams{}, tc.input); err == nil {
 				t.Fatal("malformed metadata accepted")
 			}
-			if e.document.Channels() != 0 {
+			if e.doc.document.Channels() != 0 {
 				t.Fatal("failed open installed audio")
 			}
 		})

@@ -52,8 +52,8 @@ func TestTransportRangeAndEOF(t *testing.T) {
 	if !slices.Equal(output, []float32{2, 3, 4, 0, 0}) || !slices.Equal(positions, []int64{2, 3, 4, 0, 0}) {
 		t.Fatalf("render samples %v positions %v", output, positions)
 	}
-	if e.transport.playing || e.transport.position != 4 {
-		t.Fatalf("EOF state %+v", e.transport.result())
+	if e.playback.transport.playing || e.playback.transport.position != 4 {
+		t.Fatalf("EOF state %+v", e.playback.transport.result())
 	}
 	if e.RenderWithPositions(output, positions) != 0 || !slices.Equal(output, make([]float32, len(output))) {
 		t.Fatal("EOF emitted audio again")
@@ -76,7 +76,7 @@ func TestTransportLoopsAndStop(t *testing.T) {
 	if _, err := e.configureTone(protocol.ToneConfigureParams{FrequencyHz: 440, Amplitude: 0.2}); err != nil {
 		t.Fatal(err)
 	}
-	if e.Render(output) != len(output) || e.source != sourceTone {
+	if e.Render(output) != len(output) || e.playback.source != sourceTone {
 		t.Fatal("tone.configure did not restore diagnostic rendering")
 	}
 	e.stopDocument()
@@ -118,7 +118,7 @@ func TestTransportSeekRangeAndEOF(t *testing.T) {
 func TestTransportRejectedCallsPreserveState(t *testing.T) {
 	e := transportEngine(t, []float32{1, 2, 3, 4}, 1, 48000, 48000)
 	playRange(t, e, 1, 4, true)
-	before, source, ptr := e.transport.result(), e.source, e.transport
+	before, source, ptr := e.playback.transport.result(), e.playback.source, e.playback.transport
 	for _, tt := range []struct {
 		method, payload string
 	}{
@@ -134,7 +134,7 @@ func TestTransportRejectedCallsPreserveState(t *testing.T) {
 		{protocol.MethodTransportSeek, "{"},
 	} {
 		response := call(t, e, tt.method, tt.payload)
-		if response.OK || e.transport != ptr || e.source != source || e.transport.result() != before {
+		if response.OK || e.playback.transport != ptr || e.playback.source != source || e.playback.transport.result() != before {
 			t.Fatalf("rejected %s %s changed state: %+v", tt.method, tt.payload, response)
 		}
 	}
@@ -156,14 +156,14 @@ func TestTransportRPCAndDocumentReplacement(t *testing.T) {
 	if !response.OK || json.Unmarshal(response.Result, &state) != nil || state.Start != 1 || state.End != 4 || !state.Playing || !state.Loop {
 		t.Fatalf("play RPC %+v/%+v", response, state)
 	}
-	ptr := e.transport
-	if _, err := e.openDocument(protocol.DocumentOpenParams{}, []byte("not a WAV")); err == nil || e.transport != ptr || !e.transport.playing {
+	ptr := e.playback.transport
+	if _, err := e.openDocument(protocol.DocumentOpenParams{}, []byte("not a WAV")); err == nil || e.playback.transport != ptr || !e.playback.transport.playing {
 		t.Fatal("failed document replacement stopped playback")
 	}
 	if _, err := e.openDocument(protocol.DocumentOpenParams{}, rawWAV(1, 16, 1, 48000, intPayload(16, []int32{123}), false)); err != nil {
 		t.Fatal(err)
 	}
-	if e.transport != nil || e.source != sourceStopped || e.Render(make([]float32, 10)) != 0 {
+	if e.playback.transport != nil || e.playback.source != sourceStopped || e.Render(make([]float32, 10)) != 0 {
 		t.Fatal("successful document replacement did not stop playback")
 	}
 }
@@ -176,7 +176,7 @@ func TestDocumentFormatDoesNotDependOnInactiveDiagnosticFrequency(t *testing.T) 
 	if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: 8000, Channels: 1}); err == nil {
 		t.Fatal("an active diagnostic above the new Nyquist was accepted")
 	}
-	if e.sampleRate != 48000 || e.channels != 2 || e.tone.frequency != 17000 || e.source != sourceTone {
+	if e.playback.sampleRate != 48000 || e.playback.channels != 2 || e.playback.tone.frequency != 17000 || e.playback.source != sourceTone {
 		t.Fatal("rejected active diagnostic format changed state")
 	}
 	if _, err := e.openDocument(protocol.DocumentOpenParams{}, rawWAV(1, 16, 1, 8000, intPayload(16, []int32{8192, -8192}), false)); err != nil {
@@ -185,12 +185,12 @@ func TestDocumentFormatDoesNotDependOnInactiveDiagnosticFrequency(t *testing.T) 
 	if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: 8000, Channels: 1}); err != nil {
 		t.Fatalf("inactive diagnostic blocked a valid document format: %v", err)
 	}
-	if e.tone.frequency != defaultToneHz || e.tone.amplitude != 0.3 || e.source != sourceStopped {
+	if e.playback.tone.frequency != defaultToneHz || e.playback.tone.amplitude != 0.3 || e.playback.source != sourceStopped {
 		t.Fatal("inactive diagnostic reset changed source or amplitude")
 	}
 	playRange(t, e, 0, 2, false)
-	before := e.transport.result()
-	if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: 4000, Channels: 1}); err == nil || e.transport.result() != before || e.source != sourceDocument {
+	before := e.playback.transport.result()
+	if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: 4000, Channels: 1}); err == nil || e.playback.transport.result() != before || e.playback.source != sourceDocument {
 		t.Fatal("invalid document format stopped playback")
 	}
 	output := make([]float32, 2)
@@ -256,7 +256,7 @@ func TestTransportLongOffsetsAndChannelMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := New()
-	e.document, err = audiobuf.NewDocument([]audiobuf.Channel{channel}, 48000, audiobuf.Metadata{})
+	e.doc.document, err = audiobuf.NewDocument([]audiobuf.Channel{channel}, 48000, audiobuf.Metadata{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func BenchmarkTransportRender(b *testing.B) {
 				data[i] = channel
 			}
 			var err error
-			e.document, err = audiobuf.NewDocument(data, 48000, audiobuf.Metadata{})
+			e.doc.document, err = audiobuf.NewDocument(data, 48000, audiobuf.Metadata{})
 			if err != nil {
 				b.Fatal(err)
 			}

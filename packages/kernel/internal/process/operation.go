@@ -9,6 +9,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 	"github.com/cwbudde/algo-dsp/dsp/core"
 	"github.com/cwbudde/algo-dsp/dsp/fade"
 	"github.com/cwbudde/algo-dsp/dsp/signal"
@@ -17,7 +18,7 @@ import (
 
 // Settings contains control values only; samples remain private to a job.
 type Settings struct {
-	Operation                        string
+	Operation                        protocol.OperationName
 	GainDB, TargetDB                 float64
 	Curve                            string
 	DurationFrames                   int64
@@ -34,13 +35,13 @@ type Settings struct {
 // document. Structural transforms advertise their new format before stepping.
 func NewOperation(document audiobuf.Document, selected ops.Range, settings Settings, limits Limits) (Stepper, error) {
 	switch settings.Operation {
-	case "gain":
+	case protocol.OperationGain:
 		return NewBuilder(document, selected, Gain{DB: settings.GainDB}, limits)
-	case "normalize-peak", "normalize-loudness":
+	case protocol.OperationNormalizePeak, protocol.OperationNormalizeLoudness:
 		return NewNormalizer(document, selected, settings.Operation, settings.TargetDB, limits)
-	case "spectral-attenuate", "spectral-remove", "spectral-heal", "noise-reduce", "remove-clicks", "declip", "time-stretch", "remove-hum":
+	case protocol.OperationSpectralAttenuate, protocol.OperationSpectralRemove, protocol.OperationSpectralHeal, protocol.OperationNoiseReduce, protocol.OperationRemoveClicks, protocol.OperationDeclip, protocol.OperationTimeStretch, protocol.OperationRemoveHum:
 		return newRestorationOperation(document, selected, settings, limits)
-	case "resample":
+	case protocol.OperationResample:
 		return newRateOperation(document, selected, settings, limits)
 	default:
 		return newBlockOperation(document, selected, settings, limits)
@@ -99,9 +100,9 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 	if err := validateOperation(document, selected, limits); err != nil {
 		return nil, fmt.Errorf("process.new: %w", err)
 	}
-	b := &blockOperation{source: document, selected: selected, outputSelection: selected, settings: settings, outputRate: document.SampleRate(), outputChannels: document.Channels(), outputFrames: document.Frames(), status: NormalizationStatus{Phase: "processing", PhaseCount: 1, GainResolved: true}}
+	b := &blockOperation{source: document, selected: selected, outputSelection: selected, settings: settings, outputRate: document.SampleRate(), outputChannels: document.Channels(), outputFrames: document.Frames(), status: NormalizationStatus{Phase: protocol.PhaseProcessing, PhaseCount: 1, GainResolved: true}}
 	switch settings.Operation {
-	case "fade-in", "fade-out", "reverse", "invert", "remove-dc":
+	case protocol.OperationFadeIn, protocol.OperationFadeOut, protocol.OperationReverse, protocol.OperationInvert, protocol.OperationRemoveDC:
 		if selected.Start == selected.End {
 			b.selected.Start, b.selected.End = 0, document.Frames()
 		}
@@ -110,7 +111,7 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 		}
 		b.outputSelection = b.selected
 		b.renderFrames = b.selected.End - b.selected.Start
-		if settings.Operation == "fade-in" || settings.Operation == "fade-out" {
+		if settings.Operation == protocol.OperationFadeIn || settings.Operation == protocol.OperationFadeOut {
 			if settings.Curve == "" {
 				b.settings.Curve = string(fade.Linear)
 			}
@@ -118,10 +119,10 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 				return nil, fmt.Errorf("process.new: unsupported fade curve")
 			}
 		}
-		if settings.Operation == "remove-dc" {
-			b.status.Phase, b.status.PhaseCount = "analyzing", 2
+		if settings.Operation == protocol.OperationRemoveDC {
+			b.status.Phase, b.status.PhaseCount = protocol.PhaseAnalyzing, 2
 		}
-	case "crossfade":
+	case protocol.OperationCrossfade:
 		n := settings.DurationFrames
 		if selected.Start != selected.End || n < 2 || n > selected.Start || n > document.Frames()-selected.Start {
 			return nil, fmt.Errorf("process.new: crossfade requires a cursor with sufficient audio on both sides")
@@ -135,7 +136,7 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 		if !validCurve(b.settings.Curve) {
 			return nil, fmt.Errorf("process.new: unsupported fade curve")
 		}
-	case "mono-to-stereo":
+	case protocol.OperationMonoToStereo:
 		if document.Channels() != 1 {
 			return nil, fmt.Errorf("process.new: mono document required")
 		}
@@ -143,7 +144,7 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 		b.outputChannels, b.renderFrames = 2, document.Frames()
 		b.selected = ops.Range{End: document.Frames(), ChannelMask: 1}
 		b.outputSelection = ops.Range{Start: selected.Start, End: selected.End, ChannelMask: 3}
-	case "stereo-to-mono":
+	case protocol.OperationStereoToMono:
 		if document.Channels() != 2 || (settings.ChannelMode != "mix" && settings.ChannelMode != "left" && settings.ChannelMode != "right") {
 			return nil, fmt.Errorf("process.new: stereo document and mix/left/right mode required")
 		}
@@ -151,7 +152,7 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 		b.selected = ops.Range{End: document.Frames(), ChannelMask: 3}
 		b.outputSelection = ops.Range{Start: selected.Start, End: selected.End, ChannelMask: 1}
 		b.shared = settings.ChannelMode != "mix"
-	case "extract-channel":
+	case protocol.OperationExtractChannel:
 		if settings.Channel < 0 || settings.Channel >= document.Channels() {
 			return nil, fmt.Errorf("process.new: invalid extraction channel")
 		}
@@ -161,7 +162,7 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 		b.selected.ChannelMask = 1 << settings.Channel
 		b.renderFrames, b.outputFrames, b.outputChannels, b.shared = b.selected.End-b.selected.Start, b.selected.End-b.selected.Start, 1, true
 		b.outputSelection = ops.Range{End: b.outputFrames, ChannelMask: 1}
-	case "generate":
+	case protocol.OperationGenerate:
 		b.renderFrames = selected.End - selected.Start
 		if b.renderFrames == 0 {
 			b.renderFrames = settings.DurationFrames
@@ -181,7 +182,7 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 		if b.selected.ChannelMask&(1<<channel) == 0 {
 			continue
 		}
-		if settings.Operation == "stereo-to-mono" && b.shared && channel != map[string]int{"left": 0, "right": 1}[settings.ChannelMode] {
+		if settings.Operation == protocol.OperationStereoToMono && b.shared && channel != map[string]int{"left": 0, "right": 1}[settings.ChannelMode] {
 			continue
 		}
 		part, _ := document.Channel(channel)
@@ -189,7 +190,7 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 		b.channels = append(b.channels, part)
 	}
 	count := len(b.channels)
-	if settings.Operation == "stereo-to-mono" {
+	if settings.Operation == protocol.OperationStereoToMono {
 		count = 1
 	}
 	if !b.shared {
@@ -203,16 +204,16 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 	}
 	b.mono, b.second = make([]float32, audiobuf.BlockFrames), make([]float32, audiobuf.BlockFrames)
 	b.dsp = make([]float64, audiobuf.BlockFrames)
-	if settings.Operation == "fade-in" || settings.Operation == "fade-out" || settings.Operation == "crossfade" {
+	if settings.Operation == protocol.OperationFadeIn || settings.Operation == protocol.OperationFadeOut || settings.Operation == protocol.OperationCrossfade {
 		b.other = make([]float64, audiobuf.BlockFrames)
 	}
-	if settings.Operation == "crossfade" {
+	if settings.Operation == protocol.OperationCrossfade {
 		b.rising = make([]float64, audiobuf.BlockFrames)
 	}
-	if settings.Operation == "remove-dc" {
+	if settings.Operation == protocol.OperationRemoveDC {
 		b.means = make([]signal.MeanAccumulator, len(b.channels))
 	}
-	if settings.Operation == "generate" {
+	if settings.Operation == protocol.OperationGenerate {
 		b.sharedGenerator = settings.Generator == "silence" || settings.Generator == "sine" || settings.Generator == "linear-sweep" || settings.Generator == "log-sweep"
 		for _, channel := range b.indices {
 			generator, err := signal.NewStreamGenerator(signal.StreamConfig{Kind: signal.StreamKind(settings.Generator), SampleRate: float64(document.SampleRate()), Amplitude: core.DBToLinear(settings.LevelDB), StartHz: settings.Frequency, EndHz: settings.EndFrequency, Frames: b.renderFrames, Seed: settings.Seed + uint64(channel)*0x9e3779b97f4a7c15})
@@ -264,7 +265,7 @@ func (b *blockOperation) Step(ctx context.Context) (Progress, error) {
 	}
 	count := int(min(int64(audiobuf.BlockFrames), b.renderFrames-b.progress.FramesDone))
 	if count > 0 {
-		if b.status.Phase == "analyzing" {
+		if b.status.Phase == protocol.PhaseAnalyzing {
 			for i, channel := range b.channels {
 				if err := ctx.Err(); err != nil {
 					return b.fail(err)
@@ -281,7 +282,7 @@ func (b *blockOperation) Step(ctx context.Context) (Progress, error) {
 				return b.fail(fmt.Errorf("process.step: envelope: %w", err))
 			}
 			for i := range len(b.channels) {
-				if b.settings.Operation == "stereo-to-mono" && i > 0 {
+				if b.settings.Operation == protocol.OperationStereoToMono && i > 0 {
 					break
 				}
 				if err := ctx.Err(); err != nil {
@@ -322,8 +323,8 @@ func (b *blockOperation) Step(ctx context.Context) (Progress, error) {
 		return b.fail(fmt.Errorf("process.step: %w", err))
 	}
 	if b.progress.FramesDone == b.renderFrames {
-		if b.status.Phase == "analyzing" {
-			b.status.Phase, b.status.PhaseIndex, b.progress.FramesDone = "processing", 1, 0
+		if b.status.Phase == protocol.PhaseAnalyzing {
+			b.status.Phase, b.status.PhaseIndex, b.progress.FramesDone = protocol.PhaseProcessing, 1, 0
 		} else {
 			result, err := b.assemble()
 			if err != nil {
@@ -356,9 +357,9 @@ func (b *blockOperation) scanShared(i, count int) (bool, error) {
 
 func (b *blockOperation) render(i, count int) error {
 	offset := b.progress.FramesDone
-	if b.settings.Operation != "generate" {
+	if b.settings.Operation != protocol.OperationGenerate {
 		start := b.selected.Start + offset
-		if b.settings.Operation == "reverse" {
+		if b.settings.Operation == protocol.OperationReverse {
 			start = b.selected.End - offset - int64(count)
 		}
 		if b.channels[i].Read(b.mono[:count], start) != count {
@@ -366,18 +367,18 @@ func (b *blockOperation) render(i, count int) error {
 		}
 	}
 	switch b.settings.Operation {
-	case "crossfade":
+	case protocol.OperationCrossfade:
 		if b.channels[i].Read(b.second[:count], b.selected.Start+b.renderFrames+offset) != count {
 			return fmt.Errorf("short crossfade read")
 		}
 		return fade.CrossfadeEnvelopeInto32(b.mono[:count], b.mono[:count], b.second[:count], b.other[:count], b.rising[:count])
-	case "reverse":
+	case protocol.OperationReverse:
 		slices.Reverse(b.mono[:count])
-	case "invert":
+	case protocol.OperationInvert:
 		return signal.ScaleInto32(b.mono[:count], b.mono[:count], -1)
-	case "generate":
+	case protocol.OperationGenerate:
 		return b.generators[i].GenerateInto32(b.mono[:count])
-	case "stereo-to-mono":
+	case protocol.OperationStereoToMono:
 		if b.settings.ChannelMode == "mix" {
 			if b.channels[1].Read(b.second[:count], offset) != count {
 				return fmt.Errorf("short right read")
@@ -390,9 +391,9 @@ func (b *blockOperation) render(i, count int) error {
 
 func (b *blockOperation) prepareEnvelope(count int) error {
 	switch b.settings.Operation {
-	case "fade-in", "fade-out":
-		return fade.EnvelopeInto64(b.other[:count], b.progress.FramesDone, b.renderFrames, fade.Shape(b.settings.Curve), b.settings.Operation == "fade-in")
-	case "crossfade":
+	case protocol.OperationFadeIn, protocol.OperationFadeOut:
+		return fade.EnvelopeInto64(b.other[:count], b.progress.FramesDone, b.renderFrames, fade.Shape(b.settings.Curve), b.settings.Operation == protocol.OperationFadeIn)
+	case protocol.OperationCrossfade:
 		if err := fade.EnvelopeInto64(b.other[:count], b.progress.FramesDone, b.renderFrames, fade.Shape(b.settings.Curve), false); err != nil {
 			return err
 		}
@@ -406,9 +407,9 @@ func (b *blockOperation) renderOwned(i, count int) (bool, error) {
 	var block *audiobuf.Block
 	var err error
 	switch b.settings.Operation {
-	case "fade-in", "fade-out":
+	case protocol.OperationFadeIn, protocol.OperationFadeOut:
 		block, err = audiobuf.NewEnvelopeFadedBlock(b.channels[i], b.selected.Start+b.progress.FramesDone, count, b.other[:count])
-	case "remove-dc":
+	case protocol.OperationRemoveDC:
 		var mean float64
 		mean, err = b.means[i].Mean()
 		if err == nil {
@@ -481,14 +482,14 @@ func (b *blockOperation) assemble() (audiobuf.Document, error) {
 		if err != nil {
 			return audiobuf.Document{}, err
 		}
-		if op == "extract-channel" {
+		if op == protocol.OperationExtractChannel {
 			metadata.Timeline, err = metadata.Timeline.Crop(b.source.Frames(), b.selected.Start, b.selected.End)
 			if err != nil {
 				return audiobuf.Document{}, err
 			}
 		}
 		channels := []audiobuf.Channel{part}
-		if op == "mono-to-stereo" {
+		if op == protocol.OperationMonoToStereo {
 			channels = append(channels, part)
 		}
 		return audiobuf.NewDocument(channels, b.outputRate, metadata)
@@ -501,7 +502,7 @@ func (b *blockOperation) assemble() (audiobuf.Document, error) {
 			return audiobuf.Document{}, err
 		}
 	}
-	if op == "stereo-to-mono" {
+	if op == protocol.OperationStereoToMono {
 		return audiobuf.NewDocument(middles, b.outputRate, metadata)
 	}
 	channels := make([]audiobuf.Channel, b.source.Channels())
@@ -510,7 +511,7 @@ func (b *blockOperation) assemble() (audiobuf.Document, error) {
 		channel, _ := b.source.Channel(i)
 		channels[i] = channel
 		if b.selected.ChannelMask&(1<<i) == 0 {
-			if op == "generate" && b.selected.Start == b.selected.End {
+			if op == protocol.OperationGenerate && b.selected.Start == b.selected.End {
 				left, err := channel.Slice(0, b.selected.Start)
 				if err != nil {
 					return audiobuf.Document{}, err
@@ -538,10 +539,10 @@ func (b *blockOperation) assemble() (audiobuf.Document, error) {
 		channels[i] = left.Concat(middles[packed]).Concat(right)
 		packed++
 	}
-	if op == "time-stretch" {
+	if op == protocol.OperationTimeStretch {
 		stretchTimeline(&metadata.Timeline, b.selected, b.renderFrames)
 	}
-	if (op == "crossfade" || op == "generate") && b.selected.ChannelMask == (1<<b.source.Channels())-1 || op == "generate" && b.selected.Start == b.selected.End {
+	if (op == protocol.OperationCrossfade || op == protocol.OperationGenerate) && b.selected.ChannelMask == (1<<b.source.Channels())-1 || op == protocol.OperationGenerate && b.selected.Start == b.selected.End {
 		var err error
 		metadata.Timeline, err = metadata.Timeline.Splice(b.source.Frames(), b.selected.Start, b.selected.End, b.renderFrames)
 		if err != nil {

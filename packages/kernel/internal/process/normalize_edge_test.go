@@ -10,6 +10,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 	"github.com/cwbudde/algo-dsp/measure/loudness"
 )
 
@@ -62,7 +63,7 @@ func TestNormalizerConstructorRejectsInvalidControlState(t *testing.T) {
 		{"LUFS sample rate upper bound", highRate, ops.Range{End: 2, ChannelMask: 1}, "normalize-loudness", -23, Limits{}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if normalizer, err := NewNormalizer(test.document, test.selected, test.operation, test.target, test.limits); err == nil || normalizer != nil {
+			if normalizer, err := NewNormalizer(test.document, test.selected, protocol.OperationName(test.operation), test.target, test.limits); err == nil || normalizer != nil {
 				t.Fatal("invalid constructor published a job", err)
 			}
 		})
@@ -154,12 +155,12 @@ func normalizerInPhase(t *testing.T, document audiobuf.Document, phase string) *
 	if err != nil {
 		t.Fatal(err)
 	}
-	for attempts := 0; normalizer.Status().Phase != phase && attempts < 1000; attempts++ {
+	for attempts := 0; normalizer.Status().Phase != protocol.ProcessPhase(phase) && attempts < 1000; attempts++ {
 		if _, err := normalizer.Step(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if normalizer.Status().Phase != phase || normalizer.progress.Done {
+	if normalizer.Status().Phase != protocol.ProcessPhase(phase) || normalizer.progress.Done {
 		t.Fatal("requested active phase was not reached")
 	}
 	return normalizer

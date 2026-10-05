@@ -15,7 +15,7 @@ func effectGraph(effect string, params map[string]any) protocol.EffectGraph {
 }
 
 func effectParams(e *Engine, start, end int64, mask int, effect string, params map[string]any) protocol.EffectsPreviewParams {
-	return protocol.EffectsPreviewParams{SelectionResult: protocol.SelectionResult{DocumentID: e.editor.documentID, SelectionRange: protocol.SelectionRange{Start: start, End: end, ChannelMask: mask}}, Graph: effectGraph(effect, params)}
+	return protocol.EffectsPreviewParams{SelectionResult: protocol.SelectionResult{DocumentID: e.doc.editor.documentID, SelectionRange: protocol.SelectionRange{Start: start, End: end, ChannelMask: mask}}, Graph: effectGraph(effect, params)}
 }
 
 func effectRPCCall(t *testing.T, e *Engine, method string, p any, input []byte) protocol.Response {
@@ -78,14 +78,14 @@ func TestEffectActualPreviewOfflineApplySingleUndoAndSelectionOwnership(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e.effectPreview != nil || e.transport != nil {
+	if e.effectsState.effectPreview != nil || e.playback.transport != nil {
 		t.Fatal("apply retained live preview")
 	}
 	ready := finishEngineNormalization(t, e, started)
 	if !reflect.DeepEqual(before, e.editResult(false)) {
 		t.Fatal("private effects candidate changed source")
 	}
-	candidate := e.processJob.candidate
+	candidate := e.jobs.processJob.candidate
 	for channel := range 3 {
 		source, _ := candidate.Channel(channel)
 		samples := make([]float32, p.End-p.Start)
@@ -134,7 +134,7 @@ func TestEffectsProtocolValidationLiveUpdateAtomicAndHistoryFences(t *testing.T)
 	if err := json.Unmarshal(response.Result, &started); err != nil {
 		t.Fatal(err)
 	}
-	before := e.effectPreview
+	before := e.effectsState.effectPreview
 	for _, change := range []func(*protocol.EffectsPreviewParams){func(p *protocol.EffectsPreviewParams) { p.DocumentID = "stale" }, func(p *protocol.EffectsPreviewParams) { p.PreviewID = "wrong" }, func(p *protocol.EffectsPreviewParams) { p.Graph.Nodes[1].Type = "invented" }, func(p *protocol.EffectsPreviewParams) { p.Graph.Nodes[1].Params = map[string]any{"missing": 1} }, func(p *protocol.EffectsPreviewParams) { v := 2.0; p.Wet = &v }, func(p *protocol.EffectsPreviewParams) {
 		p.Graph.Connections = append(p.Graph.Connections, protocol.EffectConnection{From: "fx", To: "_input"})
 	}} {
@@ -142,7 +142,7 @@ func TestEffectsProtocolValidationLiveUpdateAtomicAndHistoryFences(t *testing.T)
 		bad.PreviewID = started.PreviewID
 		change(&bad)
 		rejected := effectRPCCall(t, e, protocol.MethodEffectsPreviewUpdate, bad, nil)
-		if rejected.OK || e.effectPreview != before {
+		if rejected.OK || e.effectsState.effectPreview != before {
 			t.Fatal("rejected live graph update changed session", rejected)
 		}
 	}
@@ -154,11 +154,11 @@ func TestEffectsProtocolValidationLiveUpdateAtomicAndHistoryFences(t *testing.T)
 	updated := effectParams(e, 0, 4, 3, "ringmod", map[string]any{"carrierHz": 1000.0})
 	updated.PreviewID = started.PreviewID
 	response = effectRPCCall(t, e, protocol.MethodEffectsPreviewUpdate, updated, nil)
-	if !response.OK || e.effectPreview == before {
+	if !response.OK || e.effectsState.effectPreview == before {
 		t.Fatal("valid live update rejected", response)
 	}
 	stopped := effectRPCCall(t, e, protocol.MethodEffectsPreviewStop, protocol.EffectsSessionParams{DocumentID: p.DocumentID, PreviewID: started.PreviewID}, nil)
-	if !stopped.OK || e.effectPreview != nil {
+	if !stopped.OK || e.effectsState.effectPreview != nil {
 		t.Fatal("stop retained resources", stopped)
 	}
 	if stale := effectRPCCall(t, e, protocol.MethodEffectsPreviewMeters, protocol.EffectsSessionParams{DocumentID: p.DocumentID, PreviewID: started.PreviewID}, nil); stale.OK {
@@ -190,13 +190,13 @@ func TestEffectsLoopSeekAndBypassKeepActualDSPClock(t *testing.T) {
 	}
 	assertEditBits(t, output[:257], output[257:514])
 	assertEditBits(t, output[:257], output[514:])
-	stream := e.transport.effects
+	stream := e.playback.transport.effects
 	p.PreviewID = started.PreviewID
 	p.Bypass = true
 	if _, err := e.startEffectPreview(protocol.MethodEffectsPreviewUpdate, p); err != nil {
 		t.Fatal(err)
 	}
-	if e.transport.effects != stream {
+	if e.playback.transport.effects != stream {
 		t.Fatal("bypass reset live chain state")
 	}
 	dry := make([]float32, 257)
@@ -246,7 +246,7 @@ func TestEffectsResponseBinaryAndIRTransferOwnership(t *testing.T) {
 		binary.LittleEndian.PutUint32(pcm[i*4:], math.Float32bits(value))
 	}
 	wav := rawWAV(3, 32, 1, 48000, pcm, false)
-	loaded := effectRPCCall(t, e, protocol.MethodEffectsIRLoad, protocol.EffectsIRLoadParams{DocumentID: e.editor.documentID, Name: "impulse.wav"}, wav)
+	loaded := effectRPCCall(t, e, protocol.MethodEffectsIRLoad, protocol.EffectsIRLoadParams{DocumentID: e.doc.editor.documentID, Name: "impulse.wav"}, wav)
 	if !loaded.OK {
 		t.Fatal(loaded.Error)
 	}
@@ -265,11 +265,11 @@ func TestEffectsResponseBinaryAndIRTransferOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if removed := effectRPCCall(t, e, protocol.MethodEffectsIRRemove, protocol.EffectsIRRemoveParams{DocumentID: e.editor.documentID, IRID: info.IRID}, nil); removed.OK {
+	if removed := effectRPCCall(t, e, protocol.MethodEffectsIRRemove, protocol.EffectsIRRemoveParams{DocumentID: e.doc.editor.documentID, IRID: info.IRID}, nil); removed.OK {
 		t.Fatal("removed active IR resource")
 	}
 	e.discardEffectPreview()
-	if removed := effectRPCCall(t, e, protocol.MethodEffectsIRRemove, protocol.EffectsIRRemoveParams{DocumentID: e.editor.documentID, IRID: info.IRID}, nil); !removed.OK || e.impulseBytes != 0 {
+	if removed := effectRPCCall(t, e, protocol.MethodEffectsIRRemove, protocol.EffectsIRRemoveParams{DocumentID: e.doc.editor.documentID, IRID: info.IRID}, nil); !removed.OK || e.effectsState.impulseBytes != 0 {
 		t.Fatal("IR release failed", removed)
 	}
 	if stale := effectRPCCall(t, e, protocol.MethodEffectsPreviewStart, p, nil); stale.OK {
@@ -279,7 +279,7 @@ func TestEffectsResponseBinaryAndIRTransferOwnership(t *testing.T) {
 		t.Fatal("IR lifetime changed source/history")
 	}
 	wrong := rawWAV(3, 32, 1, 44100, pcm, false)
-	if rejected := effectRPCCall(t, e, protocol.MethodEffectsIRLoad, protocol.EffectsIRLoadParams{DocumentID: e.editor.documentID}, wrong); rejected.OK {
+	if rejected := effectRPCCall(t, e, protocol.MethodEffectsIRLoad, protocol.EffectsIRLoadParams{DocumentID: e.doc.editor.documentID}, wrong); rejected.OK {
 		t.Fatal("mismatched IR rate accepted")
 	}
 }
@@ -323,7 +323,7 @@ func TestEffectsConvolutionWetUpdateRetainsNonzeroTailAndRejectsAtomically(t *te
 	}
 	ir := make([]float64, 32769)
 	ir[1024] = .5
-	e.impulseResponses = map[int]impulseResponse{1: {info: protocol.EffectsIRInfo{IRID: 1, SampleRate: 48000, Name: "tail", Channels: 1, Frames: int64(len(ir))}, ownerDocumentID: e.editor.documentID, samples: [][]float64{ir}}}
+	e.effectsState.impulseResponses = map[int]impulseResponse{1: {info: protocol.EffectsIRInfo{IRID: 1, SampleRate: 48000, Name: "tail", Channels: 1, Frames: int64(len(ir))}, ownerDocumentID: e.doc.editor.documentID, samples: [][]float64{ir}}}
 	p := effectParams(e, 0, 3000, 1, "reverb-conv", map[string]any{"irIndex": 1, "wet": 1.0})
 	preview, err := e.startEffectPreview(protocol.MethodEffectsPreviewStart, p)
 	if err != nil {
@@ -336,18 +336,18 @@ func TestEffectsConvolutionWetUpdateRetainsNonzeroTailAndRejectsAtomically(t *te
 	if count := e.Render(make([]float32, 256)); count != 256 {
 		t.Fatal("short initial convolution")
 	}
-	stream := e.transport.effects
-	session := e.effectPreview
+	stream := e.playback.transport.effects
+	session := e.effectsState.effectPreview
 	p.PreviewID = preview.PreviewID
 	p.Graph.Nodes[1].Params["wet"] = -1.0
-	if _, err := e.startEffectPreview(protocol.MethodEffectsPreviewUpdate, p); err == nil || e.effectPreview != session || e.transport.effects != stream {
+	if _, err := e.startEffectPreview(protocol.MethodEffectsPreviewUpdate, p); err == nil || e.effectsState.effectPreview != session || e.playback.transport.effects != stream {
 		t.Fatal("invalid wet changed prepared session")
 	}
 	p.Graph.Nodes[1].Params["wet"] = .25
 	if _, err := e.startEffectPreview(protocol.MethodEffectsPreviewUpdate, p); err != nil {
 		t.Fatal(err)
 	}
-	if e.transport.effects != stream {
+	if e.playback.transport.effects != stream {
 		t.Fatal("wet update rebuilt long impulse response")
 	}
 	tail := make([]float32, 1025-256)
@@ -373,7 +373,7 @@ func TestEffectsConvolutionWetUpdateRetainsNonzeroTailAndRejectsAtomically(t *te
 		t.Fatal(err)
 	}
 	finishEngineNormalization(t, e, started)
-	candidate, _ := e.processJob.candidate.Channel(0)
+	candidate, _ := e.jobs.processJob.candidate.Channel(0)
 	actual := make([]float32, 3000)
 	candidate.Read(actual, 0)
 	assertEditBits(t, actual, reference)
@@ -388,13 +388,13 @@ func TestEffectsPreparedStreamReuseInactiveUpdatesAndReplayReset(t *testing.T) {
 	}
 	impulse := make([]float64, 32769)
 	impulse[128] = .5
-	e.impulseResponses = map[int]impulseResponse{1: {info: protocol.EffectsIRInfo{IRID: 1, SampleRate: 48000}, samples: [][]float64{impulse}, ownerDocumentID: e.editor.documentID}}
+	e.effectsState.impulseResponses = map[int]impulseResponse{1: {info: protocol.EffectsIRInfo{IRID: 1, SampleRate: 48000}, samples: [][]float64{impulse}, ownerDocumentID: e.doc.editor.documentID}}
 	p := effectParams(e, 0, 2001, 1, "reverb-conv", map[string]any{"irIndex": 1, "wet": 1.0})
 	preview, err := e.startEffectPreview(protocol.MethodEffectsPreviewStart, p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared := e.effectPreview.stream
+	prepared := e.effectsState.effectPreview.stream
 	p.PreviewID = preview.PreviewID
 	p.Graph.Nodes[1].Params["wet"] = .5
 	wet := .5
@@ -402,7 +402,7 @@ func TestEffectsPreparedStreamReuseInactiveUpdatesAndReplayReset(t *testing.T) {
 	if _, err := e.startEffectPreview(protocol.MethodEffectsPreviewUpdate, p); err != nil {
 		t.Fatal(err)
 	}
-	if e.effectPreview.stream != prepared {
+	if e.effectsState.effectPreview.stream != prepared {
 		t.Fatal("inactive convolution update reconstructed its prepared IR")
 	}
 	end := p.End
@@ -410,7 +410,7 @@ func TestEffectsPreparedStreamReuseInactiveUpdatesAndReplayReset(t *testing.T) {
 	if _, err := e.playDocument(play); err != nil {
 		t.Fatal(err)
 	}
-	if e.transport.effects != prepared || e.effectPreview.stream != prepared {
+	if e.playback.transport.effects != prepared || e.effectsState.effectPreview.stream != prepared {
 		t.Fatal("initial Play discarded prepared stream")
 	}
 	first := make([]float32, 1537)
@@ -421,13 +421,13 @@ func TestEffectsPreparedStreamReuseInactiveUpdatesAndReplayReset(t *testing.T) {
 	if _, err := e.playDocument(play); err != nil {
 		t.Fatal(err)
 	}
-	if e.transport.effects != prepared {
+	if e.playback.transport.effects != prepared {
 		t.Fatal("Stop/Play reconstructed convolution")
 	}
 	replay := make([]float32, len(first))
 	e.Render(replay)
 	assertEditBits(t, replay, first)
-	if frames := e.effectMeters(e.effectPreview).Frames; frames != 1664 {
+	if frames := e.effectMeters(e.effectsState.effectPreview).Frames; frames != 1664 {
 		t.Fatalf("replay did not reset meter frames: %d", frames)
 	}
 	e.stopDocument()
@@ -435,7 +435,7 @@ func TestEffectsPreparedStreamReuseInactiveUpdatesAndReplayReset(t *testing.T) {
 	if _, err := e.startEffectPreview(protocol.MethodEffectsPreviewUpdate, p); err != nil {
 		t.Fatal(err)
 	}
-	if e.effectPreview.stream != prepared {
+	if e.effectsState.effectPreview.stream != prepared {
 		t.Fatal("inactive bypass discarded prepared DSP")
 	}
 	if _, err := e.playDocument(play); err != nil {
@@ -467,11 +467,11 @@ func TestEffectsFailedActiveSeekOrPlayKeepsPreparedStateAtomic(t *testing.T) {
 			if _, err := e.playDocument(protocol.TransportPlayParams{End: &end, EffectPreviewID: preview.PreviewID}); err != nil {
 				t.Fatal(err)
 			}
-			prepared := e.effectPreview.stream
+			prepared := e.effectsState.effectPreview.stream
 			if count := e.Render(make([]float32, 257)); count != 257 {
 				t.Fatal("initial safe playback failed")
 			}
-			transport := e.transport
+			transport := e.playback.transport
 			position := transport.position
 			if command == "seek" {
 				_, err = e.seekDocument(protocol.TransportSeekParams{Frame: 3072})
@@ -481,7 +481,7 @@ func TestEffectsFailedActiveSeekOrPlayKeepsPreparedStateAtomic(t *testing.T) {
 			if err == nil {
 				t.Fatal("finite overflow-producing lookahead unexpectedly accepted")
 			}
-			if e.transport != transport || e.effectPreview.stream != prepared || transport.effects != prepared || transport.position != position || !transport.playing {
+			if e.playback.transport != transport || e.effectsState.effectPreview.stream != prepared || transport.effects != prepared || transport.position != position || !transport.playing {
 				t.Fatal("failed private lookahead changed active transport or prepared state")
 			}
 			actual := make([]float32, 129)

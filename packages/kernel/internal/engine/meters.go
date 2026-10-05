@@ -155,13 +155,13 @@ func (m *playbackMeters) flush() {
 // MeterData returns a borrowed reusable binary snapshot. The syscall/js bridge
 // copies it immediately; callers must not retain or mutate this engine storage.
 func (e *Engine) MeterData() []byte {
-	m := e.meters
+	m := e.playback.meters
 	if m == nil {
 		return nil
 	}
 	// Expensive gated-history snapshots run at display cadence on the control
 	// path, never in Render; byte copying still uses one fixed reusable block.
-	finished := e.source == sourceStopped || (e.source == sourceDocument && e.transport != nil && !e.transport.playing)
+	finished := e.playback.source == sourceStopped || (e.playback.source == sourceDocument && e.playback.transport != nil && !e.playback.transport.playing)
 	if m.snapshotFrame < 0 || m.frames-m.snapshotFrame >= int64(m.rate) || (finished && m.snapshotFrame != m.frames) {
 		_ = m.loudness.Snapshot()
 		m.snapshotFrame = m.frames
@@ -213,49 +213,49 @@ func (e *Engine) MeterData() []byte {
 
 func (e *Engine) configureMeters(p protocol.MetersConfigureParams) (protocol.MetersConfigureResult, error) {
 	if p.Enabled != nil && !*p.Enabled {
-		e.meters = nil
+		e.playback.meters = nil
 		return protocol.MetersConfigureResult{ByteLength: protocol.MetersDataBytes, Version: 1}, nil
 	}
-	if e.meters == nil || e.meters.channels != e.channels || e.meters.rate != e.sampleRate {
-		m, err := newPlaybackMeters(e.sampleRate, e.channels)
+	if e.playback.meters == nil || e.playback.meters.channels != e.playback.channels || e.playback.meters.rate != e.playback.sampleRate {
+		m, err := newPlaybackMeters(e.playback.sampleRate, e.playback.channels)
 		if err != nil {
 			return protocol.MetersConfigureResult{}, fmt.Errorf("meters.configure: %w", err)
 		}
-		e.meters = m
+		e.playback.meters = m
 	} else if p.Reset {
-		e.meters.reset()
+		e.playback.meters.reset()
 	}
 	return protocol.MetersConfigureResult{Enabled: true, ByteLength: protocol.MetersDataBytes, Version: 1}, nil
 }
 
 func (e *Engine) resetMeters() {
-	if e.meters != nil {
-		e.meters.reset()
+	if e.playback.meters != nil {
+		e.playback.meters.reset()
 	}
-	if e.spectrumHistory != nil {
-		clear(e.spectrumHistory)
-		e.spectrumWrite = 0
-		e.spectrumCount = 0
+	if e.analysis.spectrumHistory != nil {
+		clear(e.analysis.spectrumHistory)
+		e.analysis.spectrumWrite = 0
+		e.analysis.spectrumCount = 0
 	}
-	e.spectrumJob = nil
+	e.analysis.spectrumJob = nil
 }
 
 func (e *Engine) recordOutput(output []float32, frames int) {
 	if frames <= 0 {
 		return
 	}
-	output = output[:frames*e.channels]
-	if e.meters != nil {
-		e.meters.process(output)
-		if e.source == sourceDocument && e.transport != nil && !e.transport.playing {
-			e.meters.flush()
+	output = output[:frames*e.playback.channels]
+	if e.playback.meters != nil {
+		e.playback.meters.process(output)
+		if e.playback.source == sourceDocument && e.playback.transport != nil && !e.playback.transport.playing {
+			e.playback.meters.flush()
 		}
 	}
-	if e.spectrumHistory != nil {
+	if e.analysis.spectrumHistory != nil {
 		for frame := range frames {
-			copy(e.spectrumHistory[e.spectrumWrite*e.channels:(e.spectrumWrite+1)*e.channels], output[frame*e.channels:(frame+1)*e.channels])
-			e.spectrumWrite = (e.spectrumWrite + 1) % playbackSpectrumFrames
-			e.spectrumCount = min(e.spectrumCount+1, playbackSpectrumFrames)
+			copy(e.analysis.spectrumHistory[e.analysis.spectrumWrite*e.playback.channels:(e.analysis.spectrumWrite+1)*e.playback.channels], output[frame*e.playback.channels:(frame+1)*e.playback.channels])
+			e.analysis.spectrumWrite = (e.analysis.spectrumWrite + 1) % playbackSpectrumFrames
+			e.analysis.spectrumCount = min(e.analysis.spectrumCount+1, playbackSpectrumFrames)
 		}
 	}
 }

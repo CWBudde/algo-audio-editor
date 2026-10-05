@@ -106,17 +106,53 @@ func TestAnalysisBridgeProgressiveRGBAAndClippingOneUndo(t *testing.T) {
 	p := protocol.AnalysisStartParams{SelectionResult: protocol.SelectionResult{DocumentID: doc.DocumentID, SelectionRange: protocol.SelectionRange{End: 2049, ChannelMask: 1}}, Kind: "spectrogram", FFTSize: 256, Width: 8, Height: 16, ColorMap: "viridis"}
 	started := request(protocol.MethodAnalysisStart, p)
 	var result protocol.AnalysisJobResult
-	_ = json.Unmarshal(started.Result, &result)
+	if err := json.Unmarshal(started.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	cancelParams := protocol.AnalysisJobParams{DocumentID: doc.DocumentID, JobID: result.JobID}
+	for range 2 {
+		reply := request(protocol.MethodAnalysisCancel, cancelParams)
+		var cancelled protocol.AnalysisJobResult
+		if err := json.Unmarshal(reply.Result, &cancelled); err != nil || cancelled.State != protocol.JobCancelled || cancelled.DataBytes != 0 {
+			t.Fatal("bridge cancellation", cancelled, err)
+		}
+	}
+	if api.Call("takeData").Get("byteLength").Int() != 0 {
+		t.Fatal("cancelled analysis retained public bulk data")
+	}
+	started = request(protocol.MethodAnalysisStart, p)
+	if err := json.Unmarshal(started.Result, &result); err != nil || result.JobID == cancelParams.JobID {
+		t.Fatal("fresh analysis identity", result, err)
+	}
+	jobID := result.JobID
 	progress := 0
 	include := false
 	for result.State != "ready" {
+		if progress >= 10000 {
+			t.Fatal("spectrogram did not finish", result)
+		}
+		previous := result
 		include = progress%2 == 0
 		reply := request(protocol.MethodAnalysisStep, protocol.AnalysisJobParams{DocumentID: doc.DocumentID, JobID: result.JobID, IncludeData: &include})
-		_ = json.Unmarshal(reply.Result, &result)
+		if err := json.Unmarshal(reply.Result, &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.JobID != jobID || result.DocumentID != doc.DocumentID || result.Kind != protocol.AnalysisSpectrogram ||
+			(result.State != protocol.JobRunning && result.State != protocol.JobReady) ||
+			result.ProcessedFrames < previous.ProcessedFrames || result.ProcessedFrames > result.TotalFrames ||
+			result.CompletedColumns < previous.CompletedColumns || result.CompletedColumns > p.Width {
+			t.Fatal("invalid bridge progress", previous, result)
+		}
 		bulk := api.Call("takeData")
 		length := bulk.Get("byteLength").Int()
 		if length != result.DataBytes {
 			t.Fatal("bulk metadata", length, result.DataBytes)
+		}
+		if result.State == protocol.JobRunning && !include && length != 0 {
+			t.Fatal("suppressed running tile escaped the bridge")
+		}
+		if (result.State == protocol.JobReady || (include && result.CompletedColumns > 0)) && length != 8*16*4 {
+			t.Fatal("requested or final tile missing", result)
 		}
 		if length > 0 {
 			if length != 8*16*4 {
@@ -134,8 +170,11 @@ func TestAnalysisBridgeProgressiveRGBAAndClippingOneUndo(t *testing.T) {
 		}
 		progress++
 	}
-	if progress < 8 {
-		t.Fatal("spectrogram was not bounded", progress)
+	// Calls batch a time budget, so this small tile can finish in one call.
+	// Deterministic engine-clock tests cover within-budget progressive yields;
+	// the bridge must preserve every observed partial and the full final tile.
+	if progress == 0 || result.CompletedColumns != p.Width || result.ProcessedFrames != result.TotalFrames {
+		t.Fatal("spectrogram final progress incomplete", progress, result)
 	}
 	p.Kind = "clipping"
 	started = request(protocol.MethodAnalysisStart, p)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 	"github.com/cwbudde/algo-dsp/dsp/signal"
 	"github.com/cwbudde/algo-dsp/measure/loudness"
 )
@@ -18,7 +19,7 @@ const normalizationPlanWork = 4096
 // NormalizationStatus contains control metadata only. Nullable LUFS metrics
 // represent genuinely undefined measurements; no NaN/Inf enters the protocol.
 type NormalizationStatus struct {
-	Phase           string
+	Phase           protocol.ProcessPhase
 	PhaseIndex      int
 	PhaseCount      int
 	GainResolved    bool
@@ -38,7 +39,7 @@ type NormalizationStatus struct {
 type Normalizer struct {
 	source         audiobuf.Document
 	selected       ops.Range
-	operation      string
+	operation      protocol.OperationName
 	target         float64
 	limits         Limits
 	channels       []audiobuf.Channel
@@ -60,15 +61,15 @@ type Normalizer struct {
 
 // NewNormalizer prepares bounded analysis only. No new output sample blocks or
 // per-output block tables exist until a valid linked gain has been resolved.
-func NewNormalizer(document audiobuf.Document, selected ops.Range, operation string, target float64, limits Limits) (*Normalizer, error) {
+func NewNormalizer(document audiobuf.Document, selected ops.Range, operation protocol.OperationName, target float64, limits Limits) (*Normalizer, error) {
 	if err := validate(document, selected, LinearGain{Factor: 1}, limits); err != nil {
 		return nil, fmt.Errorf("process.normalize: %w", err)
 	}
-	if operation != "normalize-peak" && operation != "normalize-loudness" {
+	if operation != protocol.OperationNormalizePeak && operation != protocol.OperationNormalizeLoudness {
 		return nil, fmt.Errorf("process.normalize: unsupported operation %q", operation)
 	}
 	minimum := -120.0
-	if operation == "normalize-loudness" {
+	if operation == protocol.OperationNormalizeLoudness {
 		minimum = -69
 	}
 	if math.IsNaN(target) || math.IsInf(target, 0) || target < minimum || target > 0 {
@@ -77,10 +78,10 @@ func NewNormalizer(document audiobuf.Document, selected ops.Range, operation str
 	count := bits.OnesCount(uint(selected.ChannelMask))
 	n := &Normalizer{
 		source: document, selected: selected, operation: operation, target: target, limits: limits,
-		channels: make([]audiobuf.Channel, 0, count), status: NormalizationStatus{Phase: "analyzing", PhaseCount: 2},
+		channels: make([]audiobuf.Channel, 0, count), status: NormalizationStatus{Phase: protocol.PhaseAnalyzing, PhaseCount: 2},
 		progress: Progress{FramesTotal: selected.End - selected.Start},
 	}
-	if operation == "normalize-loudness" {
+	if operation == protocol.OperationNormalizeLoudness {
 		n.storage = make([]float32, count*audiobuf.BlockFrames)
 		n.block = make([][]float32, count)
 		indices := make([]int, 0, count)
@@ -148,11 +149,11 @@ func (n *Normalizer) Step(ctx context.Context) (Progress, error) {
 		return n.fail(fmt.Errorf("process.normalize: %w", err))
 	}
 	switch n.status.Phase {
-	case "analyzing":
+	case protocol.PhaseAnalyzing:
 		return n.analyze(ctx)
-	case "processing":
+	case protocol.PhaseProcessing:
 		return n.materialize(ctx)
-	case "verifying":
+	case protocol.PhaseVerifying:
 		return n.verify(ctx)
 	default:
 		return n.fail(fmt.Errorf("process.normalize: invalid phase"))
@@ -215,7 +216,7 @@ func (n *Normalizer) analyze(ctx context.Context) (Progress, error) {
 				peak, err := channel.FinitePeak(start, start+int64(frames))
 				if err != nil {
 					if errors.Is(err, audiobuf.ErrNonFiniteSamples) {
-						return n.fail(fmt.Errorf("process.normalize: read peak: %v: %w", err, loudness.ErrNonFinite))
+						return n.fail(fmt.Errorf("process.normalize: read peak: %w", errors.Join(err, loudness.ErrNonFinite)))
 					}
 					return n.fail(fmt.Errorf("process.normalize: read peak: %w", err))
 				}
@@ -227,16 +228,16 @@ func (n *Normalizer) analyze(ctx context.Context) (Progress, error) {
 	}
 	// A genuinely silent program cannot be amplified. Keep its signed zeros and
 	// original document/storage exactly, without inventing a loudness reading.
-	if n.operation == "normalize-loudness" && n.progress.FramesTotal < int64(math.Round(float64(n.source.SampleRate())*4/10)) {
+	if n.operation == protocol.OperationNormalizeLoudness && n.progress.FramesTotal < int64(math.Round(float64(n.source.SampleRate())*4/10)) {
 		return n.fail(fmt.Errorf("process.normalize: %w", loudness.ErrTooShort))
 	}
 	if n.status.InputPeak == 0 {
 		n.identity, n.status.GainResolved, n.progress.Done = true, true, true
 		n.status.UnchangedReason = "silent"
 		n.status.PhaseIndex = n.status.PhaseCount - 1
-		n.status.Phase = "processing"
+		n.status.Phase = protocol.PhaseProcessing
 		if n.status.PhaseCount == 3 {
-			n.status.Phase = "verifying"
+			n.status.Phase = protocol.PhaseVerifying
 		}
 		n.result = n.source
 		n.releaseAnalysis()
@@ -297,7 +298,7 @@ func (n *Normalizer) startBuilder(db, coefficient float64) (Progress, error) {
 		n.observedOutput = true
 	}
 	n.status.GainDB, n.status.GainResolved = db, true
-	n.status.Phase, n.status.PhaseIndex = "processing", 1
+	n.status.Phase, n.status.PhaseIndex = protocol.PhaseProcessing, 1
 	n.progress.FramesDone = 0
 	n.releaseAnalysis()
 	return n.progress, nil
@@ -337,7 +338,7 @@ func (n *Normalizer) materialize(ctx context.Context) (Progress, error) {
 		n.progress.Done = true
 		return n.progress, nil
 	}
-	n.status.Phase, n.status.PhaseIndex = "verifying", 2
+	n.status.Phase, n.status.PhaseIndex = protocol.PhaseVerifying, 2
 	n.progress.FramesDone = 0
 	if n.observedOutput {
 		// The actual stored-output scan ran alongside materialization. The

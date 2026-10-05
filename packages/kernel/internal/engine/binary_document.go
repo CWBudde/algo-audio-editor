@@ -17,7 +17,7 @@ func (e *Engine) exportCandidate(p protocol.ProcessJobParams) (protocol.BinaryDo
 	if err != nil {
 		return protocol.BinaryDocumentInfo{}, err
 	}
-	if job.result.State != "ready" {
+	if job.result.State != protocol.JobReady {
 		return protocol.BinaryDocumentInfo{}, fmt.Errorf("%s: ready candidate required", method)
 	}
 	document := job.candidate
@@ -61,13 +61,13 @@ func (e *Engine) importBinaryDocumentMode(p protocol.BinaryDocumentParams, data 
 	if replace {
 		method = protocol.MethodDocumentOpenPCM
 	}
-	if !replace && e.document.Channels() != 0 {
+	if !replace && e.doc.document.Channels() != 0 {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("%s: destination must be an empty editor", method)
 	}
 	if p.SampleRate < MinSampleRate || p.SampleRate > MaxSampleRate || p.Channels < 1 || p.Channels > MaxChannels || p.Frames < 0 || p.Frames > maxProcessOutputBytes/4/int64(p.Channels) || int64(len(data)) != p.Frames*4*int64(p.Channels) {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("%s: invalid format or binary length", method)
 	}
-	if e.documentSequence == math.MaxUint64 {
+	if e.doc.documentSequence == math.MaxUint64 {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("%s: document identity exhausted", method)
 	}
 	if err := e.checkDecodedStorage(p.Frames, p.Channels, audiobuf.BlockFrames, len(data)); err != nil {
@@ -109,7 +109,7 @@ func (e *Engine) importBinaryDocumentMode(p protocol.BinaryDocumentParams, data 
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("%s: document: %w", method, err)
 	}
-	editor := editorState{documentID: fmt.Sprintf("doc-%d", e.documentSequence+1), selection: protocol.SelectionRange{ChannelMask: (1 << p.Channels) - 1}}
+	editor := editorState{documentID: fmt.Sprintf("doc-%d", e.doc.documentSequence+1), selection: protocol.SelectionRange{ChannelMask: (1 << p.Channels) - 1}}
 	staged, err := e.newDocumentHistory(document, editor)
 	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("%s: history: %w", method, err)
@@ -117,16 +117,16 @@ func (e *Engine) importBinaryDocumentMode(p protocol.BinaryDocumentParams, data 
 	if !replace {
 		staged.MarkUnsaved()
 	}
-	e.document, e.editor, e.history = document, editor, staged
-	e.documentSequence++
-	e.sourceBitDepth, e.sourceFloat = 32, true
-	e.sourceFormat = "wav"
-	e.transport, e.source = nil, sourceStopped
-	e.impulseResponses = nil
-	e.impulseBytes = 0
+	e.doc.document, e.doc.editor, e.historyState.history = document, editor, staged
+	e.doc.documentSequence++
+	e.doc.sourceBitDepth, e.doc.sourceFloat = 32, true
+	e.doc.sourceFormat = "wav"
+	e.playback.transport, e.playback.source = nil, sourceStopped
+	e.effectsState.impulseResponses = nil
+	e.effectsState.impulseBytes = 0
 	e.resetMeters()
-	e.analysisJob = nil
-	e.analysisCache = nil
-	e.cancelledAnalysis = nil
+	e.analysis.analysisJob = nil
+	e.analysis.analysisCache = nil
+	e.analysis.cancelledAnalysis = nil
 	return e.documentInfo()
 }

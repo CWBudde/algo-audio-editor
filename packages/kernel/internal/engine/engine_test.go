@@ -50,7 +50,7 @@ func TestCallRecoversDispatchPanic(t *testing.T) {
 	e.bulkData = []byte("previous result")
 	// A corrupt diagnostic target makes the real tone.configure dispatcher
 	// panic, without adding a production-only handler injection mechanism.
-	e.tone = nil
+	e.playback.tone = nil
 	response := call(t, e, protocol.MethodToneConfigure, `{"frequencyHz":440,"amplitude":0.2}`)
 	if response.OK || !strings.Contains(response.Error, protocol.MethodToneConfigure+": panic:") || len(response.Result) != 0 {
 		t.Fatalf("panic response: %+v", response)
@@ -82,7 +82,7 @@ func TestDocumentMemory(t *testing.T) {
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			e.document = tt.doc
+			e.doc.document = tt.doc
 			resp := call(t, e, protocol.MethodDocumentMemory, "")
 			if !resp.OK {
 				t.Fatalf("doc.memory: %s", resp.Error)

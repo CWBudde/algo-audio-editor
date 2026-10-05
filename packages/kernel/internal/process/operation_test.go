@@ -11,6 +11,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
 
 func operationDocument(t *testing.T, samples ...[]float32) audiobuf.Document {
@@ -174,7 +175,7 @@ func TestMultichannelFadeGlobalEnvelopeAndUnsafeTelemetry(t *testing.T) {
 				if operation == "crossfade" {
 					selection.Start, selection.End = int64(frames), int64(frames)
 				}
-				stepper, err := NewOperation(document, selection, Settings{Operation: operation, Curve: curve, DurationFrames: int64(frames)}, Limits{})
+				stepper, err := NewOperation(document, selection, Settings{Operation: protocol.OperationName(operation), Curve: curve, DurationFrames: int64(frames)}, Limits{})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -215,7 +216,7 @@ func TestInvalidPreparedEnvelopeFailsWithoutPublishingOutput(t *testing.T) {
 		if operation == "crossfade" {
 			selection.Start, selection.End = 2, 2
 		}
-		stepper, err := NewOperation(document, selection, Settings{Operation: operation, DurationFrames: 2}, Limits{})
+		stepper, err := NewOperation(document, selection, Settings{Operation: protocol.OperationName(operation), DurationFrames: 2}, Limits{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -434,7 +435,7 @@ func TestOperationCancellationAndLimits(t *testing.T) {
 	values := make([]float32, audiobuf.BlockFrames+1)
 	document := operationDocument(t, values)
 	for _, op := range []string{"reverse", "invert", "remove-dc", "fade-in", "generate", "resample"} {
-		settings := Settings{Operation: op, Curve: "linear", Generator: "silence", SampleRate: 44100}
+		settings := Settings{Operation: protocol.OperationName(op), Curve: "linear", Generator: "silence", SampleRate: 44100}
 		stepper, err := NewOperation(document, ops.Range{End: int64(len(values)), ChannelMask: 1}, settings, Limits{})
 		if err != nil {
 			t.Fatal(err)
@@ -675,7 +676,7 @@ func TestOperationRejectsMalformedDocumentSelectionAndLimits(t *testing.T) {
 	invalidRate, _ := audiobuf.NewDocument([]audiobuf.Channel{audiobuf.NewChannel([]float32{1})}, 1, audiobuf.Metadata{})
 	tooMany, _ := audiobuf.NewDocument(make([]audiobuf.Channel, 9), 48000, audiobuf.Metadata{})
 	for _, operation := range []string{"reverse", "resample"} {
-		settings := Settings{Operation: operation, SampleRate: 44100}
+		settings := Settings{Operation: protocol.OperationName(operation), SampleRate: 44100}
 		for _, bad := range []audiobuf.Document{{}, invalidRate, tooMany} {
 			if _, err := NewOperation(bad, ops.Range{ChannelMask: 1}, settings, Limits{}); err == nil {
 				t.Fatalf("%s accepted malformed format", operation)

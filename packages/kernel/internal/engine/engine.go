@@ -4,15 +4,15 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"runtime"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/buildinfo"
-	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/history"
-	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
 
@@ -33,39 +33,16 @@ const (
 // Engine holds the kernel state. It is not safe for concurrent use; the
 // kernel runs on a single worker thread and is driven from one event loop.
 type Engine struct {
-	memory                       memoryBudget
-	callInputBytes               int64
-	sampleRate                   float64
-	channels                     int
-	tone                         *toneSource
-	document                     audiobuf.Document
-	bulkData                     []byte
-	sourceBitDepth               int
-	sourceFloat                  bool
-	sourceFormat                 string
-	source                       renderSource
-	transport                    *documentTransport
-	documentSequence             uint64
-	editor                       editorState
-	clipboard                    ops.Clipboard
-	clipboardSequence            uint64
-	history                      *history.History[historySnapshot]
-	processJob                   *processingJob
-	processSequence              uint64
-	cancelledProcess             *protocol.ProcessJobResult
-	effectPreview                *effectPreviewSession
-	effectSequence               uint64
-	impulseResponses             map[int]impulseResponse
-	impulseSequence              int
-	impulseBytes                 int64
-	meters                       *playbackMeters
-	spectrumHistory              []float32
-	spectrumJob                  *playbackSpectrumJob
-	spectrumWrite, spectrumCount int
-	analysisJob                  *analysisJob
-	analysisSequence             uint64
-	cancelledAnalysis            *protocol.AnalysisJobResult
-	analysisCache                []analysisTileCache
+	memory         memoryBudget
+	callInputBytes int64
+	bulkData       []byte
+
+	doc          documentSubsystem
+	playback     transportSubsystem
+	historyState historySubsystem
+	jobs         jobSubsystem
+	analysis     analysisSubsystem
+	effectsState effectsSubsystem
 }
 
 // New returns an engine configured for 48 kHz stereo.
@@ -76,18 +53,18 @@ func New() *Engine {
 		panic(fmt.Sprintf("engine: default tone: %v", err))
 	}
 
-	return &Engine{
+	return &Engine{playback: transportSubsystem{
 		sampleRate: defaultSampleRate,
 		channels:   defaultChannels,
 		tone:       tone,
-	}
+	}}
 }
 
 // SampleRate returns the current render sample rate in hertz.
-func (e *Engine) SampleRate() float64 { return e.sampleRate }
+func (e *Engine) SampleRate() float64 { return e.playback.sampleRate }
 
 // Channels returns the current number of interleaved render channels.
-func (e *Engine) Channels() int { return e.channels }
+func (e *Engine) Channels() int { return e.playback.channels }
 
 // Call executes method with the JSON payload and returns the JSON-encoded
 // protocol.Response. It never panics on bad input: every failure, including a
@@ -145,184 +122,12 @@ func (e *Engine) Render(dst []float32) int {
 	return e.RenderWithPositions(dst, nil)
 }
 
-func (e *Engine) dispatch(method string, payload, input []byte) (any, error) {
-	if err := e.guardProcessing(method); err != nil {
-		return nil, err
-	}
-	if err := e.guardEffects(method); err != nil {
-		return nil, err
-	}
-
-	switch method {
-	case protocol.MethodMetersConfigure:
-		var p protocol.MetersConfigureParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.configureMeters(p)
-	case protocol.MethodAnalysisStart, protocol.MethodAnalysisStep, protocol.MethodAnalysisCancel, protocol.MethodAnalysisCommit, protocol.MethodAnalysisSpectrum:
-		return e.dispatchAnalysis(method, payload)
-	case protocol.MethodEffectsList, protocol.MethodEffectsResponse, protocol.MethodEffectsPreviewStart,
-		protocol.MethodEffectsPreviewUpdate, protocol.MethodEffectsPreviewStop, protocol.MethodEffectsPreviewMeters,
-		protocol.MethodEffectsApply, protocol.MethodEffectsIRLoad, protocol.MethodEffectsIRRemove:
-		return e.dispatchEffects(method, payload, input)
-	case protocol.MethodDocumentImportBinary, protocol.MethodDocumentOpenPCM:
-		var p protocol.BinaryDocumentParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.importBinaryDocumentMode(p, input, method == protocol.MethodDocumentOpenPCM)
-	case protocol.MethodProcessExportCandidate:
-		var p protocol.ProcessJobParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.exportCandidate(p)
-	case protocol.MethodProcessStart:
-		var p protocol.ProcessStartParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.startProcess(p)
-	case protocol.MethodProcessStep, protocol.MethodProcessStepBatch, protocol.MethodProcessCancel, protocol.MethodProcessCommit:
-		var p protocol.ProcessJobParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		switch method {
-		case protocol.MethodProcessStep:
-			return e.stepProcess(p)
-		case protocol.MethodProcessStepBatch:
-			return e.stepProcessBatch(p)
-		case protocol.MethodProcessCancel:
-			return e.cancelProcess(p)
-		default:
-			return e.commitProcess(p)
-		}
-	case protocol.MethodHello:
-		return e.hello(), nil
-	case protocol.MethodDocumentMemory:
-		return e.documentMemory(), nil
-	case protocol.MethodDocumentInfo:
-		return e.documentInfo()
-	case protocol.MethodEditState:
-		return e.clipboardInfo(), nil
-	case protocol.MethodHistoryList, protocol.MethodEditUndo, protocol.MethodEditRedo:
-		var p protocol.HistoryListParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		if method == protocol.MethodHistoryList {
-			return e.listHistory(p)
-		}
-		return e.navigateHistory(method, p.DocumentID, "")
-	case protocol.MethodHistoryJump:
-		var p protocol.HistoryJumpParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.navigateHistory(method, p.DocumentID, p.StateID)
-	case protocol.MethodMarkSaved:
-		var p protocol.MarkSavedParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.markSaved(p)
-	case protocol.MethodEditApply:
-		var p protocol.EditApplyParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.applyEdit(p)
-	case protocol.MethodPreparePaste:
-		var p protocol.PreparePasteParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.preparePaste(p)
-	case protocol.MethodSelectionGet, protocol.MethodSelectionSet, protocol.MethodSelectionSnap,
-		protocol.MethodTimelineGet, protocol.MethodMarkersAdd, protocol.MethodRegionsAdd,
-		protocol.MethodMarkersUpdate, protocol.MethodMarkersRemove, protocol.MethodRegionsUpdate,
-		protocol.MethodRegionsRemove, protocol.MethodTimelineExport:
-		return e.dispatchEditor(method, payload)
-	case protocol.MethodMetadataGet:
-		var p protocol.MetadataGetParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.getMetadata(p)
-	case protocol.MethodMetadataSet:
-		var p protocol.MetadataSetParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.setMetadata(p)
-	case protocol.MethodDocumentOpen:
-		var p protocol.DocumentOpenParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-
-		return e.openDocument(p, input)
-	case protocol.MethodDocumentExport:
-		var p protocol.DocumentExportParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-
-		return e.exportDocument(p)
-	case protocol.MethodDocumentReadPCM:
-		var p protocol.PCMReadParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.readPCM(p)
-	case protocol.MethodTransportPlay:
-		var p protocol.TransportPlayParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.playDocument(p)
-	case protocol.MethodTransportStop:
-		return e.stopDocument(), nil
-	case protocol.MethodTransportSeek:
-		var p protocol.TransportSeekParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-		return e.seekDocument(p)
-	case protocol.MethodPeaksGet:
-		var p protocol.PeaksGetParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-
-		return e.getPeaks(p)
-	case protocol.MethodEngineConfigure:
-		var p protocol.EngineConfigureParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-
-		return e.configure(p)
-	case protocol.MethodToneConfigure:
-		var p protocol.ToneConfigureParams
-		if err := decode(method, payload, &p); err != nil {
-			return nil, err
-		}
-
-		return e.configureTone(p)
-	default:
-		return nil, fmt.Errorf("unknown method %q", method)
-	}
-}
-
 func (e *Engine) documentMemory() protocol.DocumentMemoryResult {
-	documents := []audiobuf.Document{e.document}
-	if e.history != nil {
-		documents = e.history.Documents()
+	documents := []audiobuf.Document{e.doc.document}
+	if e.historyState.history != nil {
+		documents = nil
 	}
-	if job := e.processJob; job != nil {
+	if job := e.jobs.processJob; job != nil {
 		if job.builder != nil {
 			if document, err := job.builder.MemoryDocument(); err == nil {
 				documents = append(documents, document)
@@ -331,7 +136,12 @@ func (e *Engine) documentMemory() protocol.DocumentMemoryResult {
 			documents = append(documents, job.candidate)
 		}
 	}
-	stats := audiobuf.CountMemoryWithWindows(documents, e.clipboard.Windows()...)
+	var stats audiobuf.MemoryStats
+	if e.historyState.history != nil {
+		stats = e.historyState.history.MemoryStats(documents, e.doc.clipboard.Windows()...)
+	} else {
+		stats = audiobuf.CountMemoryWithWindows(documents, e.doc.clipboard.Windows()...)
+	}
 
 	return protocol.DocumentMemoryResult{
 		SampleBytes: stats.SampleBytes, PeakBytes: stats.PeakBytes,
@@ -345,8 +155,8 @@ func (e *Engine) hello() protocol.HelloResult {
 		KernelVersion:   buildinfo.Version,
 		BuildTime:       buildinfo.BuildTime,
 		GoVersion:       runtime.Version(),
-		SampleRate:      e.sampleRate,
-		Channels:        e.channels,
+		SampleRate:      e.playback.sampleRate,
+		Channels:        e.playback.channels,
 	}
 }
 
@@ -363,7 +173,7 @@ func (e *Engine) configure(p protocol.EngineConfigureParams) (protocol.EngineCon
 			"%s: channels %d must be in [1, %d]", protocol.MethodEngineConfigure, p.Channels, MaxChannels,
 		)
 	}
-	stagedMeters := e.meters
+	stagedMeters := e.playback.meters
 	if stagedMeters != nil && (stagedMeters.rate != p.SampleRate || stagedMeters.channels != p.Channels) {
 		var err error
 		stagedMeters, err = newPlaybackMeters(p.SampleRate, p.Channels)
@@ -372,52 +182,60 @@ func (e *Engine) configure(p protocol.EngineConfigureParams) (protocol.EngineCon
 		}
 	}
 
-	frequency := e.tone.frequency
-	if e.source != sourceTone && frequency >= p.SampleRate/2 {
+	frequency := e.playback.tone.frequency
+	if e.playback.source != sourceTone && frequency >= p.SampleRate/2 {
 		// An inactive diagnostic must not prevent a valid document render format.
 		frequency = defaultToneHz
 	}
-	if err := e.tone.configure(p.SampleRate, frequency, e.tone.amplitude); err != nil {
+	if err := e.playback.tone.configure(p.SampleRate, frequency, e.playback.tone.amplitude); err != nil {
 		return protocol.EngineConfigureResult{}, fmt.Errorf("%s: %w", protocol.MethodEngineConfigure, err)
 	}
 
-	e.sampleRate = p.SampleRate
-	e.channels = p.Channels
-	e.meters = stagedMeters
-	e.spectrumHistory = nil
-	e.spectrumWrite = 0
-	e.spectrumCount = 0
-	if e.source == sourceDocument {
+	e.playback.sampleRate = p.SampleRate
+	e.playback.channels = p.Channels
+	e.playback.meters = stagedMeters
+	e.analysis.spectrumHistory = nil
+	e.analysis.spectrumWrite = 0
+	e.analysis.spectrumCount = 0
+	if e.playback.source == sourceDocument {
 		e.stopDocument()
 	}
 
-	return protocol.EngineConfigureResult{SampleRate: e.sampleRate, Channels: e.channels}, nil
+	return protocol.EngineConfigureResult{SampleRate: e.playback.sampleRate, Channels: e.playback.channels}, nil
 }
 
 func (e *Engine) configureTone(p protocol.ToneConfigureParams) (protocol.ToneConfigureResult, error) {
-	if err := e.tone.configure(e.sampleRate, p.FrequencyHz, p.Amplitude); err != nil {
+	if err := e.playback.tone.configure(e.playback.sampleRate, p.FrequencyHz, p.Amplitude); err != nil {
 		return protocol.ToneConfigureResult{}, fmt.Errorf("%s: %w", protocol.MethodToneConfigure, err)
 	}
-	if e.transport != nil {
-		e.transport.playing = false
+	if e.playback.transport != nil {
+		e.playback.transport.playing = false
 	}
-	e.source = sourceTone
+	e.playback.source = sourceTone
 	e.resetMeters()
 
-	return protocol.ToneConfigureResult{FrequencyHz: e.tone.frequency, Amplitude: e.tone.amplitude}, nil
+	return protocol.ToneConfigureResult{FrequencyHz: e.playback.tone.frequency, Amplitude: e.playback.tone.amplitude}, nil
 }
 
-// decode unmarshals payload into dst. An empty payload leaves dst at its zero
-// value, which the per-method validation then rejects where that matters.
+// decode accepts one JSON value, rejecting unknown fields at every struct
+// level and any trailing value. Empty payloads retain default zero parameters;
+// null remains accepted for callers of methods without control parameters.
 func decode(method string, payload []byte, dst any) error {
-	if len(payload) == 0 {
+	if len(bytes.TrimSpace(payload)) == 0 {
 		return nil
 	}
 
-	if err := json.Unmarshal(payload, dst); err != nil {
+	d := json.NewDecoder(bytes.NewReader(payload))
+	d.DisallowUnknownFields()
+	if err := d.Decode(dst); err != nil {
 		return fmt.Errorf("%s: decode params: %w", method, err)
 	}
-
+	if err := d.Decode(new(any)); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("%s: decode params: expected exactly one JSON value", method)
+		}
+		return fmt.Errorf("%s: decode params: trailing data: %w", method, err)
+	}
 	return nil
 }
 

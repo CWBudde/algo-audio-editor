@@ -23,7 +23,7 @@ func TestReadPCMSourcePages(t *testing.T) {
 		start        int64
 		frames, mask int
 	}{{0, 8192, 7}, {audiobuf.BlockFrames - 3, 10, 5}, {audiobuf.BlockFrames + 1, 6, 2}} {
-		p := protocol.PCMReadParams{DocumentID: id, StateID: e.history.CurrentID(), Start: tt.start, Frames: tt.frames, ChannelMask: tt.mask}
+		p := protocol.PCMReadParams{DocumentID: id, StateID: e.historyState.history.CurrentID(), Start: tt.start, Frames: tt.frames, ChannelMask: tt.mask}
 		response := editorCall(t, e, protocol.MethodDocumentReadPCM, p)
 		var info protocol.PCMReadInfo
 		if !response.OK || json.Unmarshal(response.Result, &info) != nil {
@@ -55,7 +55,7 @@ func TestReadPCMSourcePages(t *testing.T) {
 
 func TestReadPCMRejectsInvalidAndStalePages(t *testing.T) {
 	e, id := openEditorFixture(t, []float32{0, 1, 2, 3}, 2)
-	valid := protocol.PCMReadParams{DocumentID: id, StateID: e.history.CurrentID(), Frames: 2, ChannelMask: 3}
+	valid := protocol.PCMReadParams{DocumentID: id, StateID: e.historyState.history.CurrentID(), Frames: 2, ChannelMask: 3}
 	for _, tt := range []struct {
 		name   string
 		change func(*protocol.PCMReadParams)
@@ -88,7 +88,7 @@ func TestReadPCMRejectsInvalidAndStalePages(t *testing.T) {
 	}
 	for _, value := range []float32{float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1))} {
 		e, id := openEditorFixture(t, []float32{value, 1}, 2)
-		p := protocol.PCMReadParams{DocumentID: id, StateID: e.history.CurrentID(), Frames: 1, ChannelMask: 1}
+		p := protocol.PCMReadParams{DocumentID: id, StateID: e.historyState.history.CurrentID(), Frames: 1, ChannelMask: 1}
 		if editorCall(t, e, protocol.MethodDocumentReadPCM, p).OK || len(e.TakeData()) != 0 {
 			t.Fatal("nonfinite PCM returned")
 		}

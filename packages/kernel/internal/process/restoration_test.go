@@ -8,6 +8,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/audiobuf"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/ops"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 	"github.com/cwbudde/algo-dsp/dsp/effects/restoration"
 )
 
@@ -29,7 +30,7 @@ func restorationDocument(t *testing.T, n, channels int) (audiobuf.Document, []fl
 }
 
 func restoreSettings(op string) Settings {
-	return Settings{Operation: op, Restoration: RestorationSettings{FFTSize: 2048, ReductionDB: 24, NoiseMethod: "wiener", ProfileEnd: 2048, Sensitivity: 8, ClipThreshold: 0.25, MaxGap: 64, DurationRatio: 1.5, HumHz: 50, HumQ: 30, Harmonics: 8, Mask: restoration.Mask{Start: 6000, End: 6004, HighHz: 24000}}}
+	return Settings{Operation: protocol.OperationName(op), Restoration: RestorationSettings{FFTSize: 2048, ReductionDB: 24, NoiseMethod: "wiener", ProfileEnd: 2048, Sensitivity: 8, ClipThreshold: 0.25, MaxGap: 64, DurationRatio: 1.5, HumHz: 50, HumQ: 30, Harmonics: 8, Mask: restoration.Mask{Start: 6000, End: 6004, HighHz: 24000}}}
 }
 
 func TestRestorationBoundedStorageAndSourceSharing(t *testing.T) {

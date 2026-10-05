@@ -216,7 +216,7 @@ func (l *wavLayout) inspectFormat(data []byte) error {
 }
 
 func (e *Engine) openWAVDocument(p protocol.DocumentOpenParams, input []byte) (protocol.DocumentInfoResult, error) {
-	if e.documentSequence == math.MaxUint64 {
+	if e.doc.documentSequence == math.MaxUint64 {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: document identity sequence exhausted")
 	}
 	layout, err := inspectWAV(input)
@@ -311,13 +311,13 @@ func (l wavLayout) reader(input []byte) *wavReadSeeker {
 }
 
 func (e *Engine) documentInfo() (protocol.DocumentInfoResult, error) {
-	if e.document.Channels() == 0 {
+	if e.doc.document.Channels() == 0 {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.info: no document is open")
 	}
 	return protocol.DocumentInfoResult{
-		DocumentID: e.editor.documentID, Format: e.sourceFormat,
-		Name: e.document.Metadata().Name, SampleRate: e.document.SampleRate(),
-		Channels: e.document.Channels(), Frames: e.document.Frames(), BitDepth: e.sourceBitDepth, Float: e.sourceFloat,
+		DocumentID: e.doc.editor.documentID, Format: e.doc.sourceFormat,
+		Name: e.doc.document.Metadata().Name, SampleRate: e.doc.document.SampleRate(),
+		Channels: e.doc.document.Channels(), Frames: e.doc.document.Frames(), BitDepth: e.doc.sourceBitDepth, Float: e.doc.sourceFloat,
 	}, nil
 }
 

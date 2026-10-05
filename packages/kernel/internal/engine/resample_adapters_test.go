@@ -26,7 +26,7 @@ func TestResampleAdaptersShareFiniteSamplesAndTail(t *testing.T) {
 				input[0], input[len(input)-1] = 1, -.75
 				e := transportEngine(t, input, 2, rates[0], rates[1])
 				selection := ops.Range{End: int64(frames), ChannelMask: 3}
-				clip, err := ops.NewClipboard(e.document, selection)
+				clip, err := ops.NewClipboard(e.doc.document, selection)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -34,7 +34,7 @@ func TestResampleAdaptersShareFiniteSamplesAndTail(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				stepper, err := process.NewOperation(e.document, selection, process.Settings{Operation: "resample", SampleRate: rates[1], Quality: "balanced"}, process.Limits{})
+				stepper, err := process.NewOperation(e.doc.document, selection, process.Settings{Operation: "resample", SampleRate: rates[1], Quality: "balanced"}, process.Limits{})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -63,7 +63,7 @@ func TestResampleAdaptersShareFiniteSamplesAndTail(t *testing.T) {
 						t.Fatalf("transport produced %d of %d requested frames", n, end-start)
 					}
 				}
-				if positions[count-1] != int64(frames) || e.transport.playing {
+				if positions[count-1] != int64(frames) || e.playback.transport.playing {
 					t.Fatal("transport omitted final source-position tag")
 				}
 				for channel := range 2 {

@@ -42,23 +42,23 @@ func (e *Engine) newDocumentHistory(document audiobuf.Document, editor editorSta
 }
 
 func (e *Engine) historyResult() protocol.HistoryListResult {
-	result := protocol.HistoryListResult{DocumentID: e.editor.documentID, Entries: make([]protocol.HistoryEntry, 0), MaxEntries: maxHistoryEntries}
-	if e.history == nil {
+	result := protocol.HistoryListResult{DocumentID: e.doc.editor.documentID, Entries: make([]protocol.HistoryEntry, 0), MaxEntries: maxHistoryEntries}
+	if e.historyState.history == nil {
 		return result
 	}
-	states := e.history.States()
-	entries := e.history.Entries()
+	states := e.historyState.history.States()
+	entries := e.historyState.history.Entries()
 	for i, state := range states {
-		label := e.history.BaseLabel()
+		label := e.historyState.history.BaseLabel()
 		if i > 0 {
 			label = entries[i-1].Label
 		}
 		result.Entries = append(result.Entries, protocol.HistoryEntry{StateID: state.ID, Label: label})
 	}
-	result.RetainedBytes = e.history.RetainedBytes()
-	result.CurrentStateID, result.SavedStateID = e.history.CurrentID(), e.history.SavedID()
-	result.Dirty, result.CanUndo, result.CanRedo = e.history.Dirty(), e.history.CanUndo(), e.history.CanRedo()
-	result.MaxBytes = e.history.Limits().MaxBytes
+	result.RetainedBytes = e.historyState.history.RetainedBytes()
+	result.CurrentStateID, result.SavedStateID = e.historyState.history.CurrentID(), e.historyState.history.SavedID()
+	result.Dirty, result.CanUndo, result.CanRedo = e.historyState.history.Dirty(), e.historyState.history.CanUndo(), e.historyState.history.CanRedo()
+	result.MaxBytes = e.historyState.history.Limits().MaxBytes
 	return result
 }
 
@@ -73,10 +73,10 @@ func (e *Engine) markSaved(p protocol.MarkSavedParams) (protocol.HistoryListResu
 	if err := e.validateDocumentID(protocol.MethodMarkSaved, p.DocumentID); err != nil {
 		return protocol.HistoryListResult{}, err
 	}
-	if e.history == nil {
+	if e.historyState.history == nil {
 		return protocol.HistoryListResult{}, fmt.Errorf("%s: history is not initialized", protocol.MethodMarkSaved)
 	}
-	if err := e.history.MarkSaved(p.StateID); err != nil {
+	if err := e.historyState.history.MarkSaved(p.StateID); err != nil {
 		return protocol.HistoryListResult{}, fmt.Errorf("%s: %w", protocol.MethodMarkSaved, err)
 	}
 	return e.historyResult(), nil
@@ -86,17 +86,17 @@ func (e *Engine) navigateHistory(method, documentID, stateID string) (protocol.E
 	if err := e.validateDocumentID(method, documentID); err != nil {
 		return protocol.EditResult{}, err
 	}
-	if e.history == nil {
+	if e.historyState.history == nil {
 		return protocol.EditResult{}, fmt.Errorf("%s: history is not initialized", method)
 	}
-	if method == protocol.MethodHistoryJump && stateID == e.history.CurrentID() {
+	if method == protocol.MethodHistoryJump && stateID == e.historyState.history.CurrentID() {
 		return e.editResult(false), nil
 	}
-	if e.documentSequence == math.MaxUint64 {
+	if e.doc.documentSequence == math.MaxUint64 {
 		return protocol.EditResult{}, fmt.Errorf("%s: document identity exhausted", method)
 	}
-	staged := e.history.Clone()
-	if err := staged.ReplaceCurrent(historySnapshot{document: e.document, editor: cloneEditor(e.editor)}); err != nil {
+	staged := e.historyState.history.Clone()
+	if err := staged.ReplaceCurrent(historySnapshot{document: e.doc.document, editor: cloneEditor(e.doc.editor)}); err != nil {
 		return protocol.EditResult{}, fmt.Errorf("%s: capture current controls: %w", method, err)
 	}
 	var snapshot historySnapshot
@@ -114,34 +114,34 @@ func (e *Engine) navigateHistory(method, documentID, stateID string) (protocol.E
 	if err != nil {
 		return protocol.EditResult{}, fmt.Errorf("%s: %w", method, err)
 	}
-	e.history = staged
-	e.document = snapshot.document
-	e.editor = cloneEditor(snapshot.editor)
-	e.documentSequence++
-	e.editor.documentID = fmt.Sprintf("doc-%d", e.documentSequence)
-	e.transport, e.source = nil, sourceStopped
+	e.historyState.history = staged
+	e.doc.document = snapshot.document
+	e.doc.editor = cloneEditor(snapshot.editor)
+	e.doc.documentSequence++
+	e.doc.editor.documentID = fmt.Sprintf("doc-%d", e.doc.documentSequence)
+	e.playback.transport, e.playback.source = nil, sourceStopped
 	return e.editResult(true), nil
 }
 
-func editHistoryLabel(operation string) string {
+func editHistoryLabel(operation protocol.OperationName) string {
 	switch operation {
-	case "spectral-attenuate":
+	case protocol.OperationSpectralAttenuate:
 		return "Attenuate spectral selection"
-	case "spectral-remove":
+	case protocol.OperationSpectralRemove:
 		return "Remove spectral selection"
-	case "spectral-heal":
+	case protocol.OperationSpectralHeal:
 		return "Heal spectral selection"
-	case "noise-reduce":
+	case protocol.OperationNoiseReduce:
 		return "Noise reduction"
-	case "remove-clicks":
+	case protocol.OperationRemoveClicks:
 		return "Remove clicks and pops"
-	case "declip":
+	case protocol.OperationDeclip:
 		return "Repair clipped audio"
-	case "time-stretch":
+	case protocol.OperationTimeStretch:
 		return "Time stretch"
-	case "remove-hum":
+	case protocol.OperationRemoveHum:
 		return "Remove mains hum"
 	}
 
-	return strings.ReplaceAll(operation, "-", " ")
+	return strings.ReplaceAll(string(operation), "-", " ")
 }

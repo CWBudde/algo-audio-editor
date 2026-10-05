@@ -33,7 +33,7 @@ func FuzzDocumentExport(f *testing.F) {
 		if _, err := e.openDocument(protocol.DocumentOpenParams{}, rawWAV(3, 32, 1, 48000, samples, false)); err != nil {
 			t.Fatal(err)
 		}
-		e.editor.selection = protocol.SelectionRange{End: e.document.Frames(), ChannelMask: 1}
+		e.doc.editor.selection = protocol.SelectionRange{End: e.doc.document.Frames(), ChannelMask: 1}
 		before := e.editResult(false)
 		info, err := e.exportDocument(p)
 		if !reflect.DeepEqual(before, e.editResult(false)) {
@@ -52,7 +52,7 @@ func FuzzDocumentExport(f *testing.F) {
 		if err != nil {
 			t.Fatalf("encoder produced unreadable %s: %v", p.Format, err)
 		}
-		if opened.Frames != e.document.Frames() || opened.Channels != 1 || opened.SampleRate != 48000 {
+		if opened.Frames != e.doc.document.Frames() || opened.Channels != 1 || opened.SampleRate != 48000 {
 			t.Fatal("export changed format")
 		}
 		if p.Format == "wav" && p.Float && p.BitDepth == 32 {
@@ -60,8 +60,8 @@ func FuzzDocumentExport(f *testing.F) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			original := make([]float32, e.document.Frames())
-			channel, _ := e.document.Channel(0)
+			original := make([]float32, e.doc.document.Frames())
+			channel, _ := e.doc.document.Channel(0)
 			channel.Read(original, 0)
 			for i, value := range original {
 				bits := math.Float32bits(value)

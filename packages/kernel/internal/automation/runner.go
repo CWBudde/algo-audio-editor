@@ -62,7 +62,10 @@ func DecodeStrict(data []byte, target any) error {
 		return fmt.Errorf("decode: %w", err)
 	}
 	if err := d.Decode(new(any)); err != io.EOF {
-		return fmt.Errorf("decode: expected exactly one JSON value")
+		if err == nil {
+			return fmt.Errorf("decode: expected exactly one JSON value")
+		}
+		return fmt.Errorf("decode: trailing data: %w", err)
 	}
 	return nil
 }
@@ -106,9 +109,6 @@ func ValidateOperation(op Operation) error {
 	case protocol.MethodEditApply:
 		target = new(protocol.EditApplyParams)
 	case protocol.MethodProcessStart:
-		if op.Params["operation"] == "extract-channel" {
-			return fmt.Errorf("operation: extract-channel creates a second document and is not supported in chains")
-		}
 		target = new(protocol.ProcessStartParams)
 	case protocol.MethodEffectsApply:
 		target = new(protocol.EffectsPreviewParams)
@@ -121,6 +121,9 @@ func ValidateOperation(op Operation) error {
 	}
 	if err := DecodeStrict(payload, target); err != nil {
 		return fmt.Errorf("operation: %s: %w", op.Method, err)
+	}
+	if p, ok := target.(*protocol.ProcessStartParams); ok && p.Operation == protocol.OperationExtractChannel {
+		return fmt.Errorf("operation: extract-channel creates a second document and is not supported in chains")
 	}
 	return nil
 }
@@ -169,8 +172,14 @@ func Apply(ctx context.Context, e *engine.Engine, documentID string, op Operatio
 		}
 		// Clipboard versions fence UI requests, but are session-specific. An
 		// omitted version binds a recorded paste to this engine's clipboard.
-		kind, _ := params["operation"].(string)
-		if kind == "paste-insert" || kind == "paste-replace" || kind == "paste-mix" {
+		var kind protocol.OperationName
+		switch value := params["operation"].(type) {
+		case string:
+			kind = protocol.OperationName(value)
+		case protocol.OperationName:
+			kind = value
+		}
+		if kind == protocol.OperationPasteInsert || kind == protocol.OperationPasteReplace || kind == protocol.OperationPasteMix {
 			if _, exists := params["clipboardVersion"]; !exists {
 				var clipboard protocol.ClipboardInfo
 				if _, err := Call(e, protocol.MethodEditState, nil, nil, &clipboard); err != nil {
@@ -189,7 +198,7 @@ func Apply(ctx context.Context, e *engine.Engine, documentID string, op Operatio
 	}
 	jobParams := protocol.ProcessJobParams{DocumentID: documentID, JobID: job.JobID}
 	defer func() { _, _ = Call(e, protocol.MethodProcessCancel, jobParams, nil, nil) }()
-	for job.State == "running" {
+	for job.State == protocol.JobRunning {
 		if err := ctx.Err(); err != nil {
 			return result, fmt.Errorf("operation: %w", err)
 		}
@@ -197,7 +206,7 @@ func Apply(ctx context.Context, e *engine.Engine, documentID string, op Operatio
 			return result, err
 		}
 	}
-	if job.State != "ready" {
+	if job.State != protocol.JobReady {
 		return result, fmt.Errorf("operation: unexpected job state %q", job.State)
 	}
 	result.Candidate = &job
@@ -234,7 +243,7 @@ func ApplyChain(ctx context.Context, e *engine.Engine, documentID string, chain 
 		item, err := Apply(ctx, e, documentID, op, false)
 		if err != nil {
 			result.Error = fmt.Sprintf("chain: operation %d failed after %d completed operations: %v; inspect history and undo the completed changes if needed", i, result.Applied, err)
-			return result, fmt.Errorf("%s", result.Error)
+			return result, fmt.Errorf("chain: operation %d failed after %d completed operations: %w; inspect history and undo the completed changes if needed", i, result.Applied, err)
 		}
 		result.Results = append(result.Results, item)
 		result.Applied++
@@ -257,7 +266,7 @@ func Analyze(ctx context.Context, e *engine.Engine, params protocol.AnalysisStar
 	}
 	jobParams := protocol.AnalysisJobParams{DocumentID: params.DocumentID, JobID: job.JobID}
 	defer func() { _, _ = Call(e, protocol.MethodAnalysisCancel, jobParams, nil, nil) }()
-	for job.State == "running" {
+	for job.State == protocol.JobRunning {
 		if err := ctx.Err(); err != nil {
 			return job, nil, fmt.Errorf("analysis: %w", err)
 		}
@@ -266,7 +275,7 @@ func Analyze(ctx context.Context, e *engine.Engine, params protocol.AnalysisStar
 			return job, nil, err
 		}
 	}
-	if job.State != "ready" {
+	if job.State != protocol.JobReady {
 		return job, nil, fmt.Errorf("analysis: unexpected job state %q", job.State)
 	}
 	return job, data, nil

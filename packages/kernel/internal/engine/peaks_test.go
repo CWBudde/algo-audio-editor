@@ -19,7 +19,7 @@ func engineWithDocument(t *testing.T, frames int) (*Engine, []float32) {
 	}
 	e := New()
 	var err error
-	e.document, err = audiobuf.NewDocument([]audiobuf.Channel{audiobuf.NewChannel(samples)}, 48000, audiobuf.Metadata{})
+	e.doc.document, err = audiobuf.NewDocument([]audiobuf.Channel{audiobuf.NewChannel(samples)}, 48000, audiobuf.Metadata{})
 	if err != nil {
 		t.Fatal(err)
 	}

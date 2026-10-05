@@ -31,8 +31,8 @@ func (p impulseProvider) GetIR(index int) ([][]float64, float64, bool) {
 }
 
 func (e *Engine) ownedIRProvider() impulseProvider {
-	provider := make(impulseProvider, len(e.impulseResponses))
-	for id, ir := range e.impulseResponses {
+	provider := make(impulseProvider, len(e.effectsState.impulseResponses))
+	for id, ir := range e.effectsState.impulseResponses {
 		provider[id] = ir
 	}
 	return provider
@@ -48,13 +48,13 @@ func (e *Engine) loadImpulseResponse(p protocol.EffectsIRLoadParams, input []byt
 		return protocol.EffectsIRInfo{}, fmt.Errorf("%s: inspect WAV: %w", method, err)
 	}
 	frames := layout.dataBytes / (layout.channels * (layout.bitDepth / 8))
-	if layout.rate != e.document.SampleRate() {
-		return protocol.EffectsIRInfo{}, fmt.Errorf("%s: IR sample rate %d must match document sample rate %d", method, layout.rate, e.document.SampleRate())
+	if layout.rate != e.doc.document.SampleRate() {
+		return protocol.EffectsIRInfo{}, fmt.Errorf("%s: IR sample rate %d must match document sample rate %d", method, layout.rate, e.doc.document.SampleRate())
 	}
-	if layout.channels > 2 || frames == 0 || frames > layout.rate*maxImpulseSeconds || int64(frames)*int64(layout.channels)*8 > maxImpulseBytes-e.impulseBytes {
+	if layout.channels > 2 || frames == 0 || frames > layout.rate*maxImpulseSeconds || int64(frames)*int64(layout.channels)*8 > maxImpulseBytes-e.effectsState.impulseBytes {
 		return protocol.EffectsIRInfo{}, fmt.Errorf("%s: IR requires nonempty mono/stereo audio, at most %d seconds and %d total owned bytes", method, maxImpulseSeconds, maxImpulseBytes)
 	}
-	if e.impulseSequence == math.MaxInt32 {
+	if e.effectsState.impulseSequence == math.MaxInt32 {
 		return protocol.EffectsIRInfo{}, fmt.Errorf("%s: IR identity exhausted", method)
 	}
 	if err := e.checkStorage(method, int64(frames)*int64(layout.channels)*8+max(int64(len(input)), e.callInputBytes)); err != nil {
@@ -75,8 +75,11 @@ func (e *Engine) loadImpulseResponse(p protocol.EffectsIRLoadParams, input []byt
 		count := min(chunk, frames-start)
 		pcm.Data = pcm.Data[:count*layout.channels]
 		n, err := decoder.PCMBuffer(pcm)
-		if err != nil || n != len(pcm.Data) {
-			return protocol.EffectsIRInfo{}, fmt.Errorf("%s: incomplete PCM decode (%d/%d): %v", method, n, len(pcm.Data), err)
+		if err != nil {
+			return protocol.EffectsIRInfo{}, fmt.Errorf("%s: PCM decode: %w", method, err)
+		}
+		if n != len(pcm.Data) {
+			return protocol.EffectsIRInfo{}, fmt.Errorf("%s: incomplete PCM decode (%d/%d): %w", method, n, len(pcm.Data), io.ErrUnexpectedEOF)
 		}
 		for frame := range count {
 			for channel := range samples {
@@ -88,25 +91,25 @@ func (e *Engine) loadImpulseResponse(p protocol.EffectsIRLoadParams, input []byt
 			}
 		}
 	}
-	info := protocol.EffectsIRInfo{IRID: e.impulseSequence + 1, Name: p.Name, SampleRate: layout.rate, Channels: layout.channels, Frames: int64(frames)}
-	if e.impulseResponses == nil {
-		e.impulseResponses = make(map[int]impulseResponse)
+	info := protocol.EffectsIRInfo{IRID: e.effectsState.impulseSequence + 1, Name: p.Name, SampleRate: layout.rate, Channels: layout.channels, Frames: int64(frames)}
+	if e.effectsState.impulseResponses == nil {
+		e.effectsState.impulseResponses = make(map[int]impulseResponse)
 	}
-	e.impulseSequence++
-	e.impulseResponses[info.IRID] = impulseResponse{info: info, samples: samples, ownerDocumentID: p.DocumentID}
-	e.impulseBytes += int64(frames) * int64(layout.channels) * 8
+	e.effectsState.impulseSequence++
+	e.effectsState.impulseResponses[info.IRID] = impulseResponse{info: info, samples: samples, ownerDocumentID: p.DocumentID}
+	e.effectsState.impulseBytes += int64(frames) * int64(layout.channels) * 8
 	return info, nil
 }
 
 func (e *Engine) removeImpulseResponse(p protocol.EffectsIRRemoveParams) (protocol.EffectsIRRemoveResult, error) {
-	if e.effectPreview != nil || e.processJob != nil {
+	if e.effectsState.effectPreview != nil || e.jobs.processJob != nil {
 		return protocol.EffectsIRRemoveResult{}, fmt.Errorf("effects.ir.remove: preview/processing owns IR resources")
 	}
-	ir, ok := e.impulseResponses[p.IRID]
-	if !ok || p.DocumentID == "" || (p.DocumentID != e.editor.documentID && p.DocumentID != ir.ownerDocumentID) {
+	ir, ok := e.effectsState.impulseResponses[p.IRID]
+	if !ok || p.DocumentID == "" || (p.DocumentID != e.doc.editor.documentID && p.DocumentID != ir.ownerDocumentID) {
 		return protocol.EffectsIRRemoveResult{}, fmt.Errorf("effects.ir.remove: stale IR identity")
 	}
-	delete(e.impulseResponses, p.IRID)
-	e.impulseBytes -= ir.info.Frames * int64(ir.info.Channels) * 8
+	delete(e.effectsState.impulseResponses, p.IRID)
+	e.effectsState.impulseBytes -= ir.info.Frames * int64(ir.info.Channels) * 8
 	return protocol.EffectsIRRemoveResult{Removed: true}, nil
 }

@@ -30,7 +30,7 @@ func (e *Engine) exportTimeline(p protocol.TimelineExportParams) (protocol.Docum
 		id, start, end int64
 		name, color    string
 	}
-	timeline := e.document.Metadata().Timeline
+	timeline := e.doc.document.Metadata().Timeline
 	records := make([]record, 0, len(timeline.Markers)+len(timeline.Regions))
 	for _, marker := range timeline.Markers {
 		records = append(records, record{"marker", marker.ID, marker.Frame, marker.Frame, marker.Name, marker.Color})
@@ -60,7 +60,7 @@ func (e *Engine) exportTimeline(p protocol.TimelineExportParams) (protocol.Docum
 			return protocol.DocumentExportInfo{}, fmt.Errorf("%s: header: %w", method, err)
 		}
 		for _, item := range records {
-			if err := writer.Write([]string{item.kind, strconv.FormatInt(item.id, 10), item.name, item.color, strconv.FormatInt(item.start, 10), strconv.FormatInt(item.end, 10), timelineSeconds(item.start, e.document.SampleRate()), timelineSeconds(item.end, e.document.SampleRate())}); err != nil {
+			if err := writer.Write([]string{item.kind, strconv.FormatInt(item.id, 10), item.name, item.color, strconv.FormatInt(item.start, 10), strconv.FormatInt(item.end, 10), timelineSeconds(item.start, e.doc.document.SampleRate()), timelineSeconds(item.end, e.doc.document.SampleRate())}); err != nil {
 				return protocol.DocumentExportInfo{}, fmt.Errorf("%s: CSV: %w", method, err)
 			}
 		}
@@ -73,12 +73,12 @@ func (e *Engine) exportTimeline(p protocol.TimelineExportParams) (protocol.Docum
 			if strings.ContainsAny(item.name, "\t\r\n") {
 				return protocol.DocumentExportInfo{}, fmt.Errorf("%s: label name cannot contain tab, CR or LF", method)
 			}
-			if _, err := fmt.Fprintf(&buffer, "%s\t%s\t%s\n", timelineSeconds(item.start, e.document.SampleRate()), timelineSeconds(item.end, e.document.SampleRate()), item.name); err != nil {
+			if _, err := fmt.Fprintf(&buffer, "%s\t%s\t%s\n", timelineSeconds(item.start, e.doc.document.SampleRate()), timelineSeconds(item.end, e.doc.document.SampleRate()), item.name); err != nil {
 				return protocol.DocumentExportInfo{}, fmt.Errorf("%s: labels: %w", method, err)
 			}
 		}
 	}
-	name := e.document.Metadata().Name
+	name := e.doc.document.Metadata().Name
 	name = strings.TrimSuffix(name, path.Ext(name))
 	if name == "" {
 		name = "Untitled"

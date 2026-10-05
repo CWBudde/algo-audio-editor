@@ -70,11 +70,11 @@ func floatPayload(depth int, samples []float64) []byte {
 
 func assertDocumentSamples(t *testing.T, engine *Engine, interleaved []float32, channels int) {
 	t.Helper()
-	if engine.document.Channels() != channels || engine.document.Frames() != int64(len(interleaved)/channels) {
-		t.Fatalf("document shape %d/%d, expected %d/%d", engine.document.Channels(), engine.document.Frames(), channels, len(interleaved)/channels)
+	if engine.doc.document.Channels() != channels || engine.doc.document.Frames() != int64(len(interleaved)/channels) {
+		t.Fatalf("document shape %d/%d, expected %d/%d", engine.doc.document.Channels(), engine.doc.document.Frames(), channels, len(interleaved)/channels)
 	}
 	for i := range channels {
-		channel, err := engine.document.Channel(i)
+		channel, err := engine.doc.document.Channel(i)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -405,7 +405,7 @@ func FuzzWAVOpen(f *testing.F) {
 		engine.memory.limit = 32 << 20
 		info, err := engine.openDocument(protocol.DocumentOpenParams{Name: "fuzz.wav"}, input)
 		if err != nil {
-			if engine.document.Channels() != 0 {
+			if engine.doc.document.Channels() != 0 {
 				t.Fatal("failed open installed a document")
 			}
 			return

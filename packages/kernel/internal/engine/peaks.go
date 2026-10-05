@@ -7,10 +7,10 @@ import (
 )
 
 func (e *Engine) getPeaks(p protocol.PeaksGetParams) (protocol.PeaksGetInfo, error) {
-	if e.document.Channels() == 0 {
+	if e.doc.document.Channels() == 0 {
 		return protocol.PeaksGetInfo{}, fmt.Errorf("%s: no document is open", protocol.MethodPeaksGet)
 	}
-	channel, err := e.document.Channel(p.Channel)
+	channel, err := e.doc.document.Channel(p.Channel)
 	if err != nil {
 		return protocol.PeaksGetInfo{}, fmt.Errorf("%s: %w", protocol.MethodPeaksGet, err)
 	}

@@ -16,10 +16,10 @@ func (e *Engine) readPCM(p protocol.PCMReadParams) (protocol.PCMReadInfo, error)
 	if err := e.validateDocumentID(method, p.DocumentID); err != nil {
 		return protocol.PCMReadInfo{}, err
 	}
-	if e.history == nil || p.StateID == "" || p.StateID != e.history.CurrentID() {
+	if e.historyState.history == nil || p.StateID == "" || p.StateID != e.historyState.history.CurrentID() {
 		return protocol.PCMReadInfo{}, fmt.Errorf("%s: stale or invalid history state", method)
 	}
-	if p.Frames < 1 || p.Frames > 8192 || p.Start < 0 || p.Start > e.document.Frames()-int64(p.Frames) {
+	if p.Frames < 1 || p.Frames > 8192 || p.Start < 0 || p.Start > e.doc.document.Frames()-int64(p.Frames) {
 		return protocol.PCMReadInfo{}, fmt.Errorf("%s: invalid page range (1–8192 frames required)", method)
 	}
 	if err := e.validateChannelMask(method, p.ChannelMask); err != nil {
@@ -29,11 +29,11 @@ func (e *Engine) readPCM(p protocol.PCMReadParams) (protocol.PCMReadInfo, error)
 	data := make([]byte, p.Frames*channels*4)
 	scratch := make([]float32, p.Frames)
 	packed := 0
-	for channel := range e.document.Channels() {
+	for channel := range e.doc.document.Channels() {
 		if p.ChannelMask&(1<<channel) == 0 {
 			continue
 		}
-		source, _ := e.document.Channel(channel)
+		source, _ := e.doc.document.Channel(channel)
 		if source.Read(scratch, p.Start) != p.Frames {
 			return protocol.PCMReadInfo{}, fmt.Errorf("%s: incomplete source read", method)
 		}
@@ -46,5 +46,5 @@ func (e *Engine) readPCM(p protocol.PCMReadParams) (protocol.PCMReadInfo, error)
 		packed++
 	}
 	e.bulkData = data
-	return protocol.PCMReadInfo{SampleRate: e.document.SampleRate(), Channels: channels, Frames: p.Frames, DataBytes: len(data)}, nil
+	return protocol.PCMReadInfo{SampleRate: e.doc.document.SampleRate(), Channels: channels, Frames: p.Frames, DataBytes: len(data)}, nil
 }

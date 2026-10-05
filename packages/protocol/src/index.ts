@@ -208,18 +208,20 @@ export interface ClipboardInfo {
   frames: number;
 }
 
-export type EditOperation =
-  | "delete"
-  | "cut"
-  | "copy"
-  | "paste-insert"
-  | "paste-replace"
-  | "paste-mix"
-  | "crop"
-  | "insert-silence"
-  | "duplicate"
-  | "swap-channels"
-  | "mute";
+export const EDIT_OPERATIONS = [
+  "delete",
+  "cut",
+  "copy",
+  "paste-insert",
+  "paste-replace",
+  "paste-mix",
+  "crop",
+  "insert-silence",
+  "duplicate",
+  "swap-channels",
+  "mute",
+] as const;
+export type EditOperation = (typeof EDIT_OPERATIONS)[number];
 
 /** Complete selection snapshot; paste requires the current clipboard version. */
 export interface EditApplyParams extends SelectionResult {
@@ -259,32 +261,36 @@ export interface SpectralMask {
   highHz: number;
   points?: SpectralPoint[];
 }
-export type RestorationOperation =
-  | "spectral-attenuate"
-  | "spectral-remove"
-  | "spectral-heal"
-  | "noise-reduce"
-  | "remove-clicks"
-  | "declip"
-  | "time-stretch"
-  | "remove-hum";
-export type ProcessOperation =
-  | "gain"
-  | "normalize-peak"
-  | "normalize-loudness"
-  | "fade-in"
-  | "fade-out"
-  | "crossfade"
-  | "reverse"
-  | "invert"
-  | "remove-dc"
-  | "mono-to-stereo"
-  | "stereo-to-mono"
-  | "resample"
-  | "generate"
-  | "extract-channel"
-  | RestorationOperation
-  | "effects";
+export const RESTORATION_OPERATIONS = [
+  "spectral-attenuate",
+  "spectral-remove",
+  "spectral-heal",
+  "noise-reduce",
+  "remove-clicks",
+  "declip",
+  "time-stretch",
+  "remove-hum",
+] as const;
+export type RestorationOperation = (typeof RESTORATION_OPERATIONS)[number];
+export const PROCESS_OPERATIONS = [
+  "gain",
+  "normalize-peak",
+  "normalize-loudness",
+  "fade-in",
+  "fade-out",
+  "crossfade",
+  "reverse",
+  "invert",
+  "remove-dc",
+  "mono-to-stereo",
+  "stereo-to-mono",
+  "resample",
+  "generate",
+  "extract-channel",
+  "effects",
+  ...RESTORATION_OPERATIONS,
+] as const;
+export type ProcessOperation = (typeof PROCESS_OPERATIONS)[number];
 export type ProcessStartParams = SelectionResult &
   (
     | { operation: "gain"; gainDb: number }
@@ -352,14 +358,19 @@ export interface ProcessJobParams {
 }
 
 /** Private candidate progress; only process.commit changes the document. */
+export const JOB_STATES = ["running", "ready", "cancelled"] as const;
+export type JobState = (typeof JOB_STATES)[number];
+export const PROCESS_PHASES = ["analyzing", "processing", "verifying"] as const;
+export type ProcessPhase = (typeof PROCESS_PHASES)[number];
+
 export interface ProcessJobResult extends SelectionResult {
   candidate: ProcessCandidate | null;
   jobId: string;
-  state: "running" | "ready" | "cancelled";
+  state: JobState;
   operation: ProcessOperation;
   /** Requested normalization target, not the resolved gain. Absent for gain. */
   target?: number;
-  phase: "analyzing" | "processing" | "verifying";
+  phase: ProcessPhase;
   phaseIndex: number;
   phaseCount: number;
   /** Gain is unknown while normalizing input is being analyzed. */
@@ -587,7 +598,14 @@ export interface MetersConfigureResult {
   byteLength: number;
   version: number;
 }
-export type AnalysisKind = "statistics" | "pitch" | "spectrum" | "spectrogram" | "clipping";
+export const ANALYSIS_KINDS = [
+  "statistics",
+  "pitch",
+  "spectrum",
+  "spectrogram",
+  "clipping",
+] as const;
+export type AnalysisKind = (typeof ANALYSIS_KINDS)[number];
 export interface AnalysisStartParams extends SelectionResult {
   kind: AnalysisKind;
   fftSize?: number;
@@ -622,7 +640,7 @@ export interface ChannelStatistics {
 export interface AnalysisJobResult extends SelectionResult {
   jobId: string;
   kind: AnalysisKind;
-  state: "running" | "ready" | "cancelled";
+  state: JobState;
   processedFrames: number;
   totalFrames: number;
   sampleRate: number;
@@ -651,7 +669,7 @@ export interface AnalysisSpectrumParams {
 export interface AnalysisSpectrumResult {
   documentId: string;
   jobId: string;
-  state: "running" | "ready";
+  state: Exclude<JobState, "cancelled">;
   source: "playback";
   sampleRate: number;
   channels: number;

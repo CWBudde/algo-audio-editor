@@ -39,10 +39,10 @@ func TestSelectionExportPackedChannelsCroppedAnnotationsAndImmutableHistory(t *t
 		t.Fatal(err)
 	}
 	assertEditBits(t, editSamples(t, reopened), []float32{2, 200, 3, 300, 4, 400, 5, 500})
-	if reopened.document.Frames() != 4 || reopened.document.Channels() != 2 || reopened.document.SampleRate() != 48000 {
+	if reopened.doc.document.Frames() != 4 || reopened.doc.document.Channels() != 2 || reopened.doc.document.SampleRate() != 48000 {
 		t.Fatal("selection output geometry")
 	}
-	timeline := reopened.document.Metadata().Timeline
+	timeline := reopened.doc.document.Metadata().Timeline
 	if len(timeline.Markers) != 2 || timeline.Markers[0].Frame != 0 || timeline.Markers[1].Frame != 4 || timeline.Markers[1].Name != "end" || len(timeline.Regions) != 2 || timeline.Regions[0].Start != 0 || timeline.Regions[0].End != 2 || timeline.Regions[1].Start != 2 || timeline.Regions[1].End != 4 {
 		t.Fatalf("selection annotations not cropped/rebased: %+v", timeline)
 	}
@@ -56,7 +56,7 @@ func TestSelectionExportPackedChannelsCroppedAnnotationsAndImmutableHistory(t *t
 func TestExportScopeDefaultsValidationAndFiniteSelectionProof(t *testing.T) {
 	input := []float32{math.Float32frombits(0x7f812345), .25, .5, float32(math.Inf(1))}
 	e, id := openEditorFixture(t, input, 1)
-	e.editor.selection = protocol.SelectionRange{Start: 1, End: 3, ChannelMask: 1}
+	e.doc.editor.selection = protocol.SelectionRange{Start: 1, End: 3, ChannelMask: 1}
 	before := e.editResult(false)
 	for _, params := range []protocol.DocumentExportParams{
 		{Format: "wav", BitDepth: 16},
@@ -79,12 +79,12 @@ func TestExportScopeDefaultsValidationAndFiniteSelectionProof(t *testing.T) {
 		t.Fatal("failed or selected export changed editor state")
 	}
 	for _, selection := range []protocol.SelectionRange{{Start: 2, End: 2, ChannelMask: 1}, {Start: -1, End: 2, ChannelMask: 1}, {End: 5, ChannelMask: 1}, {End: 2, ChannelMask: 2}, {End: 2}} {
-		e.editor.selection = selection
+		e.doc.editor.selection = selection
 		if _, err := e.exportDocument(protocol.DocumentExportParams{Format: "wav", BitDepth: 16, Scope: "selection"}); err == nil {
 			t.Fatalf("invalid authoritative selection exported: %+v", selection)
 		}
 	}
-	e.editor.selection = before.Selection.SelectionRange
+	e.doc.editor.selection = before.Selection.SelectionRange
 	if _, err := e.exportDocument(protocol.DocumentExportParams{Format: "wav", BitDepth: 32, Float: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func exportedIntegerCodes(t *testing.T, data []byte, depth int) []int64 {
 func TestIntegerExportIgnoresUnsafeUnselectedChannelsAndClearsStaleBinary(t *testing.T) {
 	input := []float32{.25, float32(math.Inf(1)), .5, .25, math.Float32frombits(0x7f812345), .5, .25, 0, .5}
 	e, id := openEditorFixture(t, input, 3)
-	e.editor.selection = protocol.SelectionRange{End: 3, ChannelMask: 5}
+	e.doc.editor.selection = protocol.SelectionRange{End: 3, ChannelMask: 5}
 	before := e.editResult(false)
 	params := protocol.DocumentExportParams{Format: "wav", BitDepth: 16, Scope: "selection", DocumentID: id}
 	if response := editorCall(t, e, protocol.MethodDocumentExport, params); !response.OK {
@@ -236,7 +236,7 @@ func TestQualityExportSeededStateAcrossBlocksAndSourceChannelIdentity(t *testing
 	if !independent {
 		t.Fatal("seeded noise channels coupled")
 	}
-	e.editor.selection = protocol.SelectionRange{End: int64(frames), ChannelMask: 4}
+	e.doc.editor.selection = protocol.SelectionRange{End: int64(frames), ChannelMask: 4}
 	params.Scope = "selection"
 	if _, err := e.exportDocument(params); err != nil {
 		t.Fatal(err)
@@ -281,7 +281,7 @@ func TestQualitySelectionExportDuringPreviewUsesCommittedSamples(t *testing.T) {
 	if _, err := e.configure(protocol.EngineConfigureParams{SampleRate: 48000, Channels: 1}); err != nil {
 		t.Fatal(err)
 	}
-	e.editor.selection = protocol.SelectionRange{Start: 1, End: 3, ChannelMask: 1}
+	e.doc.editor.selection = protocol.SelectionRange{Start: 1, End: 3, ChannelMask: 1}
 	before := e.editResult(false)
 	ready := finishEngineProcess(t, e, startEngineProcess(t, e, processParams(e, 0, 4, 1, 6)))
 	end := int64(4)
@@ -295,7 +295,7 @@ func TestQualitySelectionExportDuringPreviewUsesCommittedSamples(t *testing.T) {
 	if got, want := exportedIntegerCodes(t, e.TakeData(), 32), triangularPCMReference(input[1:3], 32, seed, 0, "none"); !reflect.DeepEqual(got, want) {
 		t.Fatal("preview candidate escaped into copy export", got, want)
 	}
-	if !reflect.DeepEqual(before, e.editResult(false)) || e.transport == nil || e.transport.previewJobID != ready.JobID {
+	if !reflect.DeepEqual(before, e.editResult(false)) || e.playback.transport == nil || e.playback.transport.previewJobID != ready.JobID {
 		t.Fatal("quality export changed source/history or stopped preview")
 	}
 }

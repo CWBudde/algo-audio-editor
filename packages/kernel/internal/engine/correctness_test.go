@@ -82,7 +82,7 @@ func TestLFEOnlyNormalizationRejectsWithoutPublication(t *testing.T) {
 	if _, err := e.startProcess(normalizationParams(e, 0, 48000, 1<<3, "normalize-loudness", -23)); err == nil {
 		t.Fatal("LFE has no programme loudness")
 	}
-	if e.processJob != nil || !reflect.DeepEqual(before, e.editResult(false)) {
+	if e.jobs.processJob != nil || !reflect.DeepEqual(before, e.editResult(false)) {
 		t.Fatal("rejected LFE job published")
 	}
 }
@@ -93,12 +93,12 @@ func TestAnalysisMissingHistoryBeforeActiveJobCheck(t *testing.T) {
 	if _, err := e.startAnalysis(p); err != nil {
 		t.Fatal(err)
 	}
-	job := e.analysisJob
-	e.history = nil
+	job := e.analysis.analysisJob
+	e.historyState.history = nil
 	if _, err := e.startAnalysis(p); err == nil || !strings.Contains(err.Error(), "analysis.start: analysis history unavailable") {
 		t.Fatal(err)
 	}
-	if e.analysisJob != job || e.analysisSequence != 1 {
+	if e.analysis.analysisJob != job || e.analysis.analysisSequence != 1 {
 		t.Fatal("rejected analysis changed job")
 	}
 }
@@ -131,12 +131,12 @@ func TestGeneratorSubsetCommitKeepsSyncAndUndo(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertEditBits(t, editSamples(t, e), []float32{1, 5, 2, 6, 0, 0, 0, 0, 0, 0, 0, 0, 3, 7, 4, 8})
-	if e.document.Metadata().Timeline.Markers[0].Frame != 7 {
+	if e.doc.document.Metadata().Timeline.Markers[0].Frame != 7 {
 		t.Fatal("marker out of sync")
 	}
 	historyNavigate(t, e, protocol.MethodEditUndo, "")
 	assertEditBits(t, editSamples(t, e), input)
-	if e.document.Metadata().Timeline.Markers[0].Frame != 3 {
+	if e.doc.document.Metadata().Timeline.Markers[0].Frame != 3 {
 		t.Fatal("undo did not restore marker")
 	}
 }
