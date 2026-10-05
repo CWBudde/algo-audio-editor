@@ -54,3 +54,5 @@ jobs:
         run: |
           bun run --cwd apps/editor-web typecheck
           bun run --cwd apps/desktop typecheck
+      - name: Reviewed dependency licenses and notices
+        run: just check-licenses

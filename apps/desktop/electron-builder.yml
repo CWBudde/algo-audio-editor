@@ -8,8 +8,15 @@ files:
   - "!dist/harden-package.js"
   - package.json
 extraResources:
+  # Includes third-party-notices.txt, also readable from the About dialog offline.
   - from: ../editor-web/dist
     to: web
+  # electron-builder removes these from the macOS distribution root. Preserve
+  # the installed Electron distribution's originals explicitly on every OS.
+  - from: node_modules/electron/dist/LICENSE
+    to: licenses/LICENSE.electron.txt
+  - from: node_modules/electron/dist/LICENSES.chromium.html
+    to: licenses/LICENSES.chromium.html
 asar: true
 afterPack: dist/harden-package.js
 npmRebuild: false

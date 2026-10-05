@@ -12,6 +12,7 @@ was implemented. Historical temporary logs are not durable raw artifacts.
 | [Implementation validation, 2026-10-04–05](implementation-validation-2026-10-04-05.md) | Dated WAV/restoration/desktop/batch/MCP and browser-CI follow-up results | Platform, listening, metadata, release and MCP host gates remain separate |
 | [R.5, 2026-10-05](r5-2026-10-05.md) | Native/V8/browser analysis, actual one-hour FLAC, history and playback | Local implementation evidence; broader Phase 15 acceptance remains open |
 | [R.1 CI/lint, 2026-10-05](r1-ci-2026-10-05.md) | Native/WASM lint, action pins/caches/timeouts and repeated allocation/EOF checks | Both historical flakes remain unconfirmed; hosted workflow execution is separate |
+| [Dependency notices, 2026-10-05](licenses-2026-10-05.md) | Pinned Go/npm/Electron source inventory, freshness/policy tests and actual browser/Pages/Linux package notices | Phase 23 runtime policy/evidence replacements remain open; no release approval |
 
 R.5 additionally retains [analysis tool-output transcription](r5-analysis-2026-10-05.txt)
 and [production browser JSON](r5-browser-2026-10-05.json). Earlier reports are

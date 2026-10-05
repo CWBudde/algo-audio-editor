@@ -2,6 +2,7 @@ import type { DocumentMemoryResult } from "@aae/protocol";
 import { type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { AudioEngine } from "@/audio/audio-engine";
 import type { RingBufferStats } from "@/audio/ring-buffer";
+import { ThirdPartyNotices } from "@/components/third-party-notices";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { KernelState } from "@/hooks/use-kernel";
@@ -151,6 +152,7 @@ export function AboutStatusDialog({
           testId="platform"
         />
       </dl>
+      {open && <ThirdPartyNotices />}
       <div className="mt-5 flex justify-end">
         <Button ref={closeButton} onClick={onClose} aria-label="Close information">
           Close

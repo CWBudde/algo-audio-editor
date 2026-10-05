@@ -62,6 +62,8 @@ just e2e-pages-live # deployed URL from PLAYWRIGHT_BASE_URL; no local build/serv
 just e2e-timing     # opt-in @timing hardware gates; target laptop only, not CI
 just e2e-desktop    # Playwright driving Electron (needs a display)
 just lint           # native + js/wasm golangci-lint, biome, typecheck
+just licenses       # collect pinned dependency grants and regenerate notices
+just check-licenses # check reviewed inventory freshness (not release approval)
 just fmt            # treefmt: gofumpt, gci, biome, shfmt
 just check          # fast local gate: format, lint, unit tests, build
 just ci             # CI test gates, incl. WASM/fuzz, browser/Pages/Electron e2e
@@ -125,6 +127,8 @@ Report the actual checks run, including skipped platform or hardware gates;
 place detailed timing evidence in `docs/benchmarks/` and link it from PLAN.md.
 Release tags additionally require the roadmap's release prerequisites and the
 signed/installed platform acceptance in `docs/desktop.md`.
+`just check-license-policy` must pass before a release; known license policy or
+missing-grant findings remain explicit in `docs/licenses/README.md`.
 See [docs/releasing.md](docs/releasing.md) for publishing gates and remaining
 first-release requirements.
 

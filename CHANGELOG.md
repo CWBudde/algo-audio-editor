@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Reviewed Go/npm dependency inventory and generated third-party notices in
+  About / Status and installers, including retained Electron/Chromium attribution.
+  Freshness checks and a strict tagged-release gate preserve unresolved license
+  evidence and policy decisions; see [the audit](docs/licenses/README.md).
 - Browser and Electron waveform editor with zoom, scrolling, overview and signed
   sample detail; playback, looping and a cursor tied to audible source positions.
 - Channel-aware pointer, numeric and keyboard selection, snapping, cut/copy/paste,

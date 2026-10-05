@@ -239,6 +239,19 @@ check-tidy:
 
 # ── Family hygiene (see AGENTS.md) ───────────────────────────────────────────
 
+# Audit pinned Go/npm sources and regenerate the inventory and shipped notices.
+licenses:
+    node scripts/generate-licenses.mjs
+
+# Check reviewed inventory/input hashes and notices without registry downloads.
+check-licenses:
+    node --test scripts/license-policy.test.mjs scripts/licenses-go.test.mjs scripts/licenses-npm.test.mjs scripts/licenses-electron.test.mjs
+    node scripts/generate-licenses.mjs --check
+
+# First-release gate: no unresolved runtime evidence or bundled-license findings.
+check-license-policy:
+    node scripts/generate-licenses.mjs --check --strict
+
 # Are all github.com/cwbudde/* deps at their latest tags?
 check-deps:
     cd {{kernel}} && ../../scripts/release-guard.sh deps
@@ -250,11 +263,11 @@ check-unreleased:
 # ── Aggregate ────────────────────────────────────────────────────────────────
 
 # Fast local gate: formatting, lint, unit tests and the production build.
-check: check-formatted lint test-go-race test-web test-desktop check-tidy build
+check: check-formatted check-licenses lint test-go-race test-web test-desktop check-tidy build
 
 # Electron e2e needs a display; headless, run `xvfb-run --auto-servernum just ci`.
 # Everything CI runs (.github/workflows/ci.yml and the test-*.yml it calls), in one recipe.
-ci: check-formatted lint test-go-race test-go-wasm fuzz-wav fuzz-codecs fuzz-export test-web test-desktop check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
+ci: check-formatted check-licenses lint test-go-race test-go-wasm fuzz-wav fuzz-codecs fuzz-export test-web test-desktop check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
 
 clean:
     rm -rf {{kernel}}/bin

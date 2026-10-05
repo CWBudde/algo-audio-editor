@@ -45,6 +45,21 @@ it("keeps diagnostic instrumentation mounted but hidden while closed", () => {
   expect(ui.getByTestId("frames-played").textContent).toBe("0");
 });
 
+it("releases a pending notice request when the About dialog closes", () => {
+  const fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+  vi.stubGlobal("fetch", fetch);
+  const ui = render(<AboutStatusDialog open onClose={vi.fn()} kernel={ready} />);
+  fireEvent.click(ui.getByRole("button", { name: "Third-party notices" }));
+  const signal = fetch.mock.calls[0][1].signal as AbortSignal;
+  ui.rerender(<AboutStatusDialog open={false} onClose={vi.fn()} kernel={ready} />);
+  expect(signal.aborted).toBe(true);
+  ui.rerender(<AboutStatusDialog open onClose={vi.fn()} kernel={ready} />);
+  expect(
+    ui.getByRole("button", { name: "Third-party notices" }).getAttribute("aria-expanded"),
+  ).toBe("false");
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
 it("updates live diagnostics without reopening the dialog or moving focus", () => {
   vi.stubGlobal("crossOriginIsolated", true);
   const close = vi.fn();

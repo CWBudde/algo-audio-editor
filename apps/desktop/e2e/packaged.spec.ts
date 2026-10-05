@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { access, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { type Browser, chromium, expect, test } from "@playwright/test";
 import { verifyPackagedFuses } from "../src/harden-package.js";
+
+const desktopRoot = path.dirname(require.resolve("../package.json"));
 
 test("hardened packaged app loads bundled resources with sandboxed preload", async () => {
   test.skip(
@@ -14,6 +16,31 @@ test("hardened packaged app loads bundled resources with sandboxed preload", asy
   test.setTimeout(60_000);
   const executable = process.env.AAE_PACKAGED_EXECUTABLE as string;
   await verifyPackagedFuses(executable);
+  const packageRoot = path.dirname(executable);
+  const resources =
+    process.platform === "darwin"
+      ? path.resolve(packageRoot, "../Resources")
+      : path.join(packageRoot, "resources");
+  // Explicit extraResources retain Electron and Chromium notices even on macOS,
+  // where electron-builder removes both originals from the distribution root.
+  for (const [source, output] of [
+    ["LICENSE", "LICENSE.electron.txt"],
+    ["LICENSES.chromium.html", "LICENSES.chromium.html"],
+  ]) {
+    const upstream = await readFile(path.join(desktopRoot, "node_modules/electron/dist", source));
+    expect(upstream.byteLength).toBeGreaterThan(0);
+    expect(await readFile(path.join(resources, "licenses", output))).toEqual(upstream);
+    if (process.platform !== "darwin") {
+      expect(await readFile(path.join(packageRoot, output))).toEqual(upstream);
+    }
+  }
+  const notices = await readFile(path.join(resources, "web/third-party-notices.txt"), "utf8");
+  expect(notices).toBe(
+    await readFile(
+      path.resolve(desktopRoot, "../editor-web/public/third-party-notices.txt"),
+      "utf8",
+    ),
+  );
   const directory = await mkdtemp(path.join(tmpdir(), "aae-packaged-"));
   const configHome = path.join(directory, "config");
   const forbiddenProfile = path.join(directory, "forbidden-profile");
@@ -84,6 +111,12 @@ test("hardened packaged app loads bundled resources with sandboxed preload", asy
         native: typeof window.aaeDesktop?.openFile,
       })),
     ).toEqual({ isolated: true, node: "undefined", native: "function" });
+    await page.getByRole("button", { name: "Information", exact: true }).click();
+    await page.getByRole("button", { name: "Third-party notices", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Third-party license texts" })).toHaveValue(
+      notices,
+    );
+    await page.getByRole("button", { name: "Close information" }).click();
     // A real profile was created under the OS config root; the packaged-only
     // environment override and arbitrary Node startup code were both ignored.
     expect((await readdir(configHome)).length).toBeGreaterThan(0);

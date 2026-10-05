@@ -92,6 +92,11 @@ jobs:
         with:
           fetch-depth: 0 # `git describe` stamps the tag, not a bare hash
       - uses: ./.github/actions/setup
+      - name: Verify license audit and bundled notices
+        shell: bash
+        run: |
+          just check-licenses
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then just check-license-policy; fi
       - name: Build web and desktop
         shell: bash
         run: |

@@ -11,6 +11,7 @@
       "**/*.mts",
       "**/*.tsx",
       "**/*.json",
+      "!docs/licenses/dependencies.json",
       "!**/public/**",
       "!**/dist/**",
       "!**/dist-pages/**",

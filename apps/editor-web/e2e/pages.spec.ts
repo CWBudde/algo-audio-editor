@@ -92,6 +92,15 @@ test("deep links render the editor through 404.html", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => crossOriginIsolated)).toBe(true);
   await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
   await expect(page.getByRole("button", { name: "Open demo", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Information", exact: true }).click();
+  const noticeResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/algo-audio-editor/third-party-notices.txt"),
+  );
+  await page.getByRole("button", { name: "Third-party notices", exact: true }).click();
+  expect((await noticeResponse).ok()).toBe(true);
+  await expect(page.getByRole("textbox", { name: "Third-party license texts" })).toHaveValue(
+    /Permission is hereby granted/,
+  );
 });
 
 test.describe("blocked service workers", () => {

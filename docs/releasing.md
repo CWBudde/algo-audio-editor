@@ -55,6 +55,12 @@ Before selecting a release commit:
   visible in the roadmap.
 - Complete Phase 23's Go/npm license audit and bundled third-party notices,
   including the documented FLAC Unlicense and archived AAC muxer decisions.
+  The [current audit](licenses/README.md) supplies inventory/notices, but policy
+  exceptions and missing upstream grants remain unresolved. After dependency or
+  policy changes, run `just licenses`, review its evidence and commit regenerated
+  files. Run `just check-license-policy` on the candidate; tagged desktop builds
+  enforce this gate before packaging. `just check-licenses` in ordinary CI checks
+  freshness and does not approve known findings.
 - Complete Phase 19's signing, installed associations, package integrity and real
   update acceptance. Configure Windows/macOS signing and macOS notarization
   credentials as described in [`desktop.md`](desktop.md#updates-and-publishing).
