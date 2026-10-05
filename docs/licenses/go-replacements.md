@@ -166,10 +166,18 @@ Run separately for `./cmd/aae-mcp` and with `GOOS=js GOARCH=wasm` for
 diagnostics. Record the baseline commit, exact toolchain, target and build flags
 with future candidate evidence.
 
-The next implementation is a full symbol/source mapping for all seven release
-targets and the final optimized WASM, followed by a bounded replacement spike:
-implement required permitted transcendental functions upstream, change the
-actual algo-dsp callers, tag upstream releases and compare correctness/render
+The [cross-target math diagnostic](go-math-reach.md) now records actual linker
+retention paths, selected Go/assembly declarations and file notices for all
+seven targets. Its verified raw WASM name map does not transfer to the final
+optimized artifact: preserving names changes optimized non-custom bytes, so the
+report withholds those names and retains the attribution gap. This adds positive
+evidence without clearing any policy finding.
+
+Complete symbol/source provenance across all seven targets, including inlined
+code, constants, assembly inheritance and the final optimized WASM, followed by
+a bounded replacement spike: implement required permitted transcendental
+functions upstream, change the actual algo-dsp callers, tag upstream releases
+and compare correctness/render
 allocation/performance. Do not mechanically replace `math` with `Fast*`
 approximations: edge cases, range reduction, subnormals, signed zero, overflow,
 NaN/infinity and precision requirements need explicit contracts and regression

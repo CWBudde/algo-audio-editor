@@ -252,8 +252,16 @@ evaluate-flac:
 evaluate-flac-remediated:
     node scripts/flac-evaluation.mjs --remediated
 
+# Diagnostic cross-builds and source mapping; never clear release findings.
+evaluate-go-math-reach:
+    node scripts/go-math-reach.mjs
+
+# Offline parser, artifact identity and diagnostic runner regressions.
+test-go-math-reach:
+    node --test scripts/go-math-reach-analysis.test.mjs scripts/go-math-reach.test.mjs
+
 # Check reviewed inventory/input hashes and notices without registry downloads.
-check-licenses:
+check-licenses: test-go-math-reach
     node --test scripts/license-policy.test.mjs scripts/licenses-go.test.mjs scripts/licenses-npm.test.mjs scripts/licenses-electron.test.mjs
     node scripts/generate-licenses.mjs --check
 

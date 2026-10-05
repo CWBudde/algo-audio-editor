@@ -6,6 +6,7 @@
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "javascript": { "formatter": { "quoteStyle": "double", "trailingCommas": "all" } },
   "files": {
+    "maxSize": 4194304,
     "includes": [
       "**/*.ts",
       "**/*.mts",
