@@ -1,0 +1,1377 @@
+diff --git a/internal/frame/frame.go b/internal/frame/frame.go
+index 6d065e8702c10c6cf2d88c5a5ece514ae040f225..5c4e9aa011a93736d2793994b068c1e18deab6fd 100644
+--- a/internal/frame/frame.go
++++ b/internal/frame/frame.go
+@@ -74,0 +75,61 @@ func Decode(br *bitio.Reader, si flac.StreamInfo, dst *Frame) (err error) {
++	return DecodeWithLimits(br, si, dst, Limits{})
++}
++
++// Limits optionally restricts decoded frames before any sample scratch grows.
++// MatchStreamInfo rejects changing audio properties for fixed-format PCM readers.
++// MaxScratchBytes caps retained sample/channel slice backing stores, excluding
++// Go object, allocator and transient garbage-collection overhead. Zero is unlimited.
++type Limits struct {
++	MatchStreamInfo bool
++	MaxBlockSize    int
++	MaxScratchBytes int64
++	// AdditionalScratchPerSample and RetainedAdditionalScratch reserve caller
++	// packing storage alongside the frame, before either buffer is allocated.
++	AdditionalScratchPerSample int64
++	RetainedAdditionalScratch  int64
++}
++
++// ScratchBytes conservatively accounts retained frame backing buffers, including
++// inactive channels retained after a smaller frame. Channel headers use the
++// larger 64-bit size on every target, so the bound also holds on WASM.
++func (f *Frame) ScratchBytes() int64 {
++	n := int64(cap(f.Channels)) * 24
++	for _, ch := range f.Channels[:cap(f.Channels)] {
++		n += int64(cap(ch)) * 4
++	}
++	for i := range 2 {
++		n += int64(cap(f.work32[i]))*4 + int64(cap(f.work64[i]))*8
++	}
++	return n
++}
++
++func (f *Frame) nextScratchBytes(h *header) int64 {
++	nch, bs := h.channels(), h.blockSize
++	n := int64(max(cap(f.Channels), nch)) * 24
++	if cap(f.Channels) < nch {
++		n += int64(nch*bs) * 4
++	} else {
++		for i, ch := range f.Channels[:cap(f.Channels)] {
++			sz := cap(ch)
++			if i < nch {
++				sz = max(sz, bs)
++			}
++			n += int64(sz) * 4
++		}
++	}
++	for i := range 2 {
++		sz32, sz64 := cap(f.work32[i]), cap(f.work64[i])
++		if h.channelAssignment > 7 && h.bitsPerSample < 25 {
++			sz32 = max(sz32, bs)
++		}
++		if h.bitsPerSample >= 25 && (i == 0 || h.channelAssignment > 7) {
++			sz64 = max(sz64, bs)
++		}
++		n += int64(sz32)*4 + int64(sz64)*8
++	}
++	return n
++}
++
++// DecodeWithLimits decodes a frame with header preflight before allocating sample
++// buffers. Decode remains available for callers that handle changing formats.
++func DecodeWithLimits(br *bitio.Reader, si flac.StreamInfo, dst *Frame, limits Limits) (err error) {
+@@ -90,0 +152,10 @@ func Decode(br *bitio.Reader, si flac.StreamInfo, dst *Frame) (err error) {
++	if limits.MatchStreamInfo && (hdr.sampleRate != si.SampleRate || hdr.bitsPerSample != si.BitDepth || hdr.channels() != si.Channels) {
++		return fmt.Errorf("frame: changing audio properties unsupported by fixed PCM decoder: %w", flac.ErrUnsupported)
++	}
++	if limits.MaxBlockSize > 0 && hdr.blockSize > limits.MaxBlockSize {
++		return fmt.Errorf("frame: block size %d exceeds STREAMINFO maximum %d: %w", hdr.blockSize, limits.MaxBlockSize, flac.ErrUnsupported)
++	}
++	need := dst.nextScratchBytes(&hdr) + max(limits.RetainedAdditionalScratch, int64(hdr.blockSize)*limits.AdditionalScratchPerSample)
++	if limits.MaxScratchBytes > 0 && need > limits.MaxScratchBytes {
++		return fmt.Errorf("frame: sample scratch exceeds %d bytes: %w", limits.MaxScratchBytes, flac.ErrResourceLimit)
++	}
+diff --git a/internal/frame/residual_limits_test.go b/internal/frame/residual_limits_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..c2fd2d6de7e2b8abcc281e90e734377a90242616
+--- /dev/null
++++ b/internal/frame/residual_limits_test.go
+@@ -0,0 +1,108 @@
++package frame
++
++import (
++	"fmt"
++	"testing"
++
++	flac "github.com/tphakala/go-flac"
++	"github.com/tphakala/go-flac/internal/bitio"
++)
++
++func TestResidualValueLimits64(t *testing.T) {
++	for _, tc := range []struct {
++		name  string
++		value int64
++		valid bool
++	}{
++		{"negative-limit", -(1<<31 - 1), true},
++		{"positive-limit", 1<<31 - 1, true},
++		{"zero", 0, true},
++		{"excluded-int32-min", -1 << 31, false},
++		{"positive-overflow", 1 << 31, false},
++		{"negative-overflow", -(1 << 31) - 1, false},
++		{"side-channel-extreme", 1<<32 - 1, false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			if got := validResiduals64([]int64{0, tc.value, 1}); got != tc.valid {
++				t.Fatalf("validResiduals64(%d) = %v, want %v", tc.value, got, tc.valid)
++			}
++		})
++	}
++}
++
++func TestWidePredictorResidualsAreSpecLegal(t *testing.T) {
++	for bps := 25; bps <= 33; bps++ {
++		for level := 0; level <= 8; level++ {
++			t.Run(fmt.Sprintf("bps%d/level%d", bps, level), func(t *testing.T) {
++				s := make([]int64, 4096)
++				for i := range s {
++					switch i % 7 {
++					case 0:
++						s[i] = -(int64(1) << (bps - 1))
++					case 1:
++						s[i] = (int64(1) << (bps - 1)) - 1
++					case 2:
++						s[i] = 0
++					default:
++						s[i] = int64((uint64(i)*1664525+1013904223)&((uint64(1)<<bps)-1)) - (int64(1) << (bps - 1))
++					}
++				}
++				p := paramsLevel(t, level)
++				var ws Workspace
++				plan := planSubframe64(&ws, 0, s, bps, p, apodizationWindow(p, len(s)))
++				if (plan.kind == 2 || plan.kind == 3) && !validResiduals64(ws.cand[0].res64[:len(s)-plan.order]) {
++					t.Fatal("predictor selected out-of-domain residuals")
++				}
++				// This 32-bit PCM fixture requires verbatim fallback. Wider decorrelated
++				// channels may still find legal LPC residuals; those are checked above.
++				if bps == 32 && plan.kind != 1 {
++					t.Fatalf("kind = %d, want verbatim fallback", plan.kind)
++				}
++			})
++		}
++	}
++}
++
++func TestWideFixedOrderUsesValidAlternative(t *testing.T) {
++	// Order 0 includes the excluded int32 minimum. Order 1 has a single legal
++	// residual, so it remains usable instead of rejecting the entire signal.
++	s := []int64{-1 << 31, -(1 << 31) + 1}
++	for _, exhaustive := range []bool{false, true} {
++		var ws Workspace
++		order, _ := chooseFixedOrder64(&ws, s, Params{ExhaustiveFixed: exhaustive})
++		if order != 1 {
++			t.Fatalf("exhaustive %v: fixed order = %d, want 1", exhaustive, order)
++		}
++	}
++}
++
++func TestWideConstantAllowsInt32Minimum(t *testing.T) {
++	var ws Workspace
++	p := paramsLevel(t, 5)
++	s := []int64{-1 << 31, -1 << 31}
++	plan := planSubframe64(&ws, 0, s, 32, p, apodizationWindow(p, len(s)))
++	if plan.kind != 0 {
++		t.Fatalf("constant minimum: kind = %d, want constant", plan.kind)
++	}
++}
++
++func TestWideVerbatimFallbackZeroAllocation(t *testing.T) {
++	const blockSize = 4096
++	input := make([]int32, blockSize)
++	for i := range input {
++		if i%2 == 0 {
++			input[i] = -1 << 31
++		} else {
++			input[i] = 1<<31 - 1
++		}
++	}
++	channels := [][]int32{input}
++	p := paramsLevel(t, 5)
++	si := flac.StreamInfo{SampleRate: 48000, BitDepth: 32, Channels: 1}
++	ws := NewWorkspace(blockSize, 1, 12)
++	writer := bitio.NewWriter()
++	EncodeFrame(writer, ws, p, si, channels, 0)
++	if got := testing.AllocsPerRun(20, func() { EncodeFrame(writer, ws, p, si, channels, 0) }); got != 0 {
++		t.Fatalf("verbatim fallback allocated %.0f times per frame, want 0", got)
++	}
++}
+diff --git a/internal/frame/resync.go b/internal/frame/resync.go
+index 3e11d40d19783f1e1f5550914d8a69b7d11ecc52..a32d05a03786441725022e22cb355ed1cdf94bc9 100644
+--- a/internal/frame/resync.go
++++ b/internal/frame/resync.go
+@@ -5,0 +6 @@ import (
++	"fmt"
+@@ -35,0 +37,14 @@ func FindNextFrame(r *bitio.Reader, data []byte, si flac.StreamInfo, dst *Frame)
++	start, consumed, res, _ = FindNextFrameWithLimits(r, data, si, dst, Limits{})
++	return
++}
++
++// FindNextFrameWithLimits applies the same preallocation limits to seek probes.
++// Resource errors are propagated rather than treating a real frame as false sync.
++func FindNextFrameWithLimits(r *bitio.Reader, data []byte, si flac.StreamInfo, dst *Frame, limits Limits) (start, consumed int, res FindResult, err error) {
++	// A seek scan can encounter false sync bytes inside residuals. Decode a
++	// candidate under the scratch bound and verify its full CRC before checking
++	// format properties, so real unsupported frames are surfaced rather than
++	// silently skipped while false sync remains harmless.
++	probeLimits := limits
++	probeLimits.MatchStreamInfo = false
++	probeLimits.MaxBlockSize = 0
+@@ -41 +56 @@ func FindNextFrame(r *bitio.Reader, data []byte, si flac.StreamInfo, dst *Frame)
+-		err := Decode(r, si, dst)
++		err := DecodeWithLimits(r, si, dst, probeLimits)
+@@ -43 +58,10 @@ func FindNextFrame(r *bitio.Reader, data []byte, si flac.StreamInfo, dst *Frame)
+-			return i, int(r.BytesRead()), FrameFound
++			if limits.MatchStreamInfo && (dst.SampleRate != si.SampleRate || dst.BitsPerSample != si.BitDepth || len(dst.Channels) != si.Channels) {
++				return i, 0, FrameNotFound, fmt.Errorf("frame: seek encountered changing audio properties: %w", flac.ErrUnsupported)
++			}
++			if limits.MaxBlockSize > 0 && dst.BlockSize > limits.MaxBlockSize {
++				return i, 0, FrameNotFound, fmt.Errorf("frame: seek block exceeds STREAMINFO maximum: %w", flac.ErrUnsupported)
++			}
++			return i, int(r.BytesRead()), FrameFound, nil
++		}
++		if errors.Is(err, flac.ErrResourceLimit) {
++			return i, 0, FrameNotFound, err
+@@ -49 +73 @@ func FindNextFrame(r *bitio.Reader, data []byte, si flac.StreamInfo, dst *Frame)
+-			return i, 0, FrameTruncated
++			return i, 0, FrameTruncated, nil
+@@ -53 +77 @@ func FindNextFrame(r *bitio.Reader, data []byte, si flac.StreamInfo, dst *Frame)
+-	return 0, 0, FrameNotFound
++	return 0, 0, FrameNotFound, nil
+diff --git a/internal/frame/subframe_encode.go b/internal/frame/subframe_encode.go
+index c560b49de97bb9e137d6e4013c103e5343b03f75..2fe2330a78488c159ee2d112b8f4eacb2b71c5d3 100644
+--- a/internal/frame/subframe_encode.go
++++ b/internal/frame/subframe_encode.go
+@@ -314 +314,14 @@ func shiftRight64(s []int64, wasted int) []int64 {
+-// chooseFixedOrder64 selects the fixed predictor order by estimated Rice cost
++// validResiduals64 enforces RFC 9639 section 9.2.7.3: residuals must fit a
++// signed 32-bit integer, excluding its most negative value. Wide prediction
++// arithmetic needs int64, but that does not enlarge the FLAC residual domain.
++func validResiduals64(res []int64) bool {
++	const max = int64(1<<31 - 1)
++	for _, v := range res {
++		if v < -max || v > max {
++			return false
++		}
++	}
++	return true
++}
++
++// chooseFixedOrder64 selects a valid fixed predictor order by estimated Rice cost
+@@ -319,0 +333 @@ func shiftRight64(s []int64, wasted int) []int64 {
++// Returns order -1 when no predictor has spec-legal residuals.
+@@ -328 +342 @@ func chooseFixedOrder64(ws *Workspace, shifted []int64, p Params) (order, resBit
+-		bestOrder, bestBits := 0, int(^uint(0)>>1)
++		bestOrder, bestBits := -1, int(^uint(0)>>1)
+@@ -332,0 +347,3 @@ func chooseFixedOrder64(ws *Workspace, shifted []int64, p Params) (order, resBit
++			if !validResiduals64(r) {
++				continue
++			}
+@@ -342 +359,2 @@ func chooseFixedOrder64(ws *Workspace, shifted []int64, p Params) (order, resBit
+-	bestOrder, bestBits := 0, int(^uint(0)>>1)
++	bestOrder, bestBits := -1, int(^uint(0)>>1)
++	res := ws.ensureCostRes64(len(shifted))
+@@ -343,0 +362,5 @@ func chooseFixedOrder64(ws *Workspace, shifted []int64, p Params) (order, resBit
++		r := res[:len(shifted)-o]
++		lpc.ComputeFixedResiduals64(r, shifted, o)
++		if !validResiduals64(r) {
++			continue
++		}
+@@ -372,0 +396,3 @@ func chooseLPCPlan64(ws *Workspace, shifted []int64, eff int, p Params, window [
++	if !validResiduals64(res) {
++		return 0, qc, 0, 0, false
++	}
+@@ -459 +484,0 @@ func planSubframe64(ws *Workspace, idx int, s []int64, bps int, p Params, window
+-	fixedBits := hdrBits + fOrder*eff + fResBits
+@@ -463,2 +488,5 @@ func planSubframe64(ws *Workspace, idx int, s []int64, bps int, p Params, window
+-	if fixedBits < best.bits {
+-		best = subframePlan{kind: 2, order: fOrder, wasted: wasted, bits: fixedBits, cand: idx}
++	if fOrder >= 0 {
++		fixedBits := hdrBits + fOrder*eff + fResBits
++		if fixedBits < best.bits {
++			best = subframePlan{kind: 2, order: fOrder, wasted: wasted, bits: fixedBits, cand: idx}
++		}
+diff --git a/internal/meta/limits_test.go b/internal/meta/limits_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..bb51123473a9f346a5d1759ce04e1d492bdfdfdf
+--- /dev/null
++++ b/internal/meta/limits_test.go
+@@ -0,0 +1,170 @@
++package meta
++
++import (
++	"bytes"
++	"errors"
++	"io"
++	"runtime"
++	"testing"
++
++	flac "github.com/tphakala/go-flac"
++	"github.com/tphakala/go-flac/internal/bitio"
++)
++
++func metadataWithBlock(blockType, declaredLength int, body []byte) []byte {
++	data := buildStreamInfoOnly(4096, 4096, 48000, 2, 16, 0, [16]byte{})
++	data[4] &^= 0x80
++	data = append(data, EncodeBlockHeader(true, blockType, declaredLength)...)
++	return append(data, body...)
++}
++
++func TestMetadataByteLimits(t *testing.T) {
++	valid := buildStreamInfoOnly(4096, 4096, 48000, 2, 16, 0, [16]byte{})
++	withID3 := append([]byte{'I', 'D', '3', 4, 0, 0, 0, 0, 0, 1, 0}, valid...)
++	withPadding := metadataWithBlock(TypePadding, 8, make([]byte, 8))
++	for _, tc := range []struct {
++		name  string
++		data  []byte
++		limit int64
++		want  error
++	}{
++		{"exact stream", valid, int64(len(valid)), nil},
++		{"stream short", valid, int64(len(valid) - 1), flac.ErrResourceLimit},
++		{"all skipped blocks", withPadding, int64(len(withPadding) - 1), flac.ErrResourceLimit},
++		{"id3 counted", withID3, int64(len(withID3) - 1), flac.ErrResourceLimit},
++		{"id3 exact", withID3, int64(len(withID3)), nil},
++		{"negative limit", valid, -1, flac.ErrResourceLimit},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			_, err := ReadMetadataWithOptions(bitio.NewReader(bytes.NewReader(tc.data)), ReadOptions{MaxBytes: tc.limit})
++			if !errors.Is(err, tc.want) {
++				t.Fatalf("got %v, want %v", err, tc.want)
++			}
++		})
++	}
++}
++
++func TestSeekTableLimitsAndSkip(t *testing.T) {
++	points := []SeekPoint{{SampleNumber: 0, FrameSamples: 4096}, {SampleNumber: 4096, ByteOffset: 10, FrameSamples: 4096}, {SampleNumber: 8192, ByteOffset: 20, FrameSamples: 4096}}
++	body := EncodeSeekPoints(points)
++	data := metadataWithBlock(TypeSeekTable, len(body), body)
++	for _, tc := range []struct {
++		name  string
++		opts  ReadOptions
++		want  error
++		count int
++	}{
++		{"default retains", ReadOptions{}, nil, 3},
++		{"one entry budget", ReadOptions{MaxSeekTableBytes: SeekPointMemoryBytes}, flac.ErrResourceLimit, 0},
++		{"exact entries", ReadOptions{MaxSeekTableBytes: 3 * SeekPointMemoryBytes}, nil, 3},
++		{"skip no retained allocation", ReadOptions{SkipSeekTable: true, MaxSeekTableBytes: 1}, nil, 0},
++		{"skip still counts bytes", ReadOptions{SkipSeekTable: true, MaxBytes: int64(len(data) - 1)}, flac.ErrResourceLimit, 0},
++		{"negative retained limit", ReadOptions{MaxSeekTableBytes: -1}, flac.ErrResourceLimit, 0},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			sm, err := ReadMetadataWithOptions(bitio.NewReader(bytes.NewReader(data)), tc.opts)
++			if !errors.Is(err, tc.want) {
++				t.Fatalf("got %v, want %v", err, tc.want)
++			}
++			if len(sm.SeekPoints) != tc.count {
++				t.Fatalf("points %d, want %d", len(sm.SeekPoints), tc.count)
++			}
++			if tc.opts.MaxSeekTableBytes > 0 && int64(cap(sm.SeekPoints))*SeekPointMemoryBytes > tc.opts.MaxSeekTableBytes {
++				t.Fatal("retained capacity exceeds limit")
++			}
++		})
++	}
++}
++
++func TestSeekTableLengthCheckedBeforeBody(t *testing.T) {
++	for _, skip := range []bool{false, true} {
++		data := metadataWithBlock(TypeSeekTable, 19, nil)
++		_, err := ReadMetadataWithOptions(bitio.NewReader(bytes.NewReader(data)), ReadOptions{SkipSeekTable: skip})
++		if !errors.Is(err, flac.ErrUnsupported) {
++			t.Fatalf("skip=%v: got %v, want malformed length", skip, err)
++		}
++	}
++}
++
++func TestTruncatedLargeSeekTableDoesNotAllocateDeclaredBody(t *testing.T) {
++	// The largest divisible-by-18 body fits the on-disk 24-bit length field.
++	// Raising the encoded-byte cap ensures the incremental parser is exercised.
++	data := metadataWithBlock(TypeSeekTable, (0xFFFFFF/SeekPointBytes)*SeekPointBytes, nil)
++	runtime.GC()
++	var before, after runtime.MemStats
++	runtime.ReadMemStats(&before)
++	_, err := ReadMetadataWithOptions(bitio.NewReader(bytes.NewReader(data)), ReadOptions{MaxBytes: 32 << 20})
++	runtime.ReadMemStats(&after)
++	if !errors.Is(err, io.ErrUnexpectedEOF) {
++		t.Fatalf("got %v, want truncated table", err)
++	}
++	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 128<<10 {
++		t.Fatalf("truncated 46-byte input allocated %d bytes", allocated)
++	}
++}
++
++func TestSkippedSeekTableMustBeComplete(t *testing.T) {
++	data := metadataWithBlock(TypeSeekTable, 18, make([]byte, 17))
++	_, err := ReadMetadataWithOptions(bitio.NewReader(bytes.NewReader(data)), ReadOptions{SkipSeekTable: true})
++	if !errors.Is(err, io.ErrUnexpectedEOF) {
++		t.Fatalf("got %v, want truncated skipped table", err)
++	}
++}
++
++func TestLargeID3RejectedBeforeBody(t *testing.T) {
++	data := []byte{'I', 'D', '3', 4, 0, 0, 0x7f, 0x7f, 0x7f, 0x7f}
++	_, err := ReadMetadata(bitio.NewReader(bytes.NewReader(data)))
++	if !errors.Is(err, flac.ErrResourceLimit) {
++		t.Fatalf("got %v, want limit before body", err)
++	}
++}
++
++func TestMetadataLimitAggregatesManyBlocks(t *testing.T) {
++	data := buildStreamInfoOnly(4096, 4096, 48000, 2, 16, 0, [16]byte{})
++	data[4] &^= 0x80
++	for i := range 100 {
++		data = append(data, EncodeBlockHeader(i == 99, TypePadding, 1)...)
++		data = append(data, 0)
++	}
++	_, err := ReadMetadataWithOptions(bitio.NewReader(bytes.NewReader(data)), ReadOptions{MaxBytes: int64(len(data) - 1)})
++	if !errors.Is(err, flac.ErrResourceLimit) {
++		t.Fatalf("got %v, want cumulative limit", err)
++	}
++	if _, err := ReadMetadataWithOptions(bitio.NewReader(bytes.NewReader(data)), ReadOptions{MaxBytes: int64(len(data))}); err != nil {
++		t.Fatalf("exact cumulative limit: %v", err)
++	}
++}
++
++func TestPlaceholderSeekPointsDoNotConsumeRetainedBudget(t *testing.T) {
++	body := EncodeSeekPoints(placeholders(10))
++	data := metadataWithBlock(TypeSeekTable, len(body), body)
++	sm, err := ReadMetadataWithOptions(bitio.NewReader(bytes.NewReader(data)), ReadOptions{MaxSeekTableBytes: 1})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if cap(sm.SeekPoints) != 0 {
++		t.Fatalf("placeholder table retained %d points", cap(sm.SeekPoints))
++	}
++}
++
++func TestDuplicateSeekTableRejectedBeforeBody(t *testing.T) {
++	body := EncodeSeekPoints([]SeekPoint{{SampleNumber: 0, FrameSamples: 4096}})
++	data := buildStreamInfoOnly(4096, 4096, 48000, 2, 16, 0, [16]byte{})
++	data[4] &^= 0x80
++	data = append(data, EncodeBlockHeader(false, TypeSeekTable, len(body))...)
++	data = append(data, body...)
++	// A complete second table is forbidden even if the caller skips both.
++	// The truncated variant verifies rejection happens before body reading.
++	for _, complete := range []bool{false, true} {
++		duplicate := append(bytes.Clone(data), EncodeBlockHeader(true, TypeSeekTable, len(body))...)
++		if complete {
++			duplicate = append(duplicate, body...)
++		}
++		for _, skip := range []bool{false, true} {
++			_, err := ReadMetadataWithOptions(bitio.NewReader(bytes.NewReader(duplicate)), ReadOptions{SkipSeekTable: skip})
++			if !errors.Is(err, flac.ErrUnsupported) {
++				t.Fatalf("complete=%v skip=%v: got %v, want duplicate error", complete, skip, err)
++			}
++		}
++	}
++}
+diff --git a/internal/meta/meta.go b/internal/meta/meta.go
+index 62ed480f7ef2cb3fc99086a77e551bba42e3f2ba..866f42467716960a6d730a945b265575cb62cd8f 100644
+--- a/internal/meta/meta.go
++++ b/internal/meta/meta.go
+@@ -27,0 +28,14 @@ const (
++// DefaultMaxBytes bounds the metadata section, including any leading ID3 tag.
++// Callers can explicitly raise this limit for unusually large embedded pictures.
++const DefaultMaxBytes int64 = 16 << 20
++
++// ReadOptions sets metadata parser limits. Zero values select bounded defaults.
++// MaxBytes counts the marker, ID3 bytes and every metadata header/body, even
++// metadata that is skipped. MaxSeekTableBytes bounds retained seek-point storage.
++// SkipSeekTable discards valid seek tables without retaining any points.
++type ReadOptions struct {
++	MaxBytes          int64
++	MaxSeekTableBytes int64
++	SkipSeekTable     bool
++}
++
+@@ -29 +43,18 @@ func ReadMetadata(br *bitio.Reader) (StreamMeta, error) {
+-	sm, err := readMetadata(br)
++	return ReadMetadataWithOptions(br, ReadOptions{})
++}
++
++// ReadMetadataWithOptions reads metadata under caller-supplied limits. Declared
++// lengths are checked before reading bodies; seek points are retained only after
++// a complete entry has been read, so a truncated large table cannot force a
++// length-sized allocation.
++func ReadMetadataWithOptions(br *bitio.Reader, opts ReadOptions) (StreamMeta, error) {
++	if opts.MaxBytes < 0 || opts.MaxSeekTableBytes < 0 {
++		return StreamMeta{}, fmt.Errorf("meta: negative limit: %w", flac.ErrResourceLimit)
++	}
++	if opts.MaxBytes == 0 {
++		opts.MaxBytes = DefaultMaxBytes
++	}
++	if opts.MaxSeekTableBytes == 0 {
++		opts.MaxSeekTableBytes = DefaultMaxBytes
++	}
++	sm, err := readMetadata(br, opts)
+@@ -36,2 +67,3 @@ func ReadMetadata(br *bitio.Reader) (StreamMeta, error) {
+-func readMetadata(br *bitio.Reader) (StreamMeta, error) {
+-	if err := skipID3v2AndMagic(br); err != nil {
++func readMetadata(br *bitio.Reader, opts ReadOptions) (StreamMeta, error) {
++	budget := metadataBudget{remaining: opts.MaxBytes}
++	if err := skipID3v2AndMagic(br, &budget); err != nil {
+@@ -41,0 +74 @@ func readMetadata(br *bitio.Reader) (StreamMeta, error) {
++	haveSeekTable := false
+@@ -43,0 +77,3 @@ func readMetadata(br *bitio.Reader) (StreamMeta, error) {
++		if err := budget.consume(4); err != nil {
++			return StreamMeta{}, err
++		}
+@@ -53,0 +90,3 @@ func readMetadata(br *bitio.Reader) (StreamMeta, error) {
++		if err := budget.consume(int64(length)); err != nil {
++			return StreamMeta{}, err
++		}
+@@ -69,3 +108,12 @@ func readMetadata(br *bitio.Reader) (StreamMeta, error) {
+-			body, err := readBytes(br, int(length))
+-			if err != nil {
+-				return StreamMeta{}, err
++			if haveSeekTable {
++				return StreamMeta{}, fmt.Errorf("meta: duplicate SEEKTABLE: %w", flac.ErrUnsupported)
++			}
++			haveSeekTable = true
++			if length%SeekPointBytes != 0 {
++				return StreamMeta{}, fmt.Errorf("meta: SEEKTABLE length %d is not divisible by %d: %w", length, SeekPointBytes, flac.ErrUnsupported)
++			}
++			if opts.SkipSeekTable {
++				if err := skipBytes(br, int(length)); err != nil {
++					return StreamMeta{}, err
++				}
++				break
+@@ -73 +121 @@ func readMetadata(br *bitio.Reader) (StreamMeta, error) {
+-			pts, err := parseSeekTable(body)
++			pts, err := readSeekTable(br, int(length), opts.MaxSeekTableBytes)
+@@ -121 +169,14 @@ func skipBytes(br *bitio.Reader, n int) error {
+-func skipID3v2AndMagic(br *bitio.Reader) error {
++type metadataBudget struct{ remaining int64 }
++
++func (b *metadataBudget) consume(n int64) error {
++	if n > b.remaining {
++		return fmt.Errorf("meta: metadata exceeds byte limit: %w", flac.ErrResourceLimit)
++	}
++	b.remaining -= n
++	return nil
++}
++
++func skipID3v2AndMagic(br *bitio.Reader, budget *metadataBudget) error {
++	if err := budget.consume(4); err != nil {
++		return err
++	}
+@@ -128,0 +190,3 @@ func skipID3v2AndMagic(br *bitio.Reader) error {
++		if err := budget.consume(6); err != nil {
++			return err
++		}
+@@ -132,0 +197,5 @@ func skipID3v2AndMagic(br *bitio.Reader) error {
++		for _, b := range rest[2:] {
++			if b&0x80 != 0 {
++				return flac.ErrUnsupported
++			}
++		}
+@@ -137,0 +207,3 @@ func skipID3v2AndMagic(br *bitio.Reader) error {
++		if err := budget.consume(int64(size)); err != nil {
++			return err
++		}
+@@ -140,0 +213,3 @@ func skipID3v2AndMagic(br *bitio.Reader) error {
++		if err := budget.consume(4); err != nil {
++			return err
++		}
+diff --git a/internal/meta/seektable.go b/internal/meta/seektable.go
+index 6227206bdc4a94ce184cacab045fd612b61c64f1..c86c23c74f944624b25e23fc733aae4141b3bae1 100644
+--- a/internal/meta/seektable.go
++++ b/internal/meta/seektable.go
+@@ -4,0 +5,4 @@ import (
++	"fmt"
++	"unsafe"
++
++	"github.com/tphakala/go-flac/internal/bitio"
+@@ -74,0 +79,42 @@ func parseSeekTable(body []byte) ([]SeekPoint, error) {
++
++// SeekPointMemoryBytes includes the padding of the retained in-memory point.
++const SeekPointMemoryBytes = int64(unsafe.Sizeof(SeekPoint{}))
++
++// readSeekTable uses one fixed-size entry buffer. Slice growth follows entries
++// actually read, never the untrusted declared table length, and its capacity is
++// capped by the caller's retained-memory ceiling.
++func readSeekTable(br *bitio.Reader, length int, maxBytes int64) ([]SeekPoint, error) {
++	var out []SeekPoint
++	var entry [SeekPointBytes]byte
++	maxPoints := maxBytes / SeekPointMemoryBytes
++	for off := 0; off < length; off += SeekPointBytes {
++		for i := range entry {
++			b, err := br.ReadBits(8)
++			if err != nil {
++				return nil, err
++			}
++			entry[i] = byte(b)
++		}
++		sn := binary.BigEndian.Uint64(entry[:8])
++		if sn == PlaceholderSampleNumber {
++			continue
++		}
++		if int64(len(out)) >= maxPoints {
++			return nil, fmt.Errorf("meta: retained seek points exceed byte limit: %w", flac.ErrResourceLimit)
++		}
++		if len(out) == cap(out) {
++			next := cap(out) * 2
++			if next < 1 {
++				next = 1
++			}
++			if int64(next) > maxPoints {
++				next = int(maxPoints)
++			}
++			grown := make([]SeekPoint, len(out), next)
++			copy(grown, out)
++			out = grown
++		}
++		out = append(out, SeekPoint{SampleNumber: sn, ByteOffset: binary.BigEndian.Uint64(entry[8:16]), FrameSamples: binary.BigEndian.Uint16(entry[16:18])})
++	}
++	return out, nil
++}
+diff --git a/limits.go b/limits.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..f117f1fdb84674c09d6894f69bbefcc0acd7f554
+--- /dev/null
++++ b/limits.go
+@@ -0,0 +1,7 @@
++package flac
++
++import "errors"
++
++// ErrResourceLimit means a configured metadata or decoder scratch ceiling would
++// be exceeded. It is distinct from malformed or unsupported bitstream values.
++var ErrResourceLimit = errors.New("go-flac: resource limit exceeded")
+diff --git a/pcm/decoder.go b/pcm/decoder.go
+index 66bfe6660cc39d0f79c44e2e7be50e8f1a328792..5acbf0951184e5565a8897988fb1d609d4acba0d 100644
+--- a/pcm/decoder.go
++++ b/pcm/decoder.go
+@@ -19,0 +20 @@ type Decoder struct {
++	options  DecoderOptions
+@@ -25,3 +26,5 @@ type Decoder struct {
+-	audioStart   int64            // absolute byte offset of the first frame
+-	streamEnd    int64            // absolute file size
+-	nominalBlock int              // STREAMINFO max block size; fixed-blocksize nominal
++	audioStart   int64 // absolute byte offset of the first frame
++	streamEnd    int64 // absolute file size
++	nominalBlock int   // STREAMINFO max block size; fixed-blocksize nominal
++	minBlock     int
++	maxBlock     int
+@@ -31,12 +34,16 @@ type Decoder struct {
+-	frame      frame.Frame
+-	probeFrame frame.Frame  // scratch frame decoded by seek probes
+-	probeBuf   []byte       // reusable seek-probe read buffer
+-	resyncR    bitio.Reader // reusable scratch reader for the resync scan (avoids per-probe alloc)
+-	buf        []byte       // packed PCM backing buffer, reused across frames
+-	pending    []byte       // unread window into buf
+-	bytesPS    int          // bytes per sample = ceil(bps/8)
+-	md5        hash.Hash
+-	decoded    uint64 // inter-channel samples decoded so far
+-	seeked     bool   // a seek happened; disables MD5 + truncation checks
+-	done       bool
+-	err        error
++	frame         frame.Frame
++	probeFrame    frame.Frame  // scratch frame decoded by seek probes
++	probeBuf      []byte       // reusable seek-probe read buffer
++	resyncR       bitio.Reader // reusable scratch reader for the resync scan (avoids per-probe alloc)
++	buf           []byte       // packed PCM backing buffer, reused across frames
++	pending       []byte       // unread window into buf
++	bytesPS       int          // bytes per sample = ceil(bps/8)
++	md5           hash.Hash
++	decoded       uint64 // inter-channel samples decoded so far
++	nextFrame     uint64
++	haveFrame     bool
++	variableBlock bool
++	shortBlock    bool // only legal at physical EOF, even when total length is unknown
++	seeked        bool // a seek happened; disables only whole-stream MD5 verification
++	done          bool
++	err           error
+@@ -51 +58,5 @@ var (
+-// Info populated.
++// Info populated and bounded default resource limits. The packed PCM format is
++// fixed by Info: frame-level changes of sample rate, channels or depth are rejected.
++// FLAC permits such changing-property streams, but this fixed-format API cannot
++// expose them losslessly. Frame/sample sequence, declared counts and block bounds
++// are checked independently of MD5; a final block may be shorter than the minimum.
+@@ -53,5 +64 @@ func NewDecoder(r io.Reader) (*Decoder, error) {
+-	d := &Decoder{}
+-	if err := d.init("NewDecoder", r); err != nil {
+-		return nil, err
+-	}
+-	return d, nil
++	return NewDecoderWithOptions(r, DecoderOptions{})
+@@ -89,0 +97,9 @@ func (d *Decoder) init(op string, r io.Reader) error {
++	options, err := normalizeDecoderOptions(d.options)
++	if err != nil {
++		return err
++	}
++	d.options = options
++	if d.options.MaxScratchBytes <= decoderScratchBase {
++		d.err = fmt.Errorf("go-flac/pcm: %s: scratch limit does not cover fixed read buffers: %w", op, flac.ErrResourceLimit)
++		return d.err
++	}
+@@ -124,0 +141 @@ func (d *Decoder) init(op string, r io.Reader) error {
++	d.nextFrame, d.haveFrame, d.variableBlock, d.shortBlock = 0, false, false, false
+@@ -132,0 +150 @@ func (d *Decoder) init(op string, r io.Reader) error {
++	d.minBlock, d.maxBlock = 0, 0
+@@ -136 +154,6 @@ func (d *Decoder) init(op string, r io.Reader) error {
+-	sm, err := meta.ReadMetadata(d.br)
++	remaining := d.options.MaxScratchBytes - d.scratchBytes()
++	if remaining <= 0 {
++		d.err = fmt.Errorf("go-flac/pcm: %s: retained scratch exceeds limit: %w", op, flac.ErrResourceLimit)
++		return d.err
++	}
++	sm, err := meta.ReadMetadataWithOptions(d.br, meta.ReadOptions{MaxBytes: d.options.MaxMetadataBytes, MaxSeekTableBytes: remaining, SkipSeekTable: d.options.SkipSeekTable})
+@@ -140,0 +164,2 @@ func (d *Decoder) init(op string, r io.Reader) error {
++	d.minBlock, d.maxBlock = sm.MinBlock, sm.MaxBlock
++	d.nominalBlock = sm.MaxBlock
+@@ -339,0 +365,3 @@ func (d *Decoder) probe(b int64) (start, end int64, ok bool, err error) {
++			if d.scratchBytes()-int64(cap(d.probeBuf))+n > d.options.MaxScratchBytes {
++				return 0, 0, false, fmt.Errorf("go-flac/pcm: seek probe scratch exceeds limit: %w", flac.ErrResourceLimit)
++			}
+@@ -351 +379,8 @@ func (d *Decoder) probe(b int64) (start, end int64, ok bool, err error) {
+-		s, consumed, res := frame.FindNextFrame(&d.resyncR, buf, d.info, &d.probeFrame)
++		limits, lerr := d.frameLimits(&d.probeFrame, false)
++		if lerr != nil {
++			return 0, 0, false, lerr
++		}
++		s, consumed, res, decodeErr := frame.FindNextFrameWithLimits(&d.resyncR, buf, d.info, &d.probeFrame, limits)
++		if decodeErr != nil {
++			return 0, 0, false, decodeErr
++		}
+@@ -399 +434,17 @@ func (d *Decoder) land(landStart, target, fs int64) (int64, error) {
+-	if err := frame.Decode(d.br, d.info, &d.frame); err != nil {
++	d.pending = nil
++	d.decoded = uint64(fs)
++	d.haveFrame = false
++	d.shortBlock = false
++	limits, err := d.frameLimits(&d.frame, true)
++	if err != nil {
++		return 0, err
++	}
++	if err := frame.DecodeWithLimits(d.br, d.info, &d.frame, limits); err != nil {
++		return 0, err
++	}
++	if d.frame.VariableBlockSize {
++		d.nextFrame = 0
++	} else {
++		d.nextFrame = d.frame.Number
++	}
++	if err := d.validateFrame(); err != nil {
+@@ -452 +503,6 @@ func (d *Decoder) decodeNextFrame() error {
+-	err := frame.Decode(d.br, d.info, &d.frame)
++	limits, err := d.frameLimits(&d.frame, true)
++	if err != nil {
++		d.err = err
++		return err
++	}
++	err = frame.DecodeWithLimits(d.br, d.info, &d.frame, limits)
+@@ -464 +520,4 @@ func (d *Decoder) decodeNextFrame() error {
+-	d.decoded += uint64(d.frame.BlockSize)
++	if err := d.validateFrame(); err != nil {
++		d.err = err
++		return err
++	}
+@@ -473,2 +532,2 @@ func (d *Decoder) decodeNextFrame() error {
+-// finish verifies the stream MD5 and sample count (when not seeked) and marks
+-// the decoder done.
++// finish verifies the absolute sample count independently of MD5, verifies the
++// whole-stream MD5 when no samples were skipped, and marks the decoder done.
+@@ -476,0 +536,8 @@ func (d *Decoder) finish() error {
++	if d.info.TotalSamples != 0 && d.decoded != d.info.TotalSamples {
++		if d.decoded < d.info.TotalSamples {
++			d.err = flac.ErrTruncatedStream
++		} else {
++			d.err = fmt.Errorf("go-flac/pcm: sample count exceeds STREAMINFO: %w", flac.ErrUnsupported)
++		}
++		return d.err
++	}
+@@ -486,3 +552,0 @@ func (d *Decoder) finish() error {
+-		} else if d.info.TotalSamples != 0 && d.decoded < d.info.TotalSamples {
+-			d.err = flac.ErrTruncatedStream // inter-frame cut on a zero-MD5 stream
+-			return d.err
+@@ -493,0 +558,65 @@ func (d *Decoder) finish() error {
++// Reserve both 8 KiB bit readers and hash storage even before seeking allocates
++// its reader. The bound covers owned backing buffers, not Go runtime/GC overhead.
++const decoderScratchBase int64 = 2*8192 + 256
++
++func (d *Decoder) scratchBytes() int64 {
++	return decoderScratchBase + d.frame.ScratchBytes() + d.probeFrame.ScratchBytes() + int64(cap(d.buf)) + int64(cap(d.probeBuf)) + int64(cap(d.seekPoints))*meta.SeekPointMemoryBytes
++}
++
++func (d *Decoder) frameLimits(dst *frame.Frame, packed bool) (frame.Limits, error) {
++	available := d.options.MaxScratchBytes - d.scratchBytes() + dst.ScratchBytes()
++	limits := frame.Limits{MatchStreamInfo: true, MaxBlockSize: d.maxBlock}
++	if packed {
++		available += int64(cap(d.buf))
++		limits.AdditionalScratchPerSample = int64(d.bytesPS * d.info.Channels)
++		limits.RetainedAdditionalScratch = int64(cap(d.buf))
++	}
++	if available <= 0 {
++		return limits, fmt.Errorf("go-flac/pcm: no frame scratch capacity: %w", flac.ErrResourceLimit)
++	}
++	limits.MaxScratchBytes = available
++	return limits, nil
++}
++
++// validateFrame checks the stream structure before any samples are published.
++// The minimum excludes the last block (RFC 9639 section 8.2), so a small block
++// is allowed until a successor proves it was not the last one.
++func (d *Decoder) validateFrame() error {
++	fr := &d.frame
++	unsupported := func(reason string) error { return fmt.Errorf("go-flac/pcm: %s: %w", reason, flac.ErrUnsupported) }
++	if d.shortBlock {
++		return unsupported("frame follows a short final block")
++	}
++	if d.haveFrame && fr.VariableBlockSize != d.variableBlock {
++		return unsupported("blocking strategy changes")
++	}
++	if !fr.VariableBlockSize && fr.Number > 0x7fffffff {
++		return unsupported("fixed frame number exceeds 31 bits")
++	}
++	expected := d.nextFrame
++	if fr.VariableBlockSize {
++		expected = d.decoded
++	}
++	if fr.Number != expected {
++		return unsupported("noncontiguous frame/sample number")
++	}
++	if !d.haveFrame {
++		d.variableBlock = fr.VariableBlockSize
++		if !fr.VariableBlockSize && d.nominalBlock == 0 {
++			d.nominalBlock = fr.BlockSize
++		}
++	}
++	if !fr.VariableBlockSize && fr.BlockSize > d.nominalBlock {
++		return unsupported("fixed block exceeds nominal size")
++	}
++	next := d.decoded + uint64(fr.BlockSize)
++	if d.info.TotalSamples != 0 && next > d.info.TotalSamples {
++		return unsupported("sample count exceeds STREAMINFO")
++	}
++	d.shortBlock = fr.BlockSize < d.minBlock || (!fr.VariableBlockSize && fr.BlockSize < d.nominalBlock)
++	d.haveFrame = true
++	d.nextFrame = fr.Number + 1
++	d.decoded = next
++	return nil
++}
++
+diff --git a/pcm/decoder_options.go b/pcm/decoder_options.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..124a67d4ef9d1d78745d8ae879c8f52c45186b06
+--- /dev/null
++++ b/pcm/decoder_options.go
+@@ -0,0 +1,57 @@
++package pcm
++
++import (
++	"fmt"
++	"io"
++
++	flac "github.com/tphakala/go-flac"
++	"github.com/tphakala/go-flac/internal/meta"
++)
++
++// DefaultMaxMetadataBytes includes the FLAC marker, all metadata blocks and any
++// leading ID3 tag. Large embedded pictures can require an explicitly larger cap.
++const DefaultMaxMetadataBytes int64 = meta.DefaultMaxBytes
++
++// DefaultMaxScratchBytes bounds retained decoder-owned sample/PCM/probe buffers,
++// seek-point storage and fixed read buffers. It is not a Go runtime/RSS ceiling.
++const DefaultMaxScratchBytes int64 = 32 << 20
++
++// DecoderOptions controls decoding resource ceilings. Zero values select bounded
++// defaults; negative limits are rejected. Metadata bytes include skipped bodies.
++// MaxScratchBytes caps decoder-owned buffer capacities, including retained seek
++// points and reusable frames, but excludes caller-owned input/output, object
++// headers, Go runtime/GC bookkeeping and transient allocations during growth.
++// SkipSeekTable discards seek points while preserving forward decode and the
++// existing frame-search based seeking API for seekable sources.
++type DecoderOptions struct {
++	MaxMetadataBytes int64
++	MaxScratchBytes  int64
++	SkipSeekTable    bool
++}
++
++func normalizeDecoderOptions(opts DecoderOptions) (DecoderOptions, error) {
++	if opts.MaxMetadataBytes < 0 || opts.MaxScratchBytes < 0 {
++		return DecoderOptions{}, fmt.Errorf("go-flac/pcm: negative decoder limit: %w", flac.ErrResourceLimit)
++	}
++	if opts.MaxMetadataBytes == 0 {
++		opts.MaxMetadataBytes = DefaultMaxMetadataBytes
++	}
++	if opts.MaxScratchBytes == 0 {
++		opts.MaxScratchBytes = DefaultMaxScratchBytes
++	}
++	return opts, nil
++}
++
++// NewDecoderWithOptions reads a stream under explicit metadata/scratch limits.
++// Reusing the decoder with Reset preserves these options.
++func NewDecoderWithOptions(r io.Reader, opts DecoderOptions) (*Decoder, error) {
++	opts, err := normalizeDecoderOptions(opts)
++	if err != nil {
++		return nil, err
++	}
++	d := &Decoder{options: opts}
++	if err := d.init("NewDecoderWithOptions", r); err != nil {
++		return nil, err
++	}
++	return d, nil
++}
+diff --git a/pcm/decoder_options_test.go b/pcm/decoder_options_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..6503c85d9e5d2f2e6cc50d603575711d491d9c88
+--- /dev/null
++++ b/pcm/decoder_options_test.go
+@@ -0,0 +1,82 @@
++package pcm
++
++import (
++	"bytes"
++	"errors"
++	"io"
++	"testing"
++
++	flac "github.com/tphakala/go-flac"
++	"github.com/tphakala/go-flac/internal/meta"
++)
++
++func TestDecoderOptionsMetadataAndReset(t *testing.T) {
++	stream := buildStream()
++	headerBytes := int64(len(buildStreamInfo()))
++	if _, err := NewDecoderWithOptions(bytes.NewReader(stream), DecoderOptions{MaxMetadataBytes: headerBytes - 1}); !errors.Is(err, flac.ErrResourceLimit) {
++		t.Fatalf("got %v, want metadata limit", err)
++	}
++	d, err := NewDecoderWithOptions(bytes.NewReader(stream), DecoderOptions{MaxMetadataBytes: headerBytes})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := io.Copy(io.Discard, d); err != nil {
++		t.Fatal(err)
++	}
++	// Add one padding block; Reset must preserve the exact constructor ceiling.
++	larger := buildStreamInfo()
++	larger[4] &^= 0x80
++	larger = append(larger, meta.EncodeBlockHeader(true, meta.TypePadding, 0)...)
++	larger = append(larger, buildFrame()...)
++	if err := d.Reset(bytes.NewReader(larger)); !errors.Is(err, flac.ErrResourceLimit) {
++		t.Fatalf("reset got %v, want preserved metadata limit", err)
++	}
++	if d.Info() != (flac.StreamInfo{}) {
++		t.Fatal("failed reset exposed stale stream info")
++	}
++	if err := d.Reset(bytes.NewReader(stream)); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := io.Copy(io.Discard, d); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestDecoderOptionsNegativeLimits(t *testing.T) {
++	for _, opts := range []DecoderOptions{{MaxMetadataBytes: -1}, {MaxScratchBytes: -1}} {
++		if _, err := NewDecoderWithOptions(bytes.NewReader(buildStream()), opts); !errors.Is(err, flac.ErrResourceLimit) {
++			t.Fatalf("got %v, want resource limit", err)
++		}
++	}
++}
++
++func TestDecoderSkipSeekTablePreservesSeeking(t *testing.T) {
++	stream := buildStreamInfo()
++	stream[4] &^= 0x80
++	body := meta.EncodeSeekPoints([]meta.SeekPoint{{SampleNumber: 0, ByteOffset: 0, FrameSamples: 2}})
++	stream = append(stream, meta.EncodeBlockHeader(true, meta.TypeSeekTable, len(body))...)
++	stream = append(stream, body...)
++	stream = append(stream, buildFrame()...)
++	var expected []byte
++	for _, skip := range []bool{false, true} {
++		d, err := NewDecoderWithOptions(bytes.NewReader(stream), DecoderOptions{SkipSeekTable: skip})
++		if err != nil {
++			t.Fatal(err)
++		}
++		if got := len(d.seekPoints); got != map[bool]int{false: 1, true: 0}[skip] {
++			t.Fatalf("skip=%v: retained %d points", skip, got)
++		}
++		if landed, err := d.SeekToSample(1); err != nil || landed != 1 {
++			t.Fatalf("skip=%v: seek %d, %v", skip, landed, err)
++		}
++		got, err := io.ReadAll(d)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if !skip {
++			expected = got
++		} else if !bytes.Equal(got, expected) {
++			t.Fatalf("skipping table changed seek PCM: %x != %x", got, expected)
++		}
++	}
++}
+diff --git a/pcm/decoder_validation_test.go b/pcm/decoder_validation_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..e5651a6f4a60937eac1f00275c76671780c1cc24
+--- /dev/null
++++ b/pcm/decoder_validation_test.go
+@@ -0,0 +1,280 @@
++package pcm
++
++import (
++	"bytes"
++	"crypto/md5"
++	"encoding/binary"
++	"errors"
++	"io"
++	"strconv"
++	"testing"
++
++	flac "github.com/tphakala/go-flac"
++	"github.com/tphakala/go-flac/internal/crc"
++)
++
++// These fixtures carry independently correct header/body CRCs, so the tests
++// exercise stream structure rather than getting rejected at the checksum gate.
++func validationFrame(block, number int, variable bool) []byte {
++	hdr := []byte{0xff, 0xf8, 0x79, 0x18, byte(number), byte((block - 1) >> 8), byte(block - 1)}
++	if variable {
++		hdr[1] = 0xf9
++	}
++	hdr = append(hdr, crc.Checksum8(hdr))
++	// Independent constant stereo subframes: 100 and -100, explicitly 16-bit.
++	out := append(hdr, 0, 0, 100, 0, 0xff, 0x9c)
++	sum := crc.Checksum16(out)
++	return append(out, byte(sum>>8), byte(sum))
++}
++
++func validationStream(minBlock, maxBlock int, total uint64, frames ...[]byte) []byte {
++	out := buildStreamInfo()
++	binary.BigEndian.PutUint16(out[8:10], uint16(minBlock))
++	binary.BigEndian.PutUint16(out[10:12], uint16(maxBlock))
++	packed := binary.BigEndian.Uint64(out[18:26])
++	binary.BigEndian.PutUint64(out[18:26], packed & ^uint64(0xfffffffff) | total)
++	for _, fr := range frames {
++		out = append(out, fr...)
++	}
++	return out
++}
++
++func validationPCM(samples int) []byte {
++	out := make([]byte, 0, samples*4)
++	for range samples {
++		out = append(out, 100, 0, 0x9c, 0xff)
++	}
++	return out
++}
++
++func TestDecoderDeclaredCountIndependentOfMD5(t *testing.T) {
++	for _, knownMD5 := range []bool{false, true} {
++		for _, total := range []uint64{0, 1, 31, 32, 33, (1 << 36) - 1} {
++			t.Run(fmtValidationName(knownMD5, total), func(t *testing.T) {
++				data := validationStream(16, 16, total, validationFrame(16, 0, false), validationFrame(16, 1, false))
++				if knownMD5 {
++					sum := md5.Sum(validationPCM(32))
++					copy(data[26:42], sum[:])
++				}
++				d, err := NewDecoder(bytes.NewReader(data))
++				if err != nil {
++					t.Fatal(err)
++				}
++				got, err := io.ReadAll(d)
++				switch {
++				case total == 0 || total == 32:
++					if err != nil || !bytes.Equal(got, validationPCM(32)) {
++						t.Fatalf("valid stream: len=%d err=%v", len(got), err)
++					}
++				case total < 32:
++					if !errors.Is(err, flac.ErrUnsupported) {
++						t.Fatalf("count excess: %v", err)
++					}
++				default:
++					if !errors.Is(err, flac.ErrTruncatedStream) {
++						t.Fatalf("count shortfall with MD5=%v: %v", knownMD5, err)
++					}
++				}
++				if err != nil {
++					if n, again := d.Read(make([]byte, 4)); n != 0 || again != err {
++						t.Fatalf("Read failure not sticky: %d %v", n, again)
++					}
++					if n, again := d.WriteTo(io.Discard); n != 0 || again != err {
++						t.Fatalf("WriteTo failure not sticky: %d %v", n, again)
++					}
++				}
++			})
++		}
++	}
++}
++
++func fmtValidationName(md5 bool, total uint64) string {
++	// Decimal names without pulling test-only formatting into fixture generation.
++	prefix := "zero-md5/"
++	if md5 {
++		prefix = "known-md5/"
++	}
++	return prefix + strconv.FormatUint(total, 10)
++}
++
++func TestDecoderFixedFormatRejectsChangedPropertiesBeforeSamples(t *testing.T) {
++	for _, property := range []string{"rate", "channels", "depth"} {
++		t.Run(property, func(t *testing.T) {
++			data := validationStream(16, 16, 16, validationFrame(16, 0, false))
++			packed := binary.BigEndian.Uint64(data[18:26])
++			switch property {
++			case "rate":
++				packed = (packed & ((uint64(1) << 44) - 1)) | uint64(48000)<<44
++			case "channels":
++				packed &= ^(uint64(7) << 41)
++			case "depth":
++				packed = (packed & ^(uint64(31) << 36)) | uint64(23)<<36
++			}
++			binary.BigEndian.PutUint64(data[18:26], packed)
++			d, err := NewDecoder(bytes.NewReader(data))
++			if err != nil {
++				t.Fatal(err)
++			}
++			got, err := io.ReadAll(d)
++			if len(got) != 0 || !errors.Is(err, flac.ErrUnsupported) {
++				t.Fatalf("changed %s published samples: len=%d err=%v", property, len(got), err)
++			}
++			if cap(d.frame.Channels) != 0 || cap(d.buf) != 0 {
++				t.Fatal("format mismatch grew sample storage")
++			}
++		})
++	}
++}
++
++func TestDecoderFrameSequenceAndBlockBounds(t *testing.T) {
++	cases := []struct {
++		name     string
++		min, max int
++		frames   [][]byte
++	}{
++		{"fixed-gap", 16, 16, [][]byte{validationFrame(16, 0, false), validationFrame(16, 2, false)}},
++		{"fixed-duplicate", 16, 16, [][]byte{validationFrame(16, 0, false), validationFrame(16, 0, false)}},
++		{"first-fixed-number", 16, 16, [][]byte{validationFrame(16, 1, false)}},
++		{"variable-gap", 16, 32, [][]byte{validationFrame(16, 0, true), validationFrame(24, 17, true)}},
++		{"variable-overlap", 16, 32, [][]byte{validationFrame(16, 0, true), validationFrame(24, 15, true)}},
++		{"first-variable-number", 16, 32, [][]byte{validationFrame(16, 1, true)}},
++		{"strategy-change", 16, 16, [][]byte{validationFrame(16, 0, false), validationFrame(16, 16, true)}},
++		{"maximum-block", 16, 16, [][]byte{validationFrame(17, 0, false)}},
++		{"fixed-short-nonfinal", 16, 16, [][]byte{validationFrame(8, 0, false), validationFrame(16, 1, false)}},
++		{"variable-short-nonfinal", 16, 32, [][]byte{validationFrame(8, 0, true), validationFrame(16, 8, true)}},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			data := validationStream(tc.min, tc.max, 0, tc.frames...)
++			d, err := NewDecoder(bytes.NewReader(data))
++			if err != nil {
++				t.Fatal(err)
++			}
++			if _, err = io.Copy(io.Discard, d); !errors.Is(err, flac.ErrUnsupported) {
++				t.Fatalf("wanted structural failure, got %v", err)
++			}
++		})
++	}
++}
++
++func TestDecoderValidShortTailsAndVariableBlocks(t *testing.T) {
++	for _, tail := range []int{1, 15, 16} {
++		data := validationStream(16, 16, uint64(16+tail), validationFrame(16, 0, false), validationFrame(tail, 1, false))
++		d, err := NewDecoder(bytes.NewReader(data))
++		if err != nil {
++			t.Fatal(err)
++		}
++		got, err := io.ReadAll(d)
++		if err != nil || !bytes.Equal(got, validationPCM(16+tail)) {
++			t.Fatalf("fixed tail %d: %v", tail, err)
++		}
++	}
++	data := validationStream(16, 32, 41, validationFrame(16, 0, true), validationFrame(24, 16, true), validationFrame(1, 40, true))
++	for _, total := range []uint64{0, 41} {
++		binary.BigEndian.PutUint64(data[18:26], binary.BigEndian.Uint64(data[18:26]) & ^uint64(0xfffffffff) | total)
++		d, err := NewDecoder(bytes.NewReader(data))
++		if err != nil {
++			t.Fatal(err)
++		}
++		got, err := io.ReadAll(d)
++		if err != nil || !bytes.Equal(got, validationPCM(41)) {
++			t.Fatalf("variable total %d: %v", total, err)
++		}
++		if at, err := d.SeekToSample(20); err != nil || at != 20 {
++			t.Fatalf("variable seek: %d %v", at, err)
++		}
++		got, err = io.ReadAll(d)
++		if err != nil || !bytes.Equal(got, validationPCM(21)) {
++			t.Fatalf("variable seek tail: %v", err)
++		}
++	}
++}
++
++func TestDecoderValidationAfterSeekAndReset(t *testing.T) {
++	data := validationStream(16, 16, 33, validationFrame(16, 0, false), validationFrame(16, 1, false), validationFrame(1, 2, false))
++	d, err := NewDecoder(bytes.NewReader(data))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if at, err := d.SeekToSample(20); err != nil || at != 20 {
++		t.Fatalf("seek: %d %v", at, err)
++	}
++	got, err := io.ReadAll(d)
++	if err != nil || !bytes.Equal(got, validationPCM(13)) {
++		t.Fatalf("seek tail: %v", err)
++	}
++	bad := validationStream(16, 16, 34, validationFrame(16, 0, false), validationFrame(16, 1, false), validationFrame(1, 2, false))
++	if err := d.Reset(bytes.NewReader(bad)); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := d.SeekToSample(20); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := io.Copy(io.Discard, d); !errors.Is(err, flac.ErrTruncatedStream) {
++		t.Fatalf("seek skipped count validation: %v", err)
++	}
++	if err := d.Reset(bytes.NewReader(data)); err != nil {
++		t.Fatal(err)
++	}
++	got, err = io.ReadAll(d)
++	if err != nil || !bytes.Equal(got, validationPCM(33)) {
++		t.Fatalf("reset did not recover: %v", err)
++	}
++}
++
++func TestDecoderScratchPreflightAndReuse(t *testing.T) {
++	data := validationStream(16, 0, 0, validationFrame(65536, 0, false))
++	opts := DecoderOptions{MaxScratchBytes: decoderScratchBase + 4096}
++	d, err := NewDecoderWithOptions(bytes.NewReader(data), opts)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := io.Copy(io.Discard, d); !errors.Is(err, flac.ErrResourceLimit) {
++		t.Fatalf("scratch preflight: %v", err)
++	}
++	if cap(d.frame.Channels) != 0 || cap(d.buf) != 0 {
++		t.Fatal("oversized frame allocated sample storage")
++	}
++	good := validationStream(16, 16, 16, validationFrame(16, 0, false))
++	if err := d.Reset(bytes.NewReader(good)); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := io.Copy(io.Discard, d); err != nil {
++		t.Fatal(err)
++	}
++	if d.scratchBytes() > d.options.MaxScratchBytes {
++		t.Fatal("retained scratch exceeds limit")
++	}
++	if _, err := d.SeekToSample(1); err != nil {
++		t.Fatal(err)
++	}
++	if d.scratchBytes() > d.options.MaxScratchBytes {
++		t.Fatal("seek scratch exceeds limit")
++	}
++}
++
++func TestDecoderSeekRejectsUnsupportedValidFrame(t *testing.T) {
++	data := validationStream(16, 16, 16, validationFrame(16, 0, false))
++	packed := binary.BigEndian.Uint64(data[18:26])
++	binary.BigEndian.PutUint64(data[18:26], (packed&((uint64(1)<<44)-1))|uint64(48000)<<44)
++	d, err := NewDecoder(bytes.NewReader(data))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := d.SeekToSample(1); !errors.Is(err, flac.ErrUnsupported) {
++		t.Fatalf("seek discarded unsupported valid frame: %v", err)
++	}
++	if _, err := d.Read(make([]byte, 4)); !errors.Is(err, flac.ErrUnsupported) {
++		t.Fatalf("seek format failure not sticky: %v", err)
++	}
++}
++
++func TestDecoderTinyScratchLimitRejectsBeforeReaderAllocation(t *testing.T) {
++	d := &Decoder{options: DecoderOptions{MaxScratchBytes: 1}}
++	if err := d.Reset(bytes.NewReader(buildStream())); !errors.Is(err, flac.ErrResourceLimit) {
++		t.Fatalf("tiny scratch accepted: %v", err)
++	}
++	if d.br != nil || d.md5 != nil {
++		t.Fatal("fixed storage allocated before scratch preflight")
++	}
++}
+diff --git a/pcm/encode_reference_limits_test.go b/pcm/encode_reference_limits_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..9e33167a03bf74b57f9370bb5cc540a2bed9214c
+--- /dev/null
++++ b/pcm/encode_reference_limits_test.go
+@@ -0,0 +1,85 @@
++package pcm_test
++
++import (
++	"bytes"
++	"fmt"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"runtime"
++	"testing"
++
++	"github.com/tphakala/go-flac/pcm"
++)
++
++// GO_FLAC_REFERENCE_TEST=1 makes libFLAC mandatory; without it a machine that
++// lacks the independent decoder explicitly skips this opt-in interoperability
++// test. It checks decoded PCM bytes, not the candidate's own permissive decoder.
++func TestEncodeWideResidualLimitsReference(t *testing.T) {
++	if runtime.GOOS == "js" {
++		t.Skip("independent subprocess decoder is native-only")
++	}
++	flacPath, err := exec.LookPath("flac")
++	if err != nil {
++		if os.Getenv("GO_FLAC_REFERENCE_TEST") == "1" {
++			t.Fatal("required independent flac decoder missing")
++		}
++		t.Skip("independent flac decoder unavailable")
++	}
++	for _, level := range []int{0, 3, 5, 8} {
++		for channels := 1; channels <= 8; channels++ {
++			for _, samples := range []int{4095, 4096, 4097, 9000} {
++				t.Run(fmt.Sprintf("level%d/ch%d/frames%d", level, channels, samples), func(t *testing.T) {
++					input := make([]byte, samples*channels*4)
++					for i := 0; i < samples*channels; i++ {
++						var value int64
++						switch i % 7 {
++						case 0:
++							value = -1 << 31
++						case 1:
++							value = 1<<31 - 1
++						case 2:
++							value = 0
++						default:
++							value = int64(uint32(uint64(i)*1664525+1013904223)) - (1 << 31)
++						}
++						for b := 0; b < 4; b++ {
++							input[i*4+b] = byte(value >> uint(b*8))
++						}
++					}
++					dir := t.TempDir()
++					encodedPath, decodedPath := filepath.Join(dir, "encoded.flac"), filepath.Join(dir, "decoded.pcm")
++					output, err := os.Create(encodedPath)
++					if err != nil {
++						t.Fatal(err)
++					}
++					defer output.Close()
++					encoder, err := pcm.NewEncoder(output, pcm.Config{SampleRate: 48000, BitDepth: 32, Channels: channels, TotalSamples: uint64(samples), CompressionLevel: level})
++					if err != nil {
++						t.Fatal(err)
++					}
++					if n, err := encoder.Write(input); err != nil || n != len(input) {
++						t.Fatalf("Write = %d, %v", n, err)
++					}
++					if err := encoder.Close(); err != nil {
++						t.Fatal(err)
++					}
++					if err := output.Close(); err != nil {
++						t.Fatal(err)
++					}
++					cmd := exec.Command(flacPath, "--decode", "--silent", "--force-raw-format", "--endian=little", "--sign=signed", "--output-name="+decodedPath, encodedPath)
++					if result, err := cmd.CombinedOutput(); err != nil {
++						t.Fatalf("reference decoder: %v: %s", err, result)
++					}
++					decoded, err := os.ReadFile(decodedPath)
++					if err != nil {
++						t.Fatal(err)
++					}
++					if !bytes.Equal(decoded, input) {
++						t.Fatalf("reference PCM mismatch: got %d bytes, want %d", len(decoded), len(input))
++					}
++				})
++			}
++		}
++	}
++}

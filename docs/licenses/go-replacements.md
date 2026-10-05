@@ -15,7 +15,10 @@ independent PCM comparisons. Tagged v1.1.0 accepts inconsistent stream counts
 and frame formats, allocates approximately 16 MiB from a tiny truncated seek
 table and produces some independently rejected 32-bit files. Repair these
 upstream and complete the remaining provenance, storage, corpus and performance
-acceptance below before consuming a new audited tag. No product codec changed.
+acceptance below before consuming a new audited tag. The [local remediation
+patches and regressions](flac-remediation.md) implement the first fixes against
+this verified archive; maintainer review/release and adoption acceptance remain
+open. No product codec changed.
 
 The first candidate is
 [`github.com/tphakala/go-flac v1.1.0`](https://github.com/tphakala/go-flac/tree/v1.1.0),

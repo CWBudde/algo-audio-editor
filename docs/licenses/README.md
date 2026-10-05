@@ -123,8 +123,9 @@ including overlap. See [replacement validation](../benchmarks/license-replacemen
 The [Go replacement plan](go-replacements.md) evaluates a tagged MIT FLAC
 candidate, verified upstream grants and linked math replacements. The
 [initial isolated FLAC report](flac-evaluation.md) records adoption blockers and
-retained cross-target/reference evidence; the product codec is unchanged. The
-[npm replacement report](npm-replacements.md) records the font/icon changes
+retained cross-target/reference evidence; the [local remediation](flac-remediation.md)
+keeps fixes and regressions ready for upstream review. The product codec is
+unchanged. The [npm replacement report](npm-replacements.md) records the font/icon changes
 and proposed updater tradeoffs. The [Electron plan](electron-audit.md#replacement-plan-under-the-confirmed-policy)
 requires actual component reach/license selections and then a compliant runtime
 build or shell replacement if needed. Codec/updater/toolchain and Electron

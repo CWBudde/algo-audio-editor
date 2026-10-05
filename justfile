@@ -248,6 +248,10 @@ licenses:
 evaluate-flac:
     node scripts/flac-evaluation.mjs
 
+# Evaluate the retained local upstream patch; never used by product builds.
+evaluate-flac-remediated:
+    node scripts/flac-evaluation.mjs --remediated
+
 # Check reviewed inventory/input hashes and notices without registry downloads.
 check-licenses:
     node --test scripts/license-policy.test.mjs scripts/licenses-go.test.mjs scripts/licenses-npm.test.mjs scripts/licenses-electron.test.mjs

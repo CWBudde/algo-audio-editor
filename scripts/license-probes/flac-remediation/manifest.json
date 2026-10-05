@@ -1,0 +1,60 @@
+{
+  "baseModule": "github.com/tphakala/go-flac@v1.1.0",
+  "baseSum": "h1:dyVNPFW+MVLzPvw1n3dEvBHPtKUMbQ5PHWvW/pxQMv0=",
+  "baseCommit": "41022d6b879fd3cc7703facec93e0af94f1b49c5",
+  "patchSha256": "e6cd18f8c9106249f7a0719ddb2c5db7d3a98ec3121666b34fb47a01dd77d17f",
+  "sourceFiles": [
+    {
+      "path": "internal/frame/frame.go",
+      "sha256": "507fc4198e9aaa9df588d1910e3a0dcae9d3f9f8391fabb3e544dd5e07aa01b3"
+    },
+    {
+      "path": "internal/frame/residual_limits_test.go",
+      "sha256": "f75be6fc7e91050a5cc007c1c73d98b2a8e2c6b98902ea5b9affcb2e7d396760"
+    },
+    {
+      "path": "internal/frame/resync.go",
+      "sha256": "4b7caa01296afab94c4846637bdc1b86b98c50575ca2ff867115b665f89cebd3"
+    },
+    {
+      "path": "internal/frame/subframe_encode.go",
+      "sha256": "bdee5466bbe4302875a75b44342da8a1b418bbc085be5a4373339591ba2f3b5b"
+    },
+    {
+      "path": "internal/meta/limits_test.go",
+      "sha256": "63ed905a1c39dbac1e6dc2f8c8116a64092b0417dd2856256e5e6fa99e739473"
+    },
+    {
+      "path": "internal/meta/meta.go",
+      "sha256": "aa5c9b56684e42394187da8ffa7a0440b800a282e5044d5210f431d20f58e8c8"
+    },
+    {
+      "path": "internal/meta/seektable.go",
+      "sha256": "faf6f2e8c6ff56bd25488888c6b400ad1d9dd094cf63bcd98423451f5aa418d2"
+    },
+    {
+      "path": "limits.go",
+      "sha256": "e5d1c56c3a3257df670ec7df9ffd700030603c6377ea4aeaf13f53ce26814004"
+    },
+    {
+      "path": "pcm/decoder.go",
+      "sha256": "0292189726af8d6608f1e15c67b04b0d59bcb6f3036110d7bc048e7d157c0663"
+    },
+    {
+      "path": "pcm/decoder_options.go",
+      "sha256": "9a5fac4fe8ea8277466505abb80d4e813a89dbda800328a700355fc36300614d"
+    },
+    {
+      "path": "pcm/decoder_options_test.go",
+      "sha256": "c1dbc469af3303e195837b348e348c6cee28923fb376d99216068124056e15df"
+    },
+    {
+      "path": "pcm/decoder_validation_test.go",
+      "sha256": "68e4f7bf860b9e28ff8dd35b26b72b8115023c63770ae722fe1158f7258bbac6"
+    },
+    {
+      "path": "pcm/encode_reference_limits_test.go",
+      "sha256": "eb5e7bbfdde8aff4f38c594d489ec048b8dd9be2af8fb3cbf6df5a98b62892c5"
+    }
+  ]
+}

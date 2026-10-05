@@ -1,0 +1,629 @@
+{
+  "candidate": "github.com/tphakala/go-flac@v1.1.0",
+  "toolchain": "go1.26.8",
+  "targets": [
+    {
+      "target": "linux/amd64",
+      "runtimeModules": [
+        "github.com/tphakala/go-flac@v1.1.0+local-remediation",
+        "github.com/tphakala/simd@v1.8.0",
+        "golang.org/x/sys@v0.45.0"
+      ]
+    },
+    {
+      "target": "linux/arm64",
+      "runtimeModules": [
+        "github.com/tphakala/go-flac@v1.1.0+local-remediation",
+        "github.com/tphakala/simd@v1.8.0",
+        "golang.org/x/sys@v0.45.0"
+      ]
+    },
+    {
+      "target": "darwin/amd64",
+      "runtimeModules": [
+        "github.com/tphakala/go-flac@v1.1.0+local-remediation",
+        "github.com/tphakala/simd@v1.8.0",
+        "golang.org/x/sys@v0.45.0"
+      ]
+    },
+    {
+      "target": "darwin/arm64",
+      "runtimeModules": [
+        "github.com/tphakala/go-flac@v1.1.0+local-remediation",
+        "github.com/tphakala/simd@v1.8.0",
+        "golang.org/x/sys@v0.45.0"
+      ]
+    },
+    {
+      "target": "windows/amd64",
+      "runtimeModules": [
+        "github.com/tphakala/go-flac@v1.1.0+local-remediation",
+        "github.com/tphakala/simd@v1.8.0",
+        "golang.org/x/sys@v0.45.0"
+      ]
+    },
+    {
+      "target": "windows/arm64",
+      "runtimeModules": [
+        "github.com/tphakala/go-flac@v1.1.0+local-remediation",
+        "github.com/tphakala/simd@v1.8.0",
+        "golang.org/x/sys@v0.45.0"
+      ]
+    },
+    {
+      "target": "js/wasm",
+      "runtimeModules": [
+        "github.com/tphakala/go-flac@v1.1.0+local-remediation",
+        "github.com/tphakala/simd@v1.8.0"
+      ]
+    }
+  ],
+  "grants": [
+    {
+      "module": "github.com/davecgh/go-spew",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sha256": "1b93a317849ee09d3d7e4f1d20c2b78ddb230b4becb12d7c224c927b9d470251"
+        }
+      ]
+    },
+    {
+      "module": "github.com/pmezard/go-difflib",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sha256": "2eb550be6801c1ea434feba53bf6d12e7c71c90253e0a9de4a4f46cf88b56477"
+        }
+      ]
+    },
+    {
+      "module": "github.com/quasilyte/go-ruleguard/dsl",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sha256": "5438f63bc326b1cd70dbc99fefbc592b685c31282d620d020ae3d2c85facc968"
+        }
+      ]
+    },
+    {
+      "module": "github.com/stretchr/testify",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sha256": "f8e536c1c7b695810427095dc85f5f80d44ff7c10535e8a9486cf393e2599189"
+        }
+      ]
+    },
+    {
+      "module": "github.com/tphakala/go-flac",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sha256": "306558b919ff31d295fba0ea586c6d1a682d8fd77630286ad1deb2cccaa84114"
+        },
+        {
+          "name": "THIRD_PARTY.md",
+          "sha256": "4c24c445cde088c6464c271714bcad16e009d68bf9d110a308b9efa3529dcec8"
+        }
+      ]
+    },
+    {
+      "module": "github.com/tphakala/simd",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sha256": "da8b7883943f165928cd796cfb001f5161cec768f10ef5fd2a841d2907c0f71c"
+        }
+      ]
+    },
+    {
+      "module": "golang.org/x/arch",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sha256": "8cda009bd927676a95ee7ce2dae921442ac4d9584d041b56ecfcba6839032f0b"
+        }
+      ]
+    },
+    {
+      "module": "golang.org/x/sys",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+        }
+      ]
+    },
+    {
+      "module": "gopkg.in/yaml.v3",
+      "files": [
+        {
+          "name": "LICENSE",
+          "sha256": "d18f6323b71b0b768bb5e9616e36da390fbd39369a81807cca352de4e4e6aa0b"
+        },
+        {
+          "name": "NOTICE",
+          "sha256": "f6c2dd3a67b576eafb89b80200b8b1627230bf3821a0c14cb99a22ac19107d00"
+        }
+      ]
+    }
+  ],
+  "comparisons": 512,
+  "failures": [],
+  "scope": "Root legal-file hashes are partial grant evidence, not a per-file or contribution/provenance audit. Runtime execution is Linux amd64 and Node js/wasm; other targets are compile-only. No browser, installed platform, corpus or editor acceptance is claimed.",
+  "probeSourceSha256": "c32cff8ef7e2bc2799ee12daa3f7b7cd2c4c4d2dd54ddaa6ebe24bfb926c7fc1",
+  "baselineCommit": "fe23fb3f858ed47cca26c802559c86d4d4314505",
+  "modules": [
+    {
+      "path": "github.com/davecgh/go-spew",
+      "version": "v1.1.1",
+      "sum": "h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=",
+      "goModSum": "h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38="
+    },
+    {
+      "path": "github.com/pmezard/go-difflib",
+      "version": "v1.0.0",
+      "sum": "h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=",
+      "goModSum": "h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4="
+    },
+    {
+      "path": "github.com/quasilyte/go-ruleguard/dsl",
+      "version": "v0.3.23",
+      "sum": "h1:lxjt5B6ZCiBeeNO8/oQsegE6fLeCzuMRoVWSkXC4uvY=",
+      "goModSum": "h1:KeCP03KrjuSO0H1kTuZQCWlQPulDV6YMIXmpQss17rU="
+    },
+    {
+      "path": "github.com/stretchr/testify",
+      "version": "v1.11.1",
+      "sum": "h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=",
+      "goModSum": "h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U="
+    },
+    {
+      "path": "github.com/tphakala/go-flac",
+      "version": "v1.1.0",
+      "sum": "h1:dyVNPFW+MVLzPvw1n3dEvBHPtKUMbQ5PHWvW/pxQMv0=",
+      "goModSum": "h1:9MM9hnsIryw1BbD/e3iZgKMx3s34VCMlxzhSIP8gpEA="
+    },
+    {
+      "path": "github.com/tphakala/simd",
+      "version": "v1.8.0",
+      "sum": "h1:VeJhos1/QbYqy3nkBlqU4D9T0OxfUEOJZ8pEzMmVJNc=",
+      "goModSum": "h1:RDX4bQNU8wV5JAYHEkic0l1CcQpBUwV7odEISuOvpUY="
+    },
+    {
+      "path": "golang.org/x/arch",
+      "version": "v0.27.0",
+      "sum": "h1:0WNVcR8u9yFz8j5FvdHpgwNp3FS5U4guYdzHwEiGjoU=",
+      "goModSum": "h1:0X+GdSIP+kL5wPmpK7sdkEVTt2XoYP0cSjQSbZBwOi8="
+    },
+    {
+      "path": "golang.org/x/sys",
+      "version": "v0.45.0",
+      "sum": "h1:dO4czNzziLiiXplLQgBCEpCvXQ3dnkn0SdaZSYdQ+FY=",
+      "goModSum": "h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw="
+    },
+    {
+      "path": "gopkg.in/yaml.v3",
+      "version": "v3.0.1",
+      "sum": "h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=",
+      "goModSum": "h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM="
+    }
+  ],
+  "moduleVerification": "all modules verified",
+  "remediation": {
+    "baseModule": "github.com/tphakala/go-flac@v1.1.0",
+    "baseSum": "h1:dyVNPFW+MVLzPvw1n3dEvBHPtKUMbQ5PHWvW/pxQMv0=",
+    "baseCommit": "41022d6b879fd3cc7703facec93e0af94f1b49c5",
+    "patchSha256": "e6cd18f8c9106249f7a0719ddb2c5db7d3a98ec3121666b34fb47a01dd77d17f",
+    "sourceFiles": [
+      {
+        "path": "internal/frame/frame.go",
+        "sha256": "507fc4198e9aaa9df588d1910e3a0dcae9d3f9f8391fabb3e544dd5e07aa01b3"
+      },
+      {
+        "path": "internal/frame/residual_limits_test.go",
+        "sha256": "f75be6fc7e91050a5cc007c1c73d98b2a8e2c6b98902ea5b9affcb2e7d396760"
+      },
+      {
+        "path": "internal/frame/resync.go",
+        "sha256": "4b7caa01296afab94c4846637bdc1b86b98c50575ca2ff867115b665f89cebd3"
+      },
+      {
+        "path": "internal/frame/subframe_encode.go",
+        "sha256": "bdee5466bbe4302875a75b44342da8a1b418bbc085be5a4373339591ba2f3b5b"
+      },
+      {
+        "path": "internal/meta/limits_test.go",
+        "sha256": "63ed905a1c39dbac1e6dc2f8c8116a64092b0417dd2856256e5e6fa99e739473"
+      },
+      {
+        "path": "internal/meta/meta.go",
+        "sha256": "aa5c9b56684e42394187da8ffa7a0440b800a282e5044d5210f431d20f58e8c8"
+      },
+      {
+        "path": "internal/meta/seektable.go",
+        "sha256": "faf6f2e8c6ff56bd25488888c6b400ad1d9dd094cf63bcd98423451f5aa418d2"
+      },
+      {
+        "path": "limits.go",
+        "sha256": "e5d1c56c3a3257df670ec7df9ffd700030603c6377ea4aeaf13f53ce26814004"
+      },
+      {
+        "path": "pcm/decoder.go",
+        "sha256": "0292189726af8d6608f1e15c67b04b0d59bcb6f3036110d7bc048e7d157c0663"
+      },
+      {
+        "path": "pcm/decoder_options.go",
+        "sha256": "9a5fac4fe8ea8277466505abb80d4e813a89dbda800328a700355fc36300614d"
+      },
+      {
+        "path": "pcm/decoder_options_test.go",
+        "sha256": "c1dbc469af3303e195837b348e348c6cee28923fb376d99216068124056e15df"
+      },
+      {
+        "path": "pcm/decoder_validation_test.go",
+        "sha256": "68e4f7bf860b9e28ff8dd35b26b72b8115023c63770ae722fe1158f7258bbac6"
+      },
+      {
+        "path": "pcm/encode_reference_limits_test.go",
+        "sha256": "eb5e7bbfdde8aff4f38c594d489ec048b8dd9be2af8fb3cbf6df5a98b62892c5"
+      }
+    ],
+    "verifiedSourceFiles": 13,
+    "tests": [
+      {
+        "target": "linux/amd64",
+        "command": ["go", "test", "-json", "-count=1", "./..."],
+        "elapsedSeconds": 1.837,
+        "passedPackages": [
+          "github.com/tphakala/go-flac",
+          "github.com/tphakala/go-flac/internal/crc",
+          "github.com/tphakala/go-flac/cmd/wav2flac",
+          "github.com/tphakala/go-flac/internal/rice",
+          "github.com/tphakala/go-flac/internal/meta",
+          "github.com/tphakala/go-flac/internal/bitio",
+          "github.com/tphakala/go-flac/internal/lpc",
+          "github.com/tphakala/go-flac/internal/i32",
+          "github.com/tphakala/go-flac/internal/frame",
+          "github.com/tphakala/go-flac/pcm"
+        ],
+        "passedTestEvents": 1005,
+        "skippedTests": [
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestConformanceSubset"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestConformanceUncommon"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestConformanceFaultyNoPanic"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestReencodeSubsetCorpus"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestCrossValidateLibFLAC"
+          }
+        ],
+        "outputSha256": "9ecddbe3431039250a2b63680054b1db5f94173b3853614a7515736b0da0dc79",
+        "scope": "Full patched upstream suite; installed independent flac required for 128 encoder reference subcases."
+      },
+      {
+        "target": "js/wasm",
+        "command": [
+          "go",
+          "test",
+          "-json",
+          "-count=1",
+          "-exec=env -i <Node> --stack-size=8192 <GOROOT>/lib/wasm/wasm_exec_node.js",
+          "./..."
+        ],
+        "elapsedSeconds": 2.868,
+        "passedPackages": [
+          "github.com/tphakala/go-flac",
+          "github.com/tphakala/go-flac/internal/crc",
+          "github.com/tphakala/go-flac/cmd/wav2flac",
+          "github.com/tphakala/go-flac/internal/meta",
+          "github.com/tphakala/go-flac/internal/rice",
+          "github.com/tphakala/go-flac/internal/bitio",
+          "github.com/tphakala/go-flac/internal/lpc",
+          "github.com/tphakala/go-flac/internal/frame",
+          "github.com/tphakala/go-flac/internal/i32",
+          "github.com/tphakala/go-flac/pcm"
+        ],
+        "passedTestEvents": 849,
+        "skippedTests": [
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestConformanceSubset"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestConformanceUncommon"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestConformanceFaultyNoPanic"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestReencodeSubsetCorpus"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestWideEncodeValidatedByFlac"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestWideFlacDecodedByOurs"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestEncodeCrossValidateLibFLAC"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestNonSeekableCrossValidateNoIncrementWarning"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestLibFLACSeekTableInterop"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestCrossValidateLibFLAC"
+          },
+          {
+            "package": "github.com/tphakala/go-flac/pcm",
+            "test": "TestEncodeWideResidualLimitsReference"
+          }
+        ],
+        "outputSha256": "932a970fd417b8da512523a3365cbb5e8e3ba9e7887ed3e845152d702a4caf76",
+        "scope": "Full patched upstream suite in Node; native subprocess reference test explicitly skipped."
+      }
+    ],
+    "scope": "Local evaluation patch only; not an upstream release or product dependency. Base grants and graph above describe the verified archive."
+  },
+  "nativeProbes": [
+    {
+      "name": "valid",
+      "bytes": 16388,
+      "error": "",
+      "allocatedBytes": 58592
+    },
+    {
+      "name": "declared-0-md5",
+      "bytes": 16388,
+      "error": "",
+      "allocatedBytes": 58608
+    },
+    {
+      "name": "declared-0-zero-md5",
+      "bytes": 16388,
+      "error": "",
+      "allocatedBytes": 58592
+    },
+    {
+      "name": "declared-1-md5",
+      "bytes": 0,
+      "error": "go-flac/pcm: sample count exceeds STREAMINFO: go-flac: unsupported or reserved bitstream value",
+      "allocatedBytes": 44488
+    },
+    {
+      "name": "declared-1-zero-md5",
+      "bytes": 0,
+      "error": "go-flac/pcm: sample count exceeds STREAMINFO: go-flac: unsupported or reserved bitstream value",
+      "allocatedBytes": 44120
+    },
+    {
+      "name": "declared-4098-md5",
+      "bytes": 16388,
+      "error": "go-flac: truncated stream",
+      "allocatedBytes": 58576
+    },
+    {
+      "name": "declared-4098-zero-md5",
+      "bytes": 16388,
+      "error": "go-flac: truncated stream",
+      "allocatedBytes": 58576
+    },
+    {
+      "name": "declared-68719476735-md5",
+      "bytes": 16388,
+      "error": "go-flac: truncated stream",
+      "allocatedBytes": 58576
+    },
+    {
+      "name": "declared-68719476735-zero-md5",
+      "bytes": 16388,
+      "error": "go-flac: truncated stream",
+      "allocatedBytes": 58576
+    },
+    {
+      "name": "bad-md5",
+      "bytes": 16388,
+      "error": "go-flac: MD5 mismatch",
+      "allocatedBytes": 58592
+    },
+    {
+      "name": "bad-frame-crc",
+      "bytes": 16384,
+      "error": "frame: CRC-16 0x8a84 != 0x8a85: go-flac: CRC mismatch",
+      "allocatedBytes": 60808
+    },
+    {
+      "name": "truncated-audio",
+      "bytes": 16384,
+      "error": "go-flac: truncated stream: unexpected EOF",
+      "allocatedBytes": 60840
+    },
+    {
+      "name": "truncated-metadata",
+      "bytes": 0,
+      "error": "unexpected EOF",
+      "allocatedBytes": 9376
+    },
+    {
+      "name": "truncated-max-seektable",
+      "bytes": 0,
+      "error": "meta: metadata exceeds byte limit: go-flac: resource limit exceeded",
+      "allocatedBytes": 11640
+    },
+    {
+      "name": "truncated-max-divisible-seektable",
+      "bytes": 0,
+      "error": "meta: metadata exceeds byte limit: go-flac: resource limit exceeded",
+      "allocatedBytes": 11288
+    },
+    {
+      "name": "truncated-divisible-seektable-within-budget",
+      "bytes": 0,
+      "error": "unexpected EOF",
+      "allocatedBytes": 9376
+    },
+    {
+      "name": "declared-mono-stereo-frames",
+      "bytes": 0,
+      "error": "frame: changing audio properties unsupported by fixed PCM decoder: go-flac: unsupported or reserved bitstream value",
+      "allocatedBytes": 11784
+    },
+    {
+      "name": "declared-44100-48000-frames",
+      "bytes": 0,
+      "error": "frame: changing audio properties unsupported by fixed PCM decoder: go-flac: unsupported or reserved bitstream value",
+      "allocatedBytes": 11784
+    },
+    {
+      "name": "declared-24bit-16bit-frames-zero-md5",
+      "bytes": 0,
+      "error": "frame: changing audio properties unsupported by fixed PCM decoder: go-flac: unsupported or reserved bitstream value",
+      "allocatedBytes": 11336
+    }
+  ],
+  "wasmProbes": [
+    {
+      "name": "valid",
+      "bytes": 16388,
+      "error": "",
+      "allocatedBytes": 58592
+    },
+    {
+      "name": "declared-0-md5",
+      "bytes": 16388,
+      "error": "",
+      "allocatedBytes": 58592
+    },
+    {
+      "name": "declared-0-zero-md5",
+      "bytes": 16388,
+      "error": "",
+      "allocatedBytes": 58576
+    },
+    {
+      "name": "declared-1-md5",
+      "bytes": 0,
+      "error": "go-flac/pcm: sample count exceeds STREAMINFO: go-flac: unsupported or reserved bitstream value",
+      "allocatedBytes": 42648
+    },
+    {
+      "name": "declared-1-zero-md5",
+      "bytes": 0,
+      "error": "go-flac/pcm: sample count exceeds STREAMINFO: go-flac: unsupported or reserved bitstream value",
+      "allocatedBytes": 42456
+    },
+    {
+      "name": "declared-4098-md5",
+      "bytes": 16388,
+      "error": "go-flac: truncated stream",
+      "allocatedBytes": 58576
+    },
+    {
+      "name": "declared-4098-zero-md5",
+      "bytes": 16388,
+      "error": "go-flac: truncated stream",
+      "allocatedBytes": 58576
+    },
+    {
+      "name": "declared-68719476735-md5",
+      "bytes": 16388,
+      "error": "go-flac: truncated stream",
+      "allocatedBytes": 58576
+    },
+    {
+      "name": "declared-68719476735-zero-md5",
+      "bytes": 16388,
+      "error": "go-flac: truncated stream",
+      "allocatedBytes": 58576
+    },
+    {
+      "name": "bad-md5",
+      "bytes": 16388,
+      "error": "go-flac: MD5 mismatch",
+      "allocatedBytes": 58592
+    },
+    {
+      "name": "bad-frame-crc",
+      "bytes": 16384,
+      "error": "frame: CRC-16 0x8a84 != 0x8a85: go-flac: CRC mismatch",
+      "allocatedBytes": 59144
+    },
+    {
+      "name": "truncated-audio",
+      "bytes": 16384,
+      "error": "go-flac: truncated stream: unexpected EOF",
+      "allocatedBytes": 58872
+    },
+    {
+      "name": "truncated-metadata",
+      "bytes": 0,
+      "error": "unexpected EOF",
+      "allocatedBytes": 9376
+    },
+    {
+      "name": "truncated-max-seektable",
+      "bytes": 0,
+      "error": "meta: metadata exceeds byte limit: go-flac: resource limit exceeded",
+      "allocatedBytes": 9976
+    },
+    {
+      "name": "truncated-max-divisible-seektable",
+      "bytes": 0,
+      "error": "meta: metadata exceeds byte limit: go-flac: resource limit exceeded",
+      "allocatedBytes": 9624
+    },
+    {
+      "name": "truncated-divisible-seektable-within-budget",
+      "bytes": 0,
+      "error": "unexpected EOF",
+      "allocatedBytes": 9376
+    },
+    {
+      "name": "declared-mono-stereo-frames",
+      "bytes": 0,
+      "error": "frame: changing audio properties unsupported by fixed PCM decoder: go-flac: unsupported or reserved bitstream value",
+      "allocatedBytes": 10120
+    },
+    {
+      "name": "declared-44100-48000-frames",
+      "bytes": 0,
+      "error": "frame: changing audio properties unsupported by fixed PCM decoder: go-flac: unsupported or reserved bitstream value",
+      "allocatedBytes": 9672
+    },
+    {
+      "name": "declared-24bit-16bit-frames-zero-md5",
+      "bytes": 0,
+      "error": "frame: changing audio properties unsupported by fixed PCM decoder: go-flac: unsupported or reserved bitstream value",
+      "allocatedBytes": 9672
+    }
+  ],
+  "nativeWasmBehaviorMatches": true,
+  "remediationControlsPass": true,
+  "reference": "flac 1.4.3",
+  "decision": "Local remediation passes this limited probe. Do not adopt: no audited upstream tag; provenance, full corpus, editor storage/performance and platform acceptance remain open."
+}

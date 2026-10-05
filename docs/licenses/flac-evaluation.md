@@ -8,6 +8,10 @@ allocates a large metadata buffer before detecting a tiny truncated input.
 Independent decoders also reject some of its advertised 32-bit output. The
 product's codec dependencies and strict license policy remain unchanged.
 
+The [local remediation increment](flac-remediation.md) retains fixes and
+regressions against this exact archive. It does not change these historical
+v1.1.0 findings or establish an audited upstream release.
+
 The [machine-readable evidence](../benchmarks/flac-evaluation-2026-10-06.json)
 records module/grant hashes, per-target module reach, all malformed probes and
 each failed independent comparison. This completes an initial feasibility
@@ -16,8 +20,8 @@ in the [replacement plan](go-replacements.md#flac-evaluate-a-tagged-mit-implemen
 
 ## Reproduction and isolation
 
-Run `just evaluate-flac` with Go tooling, Node and `flac` available. The optional
-second decoder is `ffmpeg`. To retain a new report:
+Run `just evaluate-flac` on Linux amd64 with Go tooling, Node and `flac`
+available. The optional second decoder is `ffmpeg`. To retain a new report:
 
 ```sh
 just --command node scripts/flac-evaluation.mjs --output /tmp/flac-evaluation.json
@@ -133,6 +137,11 @@ but the editor must reserve them before allocation and cannot trust STREAMINFO
 to bound a disagreeing actual frame. The packed PCM API hides actual per-frame
 rate/depth/channels, preventing the current adapter's direct per-frame checks.
 Source inspection of `pcm/decoder.go:finish` explains the count/MD5 split.
+
+Changing some audio properties is permitted by RFC 9639 Appendix C.8. The
+property-change findings above identify incompatibility with this fixed-format
+packed PCM API and the editor adapter; they do not classify every such stream
+as malformed. The remediation rejects unsupported changes explicitly.
 
 ## Required next steps
 

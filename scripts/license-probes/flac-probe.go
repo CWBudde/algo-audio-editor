@@ -177,6 +177,18 @@ func probe() error {
 	buf[4] &= 0x7f
 	buf = append(buf, 0x83, 0xff, 0xff, 0xff)
 	check("truncated-max-seektable", buf)
+	// Largest 24-bit length divisible by an 18-byte seek point: exercise the
+	// metadata budget rather than relying on divisibility rejection alone.
+	buf = bytes.Clone(data[:42])
+	buf[4] &= 0x7f
+	buf = append(buf, 0x83, 0xff, 0xff, 0xf6)
+	check("truncated-max-divisible-seektable", buf)
+	// This divisible table fits the default metadata ceiling, so a missing body
+	// reaches incremental entry reading without a length-sized allocation.
+	buf = bytes.Clone(data[:42])
+	buf[4] &= 0x7f
+	buf = append(buf, 0x83, 0x0f, 0xff, 0xfc)
+	check("truncated-divisible-seektable-within-budget", buf)
 	buf = bytes.Clone(data)
 	field := binary.BigEndian.Uint64(buf[18:26])
 	field = field &^ (uint64(7) << 41)
