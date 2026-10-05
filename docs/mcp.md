@@ -275,7 +275,8 @@ from the kernel ABI.
 The server offers `mastering_check`, `podcast_cleanup` and `batch_convert`
 prompts. They guide inspection, schema discovery and explicit output choices;
 they do not automatically execute operations. HTTP transport and editing
-the running Electron session remain Phase 14 work.
+the running Electron session remain Phase 22 work. Native Windows/macOS batch
+execution acceptance remains Phase 21.
 
 `just test-go` exercises actual MCP client/server messages in memory and a
 native stdio child process. Tests cover golden advertised schemas, descriptor

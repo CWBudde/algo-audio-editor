@@ -50,7 +50,7 @@ Audio launch arguments, macOS open-file events, and second-instance arguments us
 the existing window. OS requests wait while a modal or document operation is
 active. Successfully imported native files are added to Windows/macOS recent documents
 through Electron's API. Linux has no equivalent Electron recent-document list;
-the application's own recent-file persistence remains Phase 6.
+the application's own recent-file persistence remains Phase 17.
 Opening a new file over dirty audio asks whether to discard or cancel.
 
 Normal window bounds and maximized state persist in `userData/window-state.json`.
@@ -60,7 +60,7 @@ acknowledgement; cancelled or failed saves keep the window open. Active document
 operations and previews must finish or cancel before closing. Extracted-channel
 windows get the same native services and independent close protection.
 
-Installers advertise WAV, FLAC, AIFF/AIFC and MP3 associations. `.aaep` associations wait for project support. Browser-dependent codec formats are available through Open without advertising installer associations. Projects and crash recovery remain Phase 6;
+Installers advertise WAV, FLAC, AIFF/AIFC and MP3 associations. `.aaep` associations wait for Phase 17 project support. Browser-dependent codec formats are available through Open without advertising installer associations. Projects and crash recovery remain Phase 17;
 the close guard does not provide autosave.
 
 ## App icons
@@ -80,7 +80,7 @@ checked-in files and do not require ImageMagick.
 
 ## Local packaging
 
-Use Go >=1.25, Node.js >=24 and Bun >=1.4.2. The Bun version matters for the
+Use Go >=1.25 with the module's pinned Go 1.26.8 toolchain, Node.js >=24 and Bun >=1.4.2. The Bun version matters for the
 workspace's version-2 lockfile. The WASM builder uses native Node path handling
 so the same `just build` recipe works with Windows paths.
 
@@ -128,7 +128,9 @@ are no renderer-supplied feeds, automatic downloads, or development update check
 
 The tag-triggered `desktop-release.yml` builds on Linux, Windows and macOS, uploads
 installer artifacts, and publishes the complete platform set to the tag's GitHub
-release only after every build succeeds. `workflow_dispatch` produces reviewable
+release only after every build succeeds. A tag must resolve to a commit on `main`
+with a successful CI run for that exact commit. `workflow_dispatch` also requires
+successful CI for its commit and produces reviewable
 build artifacts without publishing. Update metadata (`latest*.yml`),
 blockmaps and the macOS zip must accompany the installers. The workflow uses
 `GITHUB_TOKEN` for the final GitHub release upload; no token is embedded in the app.
@@ -149,7 +151,8 @@ requires a separately configured signing key and release policy. macOS signing,
 notarization/stapling, Windows installation/signature verification, Linux package
 signature policy, and an actual old-version-to-new-version update on each OS are
 still release acceptance work. No signed release or update installation was
-performed during Phase 9 implementation.
+performed during Phase 9 implementation. These installed-platform checks remain
+Phase 19; dependency license approval and third-party notices remain Phase 23.
 
 Primary references: [Electron IPC security](https://www.electronjs.org/docs/latest/tutorial/security),
 [permission handlers](https://www.electronjs.org/docs/latest/api/session),

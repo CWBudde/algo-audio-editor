@@ -1,9 +1,10 @@
 # algo-audio-editor
 
 An audio editor that runs in the browser and as a desktop app. All sample
-processing (editing, effects and analysis) happens in a **Go kernel compiled to
-WebAssembly** on top of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp)
-family. Portable codecs run in Go; browser codec APIs extend format support.
+processing (editing, effects and analysis) happens in a **Go kernel**, compiled
+to WebAssembly for the editor and natively for the CLI and MCP server, on top
+of the [`algo-dsp`](https://github.com/cwbudde/algo-dsp) family. Portable codecs
+run in Go; browser codec APIs extend format support.
 The UI is **React + TypeScript + shadcn**.
 
 [Try it in your browser](https://cwbudde.github.io/algo-audio-editor/) ·
@@ -15,7 +16,7 @@ See the [browser support matrix and deployment details](docs/web-deployment.md#b
 
 ![The browser editor displaying the bundled stereo demo](docs/images/editor-demo.png)
 
-> **Status:** WAV editing, processing, effects and analysis described in [PLAN.md](PLAN.md): WAV import/export,
+> **Status:** Editing, processing, effects and analysis described in [PLAN.md](PLAN.md): WAV import/export,
 > interactive waveforms, playback, channel-aware selections and editing in the
 > browser and Electron, with undo/redo, persistent markers/regions, save-point
 > tracking, shared commands and a searchable command palette. Processing includes
@@ -44,8 +45,9 @@ AudioWorklet "playback"  ◀──── SharedArrayBuffer ring buffer
 
 ## Getting started
 
-Requirements: Go ≥ 1.25, [Bun](https://bun.sh) ≥ 1.4.2, Node.js ≥ 24, [just](https://just.systems),
-and for formatting `treefmt`, `gofumpt`, `gci` and `shfmt`.
+Requirements: Go ≥ 1.25 (the kernel module selects toolchain 1.26.8),
+[Bun](https://bun.sh) ≥ 1.4.2, Node.js ≥ 24, [just](https://just.systems), and
+for formatting `treefmt`, `gofumpt`, `gci` and `shfmt`.
 
 ```bash
 just install          # dependencies, Electron binary, git hooks
@@ -57,7 +59,7 @@ just desktop-package  # local installers, no publishing
 
 Desktop menus, file dialogs, close protection and packaging are described in
 [docs/desktop.md](docs/desktop.md). WAV, FLAC, AIFF/AIFC and MP3 associations are
-enabled; editor projects and crash recovery remain Phase 6 work.
+enabled; editor projects and crash recovery remain [Phase 17 work](PLAN.md).
 
 `just native-build` builds the headless `aae` CLI and `aae-mcp` stdio server.
 They share the kernel's processing and undo history, with explicit output
@@ -80,9 +82,9 @@ laptop. For native CPU profiling, pass an existing absolute temporary-directory
 path to `just bench-import-profile`; it stores the test binary and CPU profile
 there and prints the import hotspots.
 
-`just bench-process-browser` measures ten-minute stereo gain through the actual
-Apply dialog, yielded worker job, atomic commit and redrawn waveforms. Run this
-hardware-dependent <1 s gate in isolation too. `just bench-process` and
+`just bench-process-browser` runs the 32-case ten-minute processing matrix through
+the actual Apply dialogs, yielded worker jobs, atomic commit and redrawn waveforms.
+Run these hardware-dependent <1 s gates in isolation too. `just bench-process` and
 `just bench-process-wasm` isolate native and WASM kernel processing costs.
 
 ## Selecting audio
@@ -129,7 +131,7 @@ rejects the open without changing the current document. File → File metadata�
 edits standard INFO tags through undoable history. Whole-document WAV Save/Export
 also retains broadcast and opaque chunks plus surviving cue notes/locale fields.
 See [codec metadata limits](docs/codecs.md#wav-metadata); MP3/FLAC tag mapping remains
-Phase 6 work.
+Phase 16 work.
 
 Export CSV includes IDs, names, colors, exact frames and seconds. Export labels
 writes Audacity-style start/end seconds and names; names containing tabs or
@@ -156,10 +158,11 @@ Paste asks before changing the clipboard's sample rate or channel count. Rate
 conversion uses the kernel's sinc resampler. Channel expansion repeats source
 channels cyclically; reduction averages source channels folded cyclically into
 the targets (mono is repeated; downmix to mono averages every source channel).
-The original clipboard is preserved. Conversion bounds new sample storage to
-512 MiB and filter workspace to 64 MiB. Mix also bounds newly written samples
-to 512 MiB; same-format structural pastes do not have that materialization
-limit. Copy keeps playback running; audio-changing edits
+The original clipboard is preserved. Conversion and Mix must fit the kernel's
+shared 3 GiB storage ceiling together with the document, history, clipboard and
+other retained buffers; resampler workspace is additionally bounded to 64 MiB.
+Same-format insert/replace shares blocks and reserves storage for copied edges
+and bookkeeping. Copy keeps playback running; audio-changing edits
 stop it. Commands wait until pointer selection and snapping are complete.
 
 All-channel ripple edits shift annotations with the audio. Deleted points and
@@ -183,16 +186,18 @@ Long jobs show progress and yield between bounded kernel chunks so Cancel can
 discard their private output. The dialog holds the shared document lock until
 Apply or Cancel completes. Samples above full scale are not clipped by gain;
 a predicted-peak/nonfinite warning requires a separate Apply anyway action.
-New selected-channel samples are bounded to 512 MiB, and committing must also
-fit the undo-history budget.
+Private output, peak/block overhead and undo state must fit the shared kernel
+storage budget; jobs reserve their candidate storage before processing starts.
 
 ## Effects
 
 Choose an effect or **Effect rack…** from the Effects menu or command palette.
 The rack targets selected frames and channels; a cursor targets the whole file.
 Add, remove or reorder effects, adjust their generated controls, or choose a
-factory preset. EQ curves and dynamics transfer curves are computed by the
-kernel; click an EQ curve to adjust its nearest band.
+factory preset. Numeric parameters use knobs with editable values and units.
+EQ curves and dynamics transfer curves are computed by the kernel; drag an EQ
+band to adjust frequency and gain, or right-click a band to choose its filter
+type. Keyboard controls provide the same adjustments.
 
 Preview loops the selection with live parameter changes, rack/effect bypass,
 wet/dry balance and input/output peak/RMS meters. Apply renders the final rack
@@ -257,18 +262,23 @@ after undo discards the redo branch. Copy, selection changes and unchanged
 annotation updates do not create history steps.
 
 History retains up to 100 edits plus their base state, sharing unchanged audio
-blocks. Its unique sample/peak budget is the greater of 512 MiB and twice the
-opened document's storage. Oldest undo states are evicted when needed; an edit
-that cannot retain even its immediate undo pair is rejected unchanged. The
-panel shows retained audio storage; block-list and runtime overhead are not
-included. Keep a separate original for work that must outlive this session.
+blocks. The kernel has a shared 3 GiB storage ceiling for unique samples/peaks,
+conservative block/reference overhead, the clipboard, effect resources, bulk
+buffers and processing reservations. History evicts old states at its entry or
+byte limits; allocation preflights can reject an edit earlier when the shared
+budget is exhausted. Rejected edits leave the current document unchanged. The
+history panel shows retained sample/peak bytes, excluding bookkeeping and other
+kernel buffers. Keep a separate original for work that must outlive this session.
 
 The history summary and an asterisk in the window title indicate unsaved document
 changes. Save marks only the successfully written history state as saved;
 undo/redo back to that state becomes clean, while export alone does not. With
 File System Access, the write and close must succeed. The download fallback
 can observe only handoff to the browser, not disk completion or cancellation.
-Opening another file resets history. Unsaved-close prompts remain Phase 9.
+Opening another file resets history. Electron protects dirty documents with
+Save, Discard or Cancel when closing and asks before replacing them on Open;
+cancelled or failed saves keep the window open. Browser tabs do not yet have
+that native close flow. Projects, autosave and crash recovery remain Phase 17.
 
 ## Commands and shortcuts
 
@@ -288,12 +298,21 @@ the planned shortcut editor is deferred.
 
 ## Repository layout
 
-| Path                | Contents                                         |
-| ------------------- | ------------------------------------------------ |
-| `packages/kernel`   | Go kernel (WASM entry point, engine, protocol)   |
-| `packages/protocol` | TypeScript types for the kernel ABI              |
-| `apps/editor-web`   | React web app                                    |
-| `apps/desktop`      | Electron shell                                   |
+| Path | Contents |
+| --- | --- |
+| `packages/kernel` | Platform-independent Go engine/storage/history/DSP adapters, WASM bridge, native CLI and MCP server |
+| `packages/protocol` | TypeScript mirror of the kernel ABI |
+| `apps/editor-web` | React web app, worker RPC and audio transport |
+| `apps/desktop` | Electron shell, native capabilities and package hardening |
+| `docs/` | Feature/platform guides and benchmark evidence |
+
+See [AGENTS.md](AGENTS.md#layout) for package responsibilities. Run `just check`
+for the fast local gate or `just ci` for the CI test suite (Electron needs a
+display; use Xvfb on headless Linux). Contributor PRs should pass the `CI`
+workflow. Hardware timing, live deployment and installed Windows/macOS checks
+are separate acceptance gates tracked in [PLAN.md](PLAN.md).
+See [the contribution and release process](docs/releasing.md) for commit,
+verification and first-release requirements.
 
 ## License
 

@@ -5,27 +5,43 @@ Guidance for coding agents (Claude Code and others) working in this repository.
 ## Project Overview
 
 `algo-audio-editor` is a full audio editor that runs in the browser and as an
-Electron desktop app. The UI is React + TypeScript; **all audio work happens in
-a Go kernel compiled to WebAssembly**, built on the `github.com/cwbudde/algo-*`
-DSP family (mainly `algo-dsp` and `wav`).
+Electron desktop app, with native CLI and MCP adapters. The UI is React +
+TypeScript; **all audio work happens in a Go kernel**, compiled to WebAssembly
+for the editor and natively for automation. It builds on the
+`github.com/cwbudde/algo-*` DSP family and tagged codec libraries.
 
 The roadmap and its current state live in [PLAN.md](PLAN.md). Read its
 Architecture Summary before changing anything structural.
 
 ## Layout
 
-| Path                 | What                                                                         |
-| -------------------- | ---------------------------------------------------------------------------- |
-| `packages/kernel`    | Go module `github.com/cwbudde/algo-audio-editor/packages/kernel`              |
-| `  cmd/kernel`       | `js && wasm` entry point: the `syscall/js` bridge, nothing else               |
-| `  internal/engine`  | All kernel state and protocol methods; pure Go, tested natively              |
-| `  internal/protocol`| ABI: method names, payloads, response envelope                               |
-| `packages/protocol`  | TypeScript mirror of `internal/protocol` (consumed via path alias, no build) |
-| `apps/editor-web`    | Vite + React 19 + Tailwind v4 + shadcn (Base UI)                              |
-| `  src/kernel`       | Kernel worker, RPC client, runtime singleton                                 |
-| `  src/audio`        | SAB ring buffer, playback worklet, AudioEngine                               |
-| `  src/components/ui`| shadcn-generated components; leave as generated, add via `bunx shadcn add`   |
-| `apps/desktop`       | Electron main + preload; serves `editor-web/dist` over `app://`              |
+Kernel paths below are relative to `packages/kernel/`; web paths are relative
+to `apps/editor-web/`.
+
+| Path | What |
+| --- | --- |
+| `packages/kernel` | Go module `github.com/cwbudde/algo-audio-editor/packages/kernel` |
+| `cmd/kernel` | `js && wasm` entry point: the `syscall/js` bridge |
+| `cmd/aae`, `cmd/aae-mcp` | Native CLI and stdio MCP entry points |
+| `internal/engine` | Engine coordinator, document/transport/history/job/analysis/effect state and strict protocol dispatch; platform-independent Go |
+| `internal/audiobuf` | Immutable planar blocks, shared timeline/window views, peak pyramids and block inventories |
+| `internal/ops` | Immutable edits, clipboard and annotation timeline transforms |
+| `internal/history` | Undo/save-point snapshots and incremental accounting of shared storage |
+| `internal/process` | Bounded, cancellable output builders and adapters to upstream DSP |
+| `internal/effects` | Upstream effectchain graph, resource, preview and offline-job adapters |
+| `internal/memory` | Shared kernel storage ceiling; the engine owns available capacity |
+| `internal/automation` | Native file permissions, operation-chain runner and CLI/batch routing |
+| `internal/mcpserver` | Native MCP tools, schemas and inspection resources over the same engine |
+| `internal/buildinfo` | Version/time metadata stamped by `scripts/build-wasm.mjs` |
+| `internal/protocol` | ABI method names, payloads and response envelope |
+| `packages/protocol` | TypeScript ABI mirror (consumed via path alias, no build) |
+| `apps/editor-web` | Vite + React 19 + Tailwind v4 + shadcn (Base UI) |
+| `src/kernel` | Kernel worker, RPC client, runtime singleton and operation-chain runner |
+| `src/audio` | SAB ring buffer, playback worklet and AudioEngine |
+| `src/components/ui` | shadcn-generated components; leave as generated, add via `just --command bunx shadcn add` |
+| `apps/desktop` | Electron main/preload, `app://` resource handling, native capabilities and packaging hardening |
+| `docs/` | Codec, desktop, deployment, restoration and MCP guides; benchmark reports in `docs/benchmarks/` |
+| `.github/workflows`, `scripts/` | CI/release/deployment jobs, portable builders and dependency/release guards |
 
 ## Commands
 
@@ -48,10 +64,14 @@ just e2e-desktop    # Playwright driving Electron (needs a display)
 just lint           # golangci-lint, go vet (js/wasm), biome, typecheck
 just fmt            # treefmt: gofumpt, gci, biome, shfmt
 just check          # fast local gate: format, lint, unit tests, build
-just ci             # everything CI runs, incl. WASM tests, fuzz smoke and all e2e
+just ci             # CI test gates, incl. WASM/fuzz, browser/Pages/Electron e2e
 ```
 
 Vitest must run one-shot (`vitest run`); watch mode is blocked by a local hook.
+`just ci` includes the Linux packaged Electron smoke and needs a display
+(`xvfb-run --auto-servernum just ci` on headless Linux). Hardware timing, live
+Pages, external EBU/large-file fixtures and installed Windows/macOS acceptance
+are separate opt-in checks; a successful local gate does not claim those passed.
 
 ## Architecture rules (critical)
 
@@ -71,7 +91,7 @@ Vitest must run one-shot (`vitest run`); watch mode is blocked by a local hook.
    boundary as transferable `ArrayBuffer`s or through the SAB.
 5. **`internal/engine` stays platform-independent.** Anything touching
    `syscall/js` lives in `cmd/kernel`, so the engine is testable with plain
-   `go test` and reusable for the Phase 12 native CLI.
+   `go test` and shared by the native CLI and MCP server.
 6. **Missing DSP goes upstream.** If the kernel needs an algorithm that belongs
    in `algo-dsp` (fades, STFT, true peak, noise reduction…), implement it there
    with tests, tag a release there, then bump it here. No DSP copies in this
@@ -95,6 +115,18 @@ Vitest must run one-shot (`vitest run`); watch mode is blocked by a local hook.
 - Conventional commits; technical writing in English.
 - Mark finished PLAN.md items `[x]` and rewrite them to say what was actually
   done (files, functions, regression test).
+
+## Changes and verification
+
+Keep commits focused, with bodies describing the behavior and meaningful
+validation. Contributor PRs should have a green `CI` workflow before merging;
+follow an explicit user instruction to commit directly to `main` when provided.
+Report the actual checks run, including skipped platform or hardware gates;
+place detailed timing evidence in `docs/benchmarks/` and link it from PLAN.md.
+Release tags additionally require the roadmap's release prerequisites and the
+signed/installed platform acceptance in `docs/desktop.md`.
+See [docs/releasing.md](docs/releasing.md) for publishing gates and remaining
+first-release requirements.
 
 ## The algo-* family: releasing, and not drifting
 
