@@ -28,7 +28,7 @@
 
 Completed implementation is summarized below. Unfinished acceptance, platform and feature work has moved to explicit follow-up phases; **COMPLETE applies to the scope stated in each summary**, not to its follow-up. Open requirements and partial-progress evidence are retained. Detailed completed-phase history is available in Git at `9de516f:PLAN.md`; old test counts and dependency versions describe those historical runs, not the current build.
 
-**Next review work:** R.8–R.10; R.1 still has CI/lint follow-ups. Feature phases remain separately schedulable, with Electron permission hardening in R.9 required before recording.
+**Next review work:** R.9–R.10; R.1 still has CI/lint follow-ups. Feature phases remain separately schedulable, with Electron permission hardening in R.9 required before recording.
 
 | Previous location | Remaining work | New location |
 | --- | --- | --- |
@@ -148,6 +148,12 @@ Phase IDs 0–14 and U remain as historical implementation references. Review ID
 
 - [x] Shared kernel-session/job lifetime guards, extracted App/waveform modules, isolated stats/meters polling, bounded follow updates and stable command/layout callbacks. Completed peaks/pixels remain visible while replacements load; hook/component/production regressions cover stale sessions, render counts and delayed pan/zoom.
 - [x] Lazy dialogs/React chunk, hashed pinned Binaryen-optimized WASM and raw/gzip budgets gate every production build/CI. Typed `process-probe.ts` supports benchmark wire observation with unit tests. Frontend, lint/type/format/workflow and optimized build/budget checks, focused Chromium/Pages and Electron smoke pass; hardware timing gates and full CI were not run for this review section.
+
+### R.8: Accessibility — COMPLETE (2026-10-05)
+
+- [x] Focusable, labeled waveform groups in `waveform-view.tsx` expose Left/Right cursor movement, stable Shift selection anchors and Home/End jumps. `use-waveform-keyboard.ts` preserves channel masks, reveals the moving endpoint and fences modifiers, composition, busy states and pointer previews; geometry/component and production browser/Electron regressions cover crossings, bounds, shortcut ownership and unchanged audio/history.
+- [x] Selection edges are labeled horizontal sliders with exact frame/second values, allowed bounds, Shift acceleration and one-/ten-second Page steps. Handles retain focus at collapsed ranges; `use-keyboard-selection.ts` coalesces selection/seek writes for 80 ms and flushes on keyup/blur. Live selection/preview ownership guards prevent stale document, session, pointer and numeric updates; fake-timer/deferred-reply and actual shell tests pass. Controls are documented in README.
+- [x] Frontend unit checks, web/desktop lint and type checks, formatting, production size budgets, all 149 Chromium cases and eight focused Electron cases pass. Kernel ABI 18 is unchanged; full CI and hardware timing gates were not run for this frontend change.
 
 ---
 
@@ -394,7 +400,7 @@ Phase IDs 0–14 and U remain as historical implementation references. Review ID
 
 ## Phase R: Review Remediation (2026-10-04)
 
-**Source:** the full-repo review in [docs/REVIEW-2026-10-04.md](docs/REVIEW-2026-10-04.md) (overall 5.5/10, CI/CD 2/10). Findings, severities and `file:line` evidence live there; each item here is one actionable line. Keep the review IDs stable. R.1 established working CI, but its remaining lint/flake tasks stay open; R.5 kernel implementation is complete; R.8–R.10 are next. Completed R.2–R.4/R.6–R.7 are summarized above.
+**Source:** the full-repo review in [docs/REVIEW-2026-10-04.md](docs/REVIEW-2026-10-04.md) (overall 5.5/10, CI/CD 2/10). Findings, severities and `file:line` evidence live there; each item here is one actionable line. Keep the review IDs stable. R.1 established working CI, but its remaining lint/flake tasks stay open; R.9–R.10 are next. Completed R.2–R.8 are summarized above.
 
 ### R.1 Make CI truthful (critical) — PARTIAL
 
@@ -418,11 +424,6 @@ Phase IDs 0–14 and U remain as historical implementation references. Review ID
 - [ ] Investigate the historical short-file EOF/device-clock snapshot concern from Phase 3.3: one parallel browser run reported frame 13 instead of 31; both the initial parallel and final serial 101-case sweeps passed the original assertions. The tentative snapshot-race explanation was not confirmed because the trace was cleaned. Product cursor code/assertions were unchanged; historical logs were `/tmp/phase33-browser.log` and `/tmp/phase33-transport.log` (temporary paths, not durable artifacts).
 
 ---
-
-### R.8 Accessibility
-
-- [ ] Keyboard cursor and selection on the waveform surface (arrow keys move the cursor, Shift extends the selection, Home/End jump)
-- [ ] Selection edge handles as `role="slider"` with `aria-valuenow`, Shift/PageUp acceleration and debounced `selection.set`/seek RPCs
 
 ### R.9 Electron hardening
 

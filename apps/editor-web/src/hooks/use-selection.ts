@@ -227,6 +227,18 @@ export function useSelection(
     session.revision++;
     refresh();
   }, [session]);
+  // A controller may cancel only the preview it owns, even when another input
+  // changes the session before React has rendered its next snapshot.
+  const isPreview = useCallback(
+    (selection?: SelectionRange) =>
+      session.active &&
+      session.previewing &&
+      (selection === undefined || session.selection === selection),
+    [session],
+  );
+  // Event sequences can preview or commit twice before React paints again.
+  // Treat the returned range as immutable, like the rendered selection.
+  const getSelection = useCallback(() => session.selection, [session]);
   const snap = useCallback(
     async (frame: number, radius: number, channelMask: number) => {
       if (!session.active || !client) return undefined;
@@ -352,6 +364,8 @@ export function useSelection(
     error: session.error,
     preview,
     cancelPreview,
+    isPreview,
+    getSelection,
     commit,
     snap,
     addAnchor,

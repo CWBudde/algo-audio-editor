@@ -97,6 +97,30 @@ afterEach(() => {
 });
 
 describe("useSelection", () => {
+  it("checks live preview ownership before a rerender and expires it on commit or cancellation", () => {
+    const { result } = mounted();
+    const first = { start: 10, end: 20, channelMask: 1 };
+    const second = { ...first };
+    act(() => {
+      result.current.preview(first);
+      expect(result.current.getSelection()).toBe(first);
+      expect(result.current.isPreview()).toBe(true);
+      expect(result.current.isPreview(first)).toBe(true);
+      expect(result.current.isPreview(second)).toBe(false);
+      result.current.preview(second);
+      expect(result.current.getSelection()).toBe(second);
+      expect(result.current.isPreview(first)).toBe(false);
+      expect(result.current.isPreview(second)).toBe(true);
+      result.current.commit(second);
+      expect(result.current.getSelection()).toBe(second);
+      expect(result.current.isPreview()).toBe(false);
+      expect(result.current.isPreview(second)).toBe(false);
+      result.current.preview(first);
+      result.current.cancelPreview();
+      expect(result.current.getSelection()).toBe(second);
+      expect(result.current.isPreview(first)).toBe(false);
+    });
+  });
   const seeded: SelectionSeed = {
     selection: { ...initial, start: 100, end: 200, channelMask: 2 },
     timeline: {

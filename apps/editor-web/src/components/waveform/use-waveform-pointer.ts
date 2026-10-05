@@ -99,33 +99,34 @@ export function useWaveformPointer({
   const startSelection = (event: PointerEvent<HTMLElement>, edge?: "start" | "end") => {
     if (disabled || event.button !== 0 || info.frames === 0) return;
     interaction.current++;
+    const current = editor.getSelection();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const rawFrame = pointerFrame(event);
     const frame = snapFrame(rawFrame);
     const extending = event.shiftKey;
     const fixed =
       edge === "start"
-        ? selection.end
+        ? current.end
         : edge === "end"
-          ? selection.start
+          ? current.start
           : extending
-            ? frame < selection.start + (selection.end - selection.start) / 2
-              ? selection.end
-              : selection.start
+            ? frame < current.start + (current.end - current.start) / 2
+              ? current.end
+              : current.start
             : frame;
     selectionDrag.current = {
       pointer: event.pointerId,
       anchor: fixed,
       rawAnchor: edge || extending ? fixed : rawFrame,
       snapAnchor: !edge && !extending,
-      offset: edge ? rawFrame - selection[edge] : 0,
-      previous: selection,
+      offset: edge ? rawFrame - current[edge] : 0,
+      previous: current,
     };
-    const moving = edge ? selection[edge] : frame;
+    const moving = edge ? current[edge] : frame;
     editor.preview({
       start: Math.min(fixed, moving),
       end: Math.max(fixed, moving),
-      channelMask: selection.channelMask,
+      channelMask: current.channelMask,
     });
   };
   const moveSelection = (event: PointerEvent<HTMLElement>) => {

@@ -88,11 +88,21 @@ hardware-dependent <1 s gate in isolation too. `just bench-process` and
 ## Selecting audio
 
 Click a waveform to place the cursor; drag to select time, Shift-click to extend
-the nearest edge, or drag either edge handle (arrow keys move it one sample).
+the nearest edge, or drag either edge handle.
 Double-click selects the smallest named region under the pointer, otherwise
 the interval between adjacent markers, or the whole file if there are none.
 Choose All, Left, Right or individual channels to target edits; this does
 not mute playback channels.
+
+Tab to a channel waveform to move the cursor with Left/Right or jump to the
+document start/end with Home/End. Hold Shift to extend the selection from a
+fixed anchor, including across that anchor. Selection edges are labeled sliders:
+arrow keys move one sample, Shift+arrow moves ten samples, PageUp/PageDown moves
+one second, and Shift+PageUp/PageDown moves ten seconds. Home/End moves an edge
+to its allowed boundary. The focused cursor or edge stays in view. Held-key
+updates are coalesced before reaching the kernel; releasing the key or leaving
+the control commits the final range. These controls preserve the chosen channels
+and do not change audio or create undo entries.
 
 Enter exact start, end or length in the current ruler format and press Enter or
 leave the field to apply it. Escape discards a draft. Invalid or out-of-document

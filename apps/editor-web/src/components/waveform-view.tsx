@@ -32,6 +32,8 @@ import type { PlaybackFollow } from "@/components/transport-bar";
 import { PeakCanvas } from "@/components/waveform/peak-canvas";
 import { AmplitudeRuler, TimeRuler } from "@/components/waveform/rulers";
 import { TimelineAnchors } from "@/components/waveform/timeline-anchors";
+import { useKeyboardSelection } from "@/components/waveform/use-keyboard-selection";
+import { useWaveformKeyboard } from "@/components/waveform/use-waveform-keyboard";
 import { useWaveformPointer } from "@/components/waveform/use-waveform-pointer";
 import { useWaveformViewport } from "@/components/waveform/use-waveform-viewport";
 import { usePeaks } from "@/hooks/use-peaks";
@@ -153,6 +155,8 @@ function WaveformContent({
   const cursorLines = useRef<(HTMLDivElement | null)[]>([]);
   const overviewCursor = useRef<HTMLDivElement>(null);
   const lanesId = useId();
+  const keyboardHelpId = useId();
+  const edgeHelpId = useId();
   const {
     fullRange,
     viewport,
@@ -202,8 +206,8 @@ function WaveformContent({
   const {
     selectionDrag,
     interaction,
-    setSelection,
-    startSelection,
+    setSelection: setPointerSelection,
+    startSelection: startPointerSelection,
     moveSelection,
     endSelection,
     cancelSelection,
@@ -225,6 +229,55 @@ function WaveformContent({
   const commandsBlocked = Boolean(
     disabled || timelineOptions?.busy || !client || editor.adding || editor.previewing,
   );
+  const keyboardDisabled =
+    disabled ||
+    Boolean(timelineOptions?.busy) ||
+    !client ||
+    editor.adding ||
+    info.frames === 0 ||
+    (spectralView !== "waveform" && spectralTool !== "time");
+  const keyboardWrites = useKeyboardSelection({
+    client,
+    info,
+    editor,
+    disabled: keyboardDisabled,
+    onSeek,
+  });
+  const keyboard = useWaveformKeyboard({
+    info,
+    session: editor.getSelection,
+    getSelection: editor.getSelection,
+    disabled: keyboardDisabled,
+    hasPreview: editor.isPreview,
+    interacting: Boolean(selectionDrag.current),
+    ...keyboardWrites,
+    interrupt: () => {
+      interaction.current++;
+    },
+    reveal: (frame) =>
+      updateViewport((range) => {
+        if (frame >= range.start && frame <= range.end) return range;
+        const length = range.end - range.start;
+        const start = frame < range.start ? frame : frame - length;
+        return clampViewport({ start, end: start + length }, info.frames);
+      }),
+  });
+  const setSelection = useCallback(
+    (range: SelectionRange) => {
+      keyboard.reset();
+      setPointerSelection(range);
+    },
+    [keyboard.reset, setPointerSelection],
+  );
+  const startSelection: typeof startPointerSelection = (event, edge) => {
+    if (disabled || timelineOptions?.busy || editor.adding || event.button !== 0) return;
+    keyboard.beforePointer();
+    if (!edge)
+      event.currentTarget
+        .closest<HTMLElement>('[data-testid="waveform-track"]')
+        ?.focus({ preventScroll: true });
+    startPointerSelection(event, edge);
+  };
   const selectAll = useCallback(() => {
     if (commandsBlocked || selectionDrag.current) return;
     setSelection({ start: 0, end: info.frames, channelMask: selection.channelMask });
@@ -298,6 +351,7 @@ function WaveformContent({
       addRegion,
       clearSelection: (frame = position) => {
         if (disabled) return;
+        keyboard.reset();
         interaction.current++;
         selectionDrag.current = undefined;
         const cursor = Math.max(0, Math.min(info.frames, Math.round(frame)));
@@ -321,6 +375,7 @@ function WaveformContent({
       info.frames,
       editor.commit,
       editor.previewing,
+      keyboard.reset,
       updatePlayback,
       selectionDrag,
       interaction,
@@ -718,6 +773,15 @@ function WaveformContent({
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
         style={{ scrollbarGutter: "stable" }}
       >
+        <p id={keyboardHelpId} className="sr-only">
+          Left and Right move one frame. Shift extends the selection. Home and End jump to the
+          document boundaries.
+        </p>
+        <p id={edgeHelpId} className="sr-only">
+          Arrow keys move one frame, or ten frames with Shift. Page Up increases and Page Down
+          decreases by one second, or ten seconds with Shift. Home and End jump to the allowed
+          boundaries.
+        </p>
         {info.frames === 0 ? (
           <p className="p-6 text-center text-sm text-muted-foreground">
             No audio frames in this document.
@@ -744,7 +808,17 @@ function WaveformContent({
                       : amplitudeTicks
                   }
                 />
-                <div className="relative min-w-0 overflow-hidden" data-testid="waveform-track">
+                <fieldset
+                  className="relative min-w-0 overflow-hidden focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                  data-testid="waveform-track"
+                  aria-label={`Channel ${channel + 1} waveform editor`}
+                  aria-describedby={keyboardHelpId}
+                  aria-disabled={keyboardDisabled}
+                  tabIndex={keyboardDisabled ? -1 : 0}
+                  onKeyDown={keyboard.onSurfaceKeyDown}
+                  onKeyUp={keyboard.onKeyUp}
+                  onBlur={keyboard.onBlur}
+                >
                   {spectralView !== "spectrogram" && (
                     <PeakCanvas
                       client={client}
@@ -824,7 +898,7 @@ function WaveformContent({
                     )}
                   {(spectralView === "waveform" || spectralTool === "time") &&
                     (selection.channelMask & (1 << channel)) !== 0 &&
-                    selectedRange &&
+                    info.frames > 0 &&
                     (["start", "end"] as const).map(
                       (edge) =>
                         selection[edge] >= viewport.start &&
@@ -832,8 +906,17 @@ function WaveformContent({
                           <button
                             key={edge}
                             type="button"
+                            role="slider"
                             aria-label={`Selection ${edge} edge channel ${channel + 1}`}
-                            disabled={disabled}
+                            aria-describedby={edgeHelpId}
+                            aria-orientation="horizontal"
+                            aria-valuemin={edge === "start" ? 0 : selection.start}
+                            aria-valuemax={edge === "start" ? selection.end : info.frames}
+                            aria-valuenow={selection[edge]}
+                            aria-valuetext={`${selection[edge]} frames, ${(selection[edge] / info.sampleRate).toFixed(6)} seconds`}
+                            disabled={
+                              disabled || Boolean(timelineOptions?.busy) || !client || editor.adding
+                            }
                             data-testid={`selection-${edge}-edge-${channel}`}
                             className="absolute inset-y-0 z-10 w-2 cursor-ew-resize touch-none border-x border-selection bg-selection-fill"
                             style={{
@@ -848,28 +931,9 @@ function WaveformContent({
                             onPointerCancel={cancelSelection}
                             onLostPointerCapture={cancelSelection}
                             onDoubleClick={selectRegion}
-                            onKeyDown={(event) => {
-                              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                              event.preventDefault();
-                              const frame = Math.max(
-                                0,
-                                Math.min(
-                                  info.frames,
-                                  selection[edge] + (event.key === "ArrowLeft" ? -1 : 1),
-                                ),
-                              );
-                              setSelection({
-                                start: Math.min(
-                                  edge === "start" ? frame : selection.start,
-                                  edge === "end" ? frame : selection.end,
-                                ),
-                                end: Math.max(
-                                  edge === "start" ? frame : selection.start,
-                                  edge === "end" ? frame : selection.end,
-                                ),
-                                channelMask: selection.channelMask,
-                              });
-                            }}
+                            onKeyDown={(event) => keyboard.onEdgeKeyDown(event, edge)}
+                            onKeyUp={keyboard.onKeyUp}
+                            onBlur={keyboard.onBlur}
                           />
                         ),
                     )}
@@ -885,7 +949,7 @@ function WaveformContent({
                       style={{ left: Math.min(width - 1, frameToX(position, viewport, width)) }}
                     />
                   )}
-                </div>
+                </fieldset>
               </div>
             </div>
           ))

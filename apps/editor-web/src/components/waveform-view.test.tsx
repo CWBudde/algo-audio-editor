@@ -445,6 +445,114 @@ async function painted(getByTestId: (id: string) => HTMLElement, channel = 0) {
 }
 
 describe("WaveformView", () => {
+  it("seeks Home at the already selected origin and End at EOF after playback advances", async () => {
+    const onSeek = vi.fn();
+    const s = mounted(info, { onSeek });
+    await flushReplies();
+    const surface = s.getByRole("group", { name: "Channel 1 waveform editor" });
+    fireEvent.keyDown(surface, { key: "Home" });
+    fireEvent.keyUp(surface, { key: "Home" });
+    await flushReplies();
+    expect(onSeek).toHaveBeenCalledExactlyOnceWith(0);
+    fireEvent.keyDown(surface, { key: "End" });
+    fireEvent.keyUp(surface, { key: "End" });
+    await flushReplies();
+    act(() => s.handle.current?.updatePlayback(24000));
+    fireEvent.keyDown(surface, { key: "End" });
+    fireEvent.keyUp(surface, { key: "End" });
+    await flushReplies();
+    expect(onSeek.mock.calls).toEqual([[0], [info.frames], [info.frames]]);
+  });
+
+  it("focuses the interactive waveform surface and debounces keyboard selection with the moving caret", async () => {
+    const onSeek = vi.fn();
+    const s = mounted(info, { onSeek, selection: { start: 100, end: 100, channelMask: 2 } });
+    await flushReplies();
+    const surface = s.getByRole("group", { name: "Channel 2 waveform editor" });
+    surface.focus();
+    expect(surface.tabIndex).toBe(0);
+    for (const key of ["ArrowRight", "ArrowLeft", "ArrowLeft"])
+      fireEvent.keyDown(surface, { key, shiftKey: true });
+    expect(s.handle.current?.selectionState()).toBeUndefined();
+    expect(s.worker.calls("selection.set")).toHaveLength(0);
+    fireEvent.keyUp(surface, { key: "ArrowLeft", shiftKey: true });
+    await flushReplies();
+    expect(s.worker.selection).toMatchObject({ start: 99, end: 100, channelMask: 2 });
+    expect(onSeek).toHaveBeenCalledExactlyOnceWith(99);
+    expect(s.handle.current?.selectionState()).toEqual({ start: 99, end: 100, channelMask: 2 });
+    fireEvent.keyDown(surface, { key: "End" });
+    fireEvent.keyUp(surface, { key: "End" });
+    await flushReplies();
+    expect(s.worker.selection).toMatchObject({
+      start: info.frames,
+      end: info.frames,
+      channelMask: 2,
+    });
+    expect(onSeek).toHaveBeenLastCalledWith(info.frames);
+  });
+
+  it("exposes exact frame/second slider values and retains focused handles after collapse", async () => {
+    const s = mounted(info, { selection: { start: 100, end: 200, channelMask: 2 } });
+    await flushReplies();
+    const edge = s.getByRole("slider", { name: "Selection start edge channel 2" });
+    expect(edge.getAttribute("aria-valuemin")).toBe("0");
+    expect(edge.getAttribute("aria-valuemax")).toBe("200");
+    expect(edge.getAttribute("aria-valuenow")).toBe("100");
+    expect(edge.getAttribute("aria-valuetext")).toBe("100 frames, 0.002083 seconds");
+    edge.focus();
+    fireEvent.keyDown(edge, { key: "ArrowRight", shiftKey: true });
+    expect(edge.getAttribute("aria-valuenow")).toBe("110");
+    fireEvent.keyDown(edge, { key: "PageUp" });
+    expect(edge.getAttribute("aria-valuenow")).toBe("200");
+    expect(document.activeElement).toBe(edge);
+    fireEvent.keyDown(edge, { key: "ArrowLeft" });
+    fireEvent.keyUp(edge, { key: "ArrowLeft" });
+    await flushReplies();
+    expect(s.worker.selection).toMatchObject({ start: 199, end: 200, channelMask: 2 });
+    expect(s.worker.calls("selection.set")).toHaveLength(1);
+  });
+
+  it("takes over an unrendered keyboard draft with pointer geometry from the live selection", async () => {
+    const s = mounted(info, { selection: { start: 100, end: 200, channelMask: 2 } });
+    await flushReplies();
+    const start = s.getByRole("slider", { name: "Selection start edge channel 2" });
+    const end = s.getByRole("slider", { name: "Selection end edge channel 2" });
+    act(() => {
+      fireEvent.keyDown(start, { key: "ArrowRight", shiftKey: true });
+      fireEvent.pointerDown(end, { button: 0, pointerId: 1, clientX: frameX(200) });
+    });
+    fireEvent.pointerUp(end, { pointerId: 1, clientX: frameX(400) });
+    await flushReplies();
+    expect(s.worker.selection).toMatchObject({ start: 110, end: 400, channelMask: 2 });
+  });
+
+  it("reveals keyboard endpoints in a zoomed viewport and fences busy/modifier key events", async () => {
+    const s = mounted();
+    await flushReplies();
+    act(() => s.handle.current?.zoomIn());
+    const surface = s.getByRole("group", { name: "Channel 1 waveform editor" });
+    fireEvent.keyDown(surface, { key: "End" });
+    fireEvent.keyUp(surface, { key: "End" });
+    await flushReplies();
+    expect(range(s.getByTestId("waveform-view"))).toEqual([24000, 48000]);
+    const count = s.worker.calls("selection.set").length;
+    fireEvent.keyDown(surface, { key: "Home", ctrlKey: true });
+    s.rerender(
+      <WaveformView
+        client={s.client}
+        info={info}
+        timelineOptions={{ busy: true }}
+        ref={s.handle}
+      />,
+    );
+    expect(surface.getAttribute("aria-disabled")).toBe("true");
+    expect(surface.tabIndex).toBe(-1);
+    fireEvent.keyDown(surface, { key: "Home" });
+    fireEvent.keyUp(surface, { key: "Home" });
+    await flushReplies();
+    expect(s.worker.calls("selection.set")).toHaveLength(count);
+  });
+
   it("keeps view, snapping and annotation options disclosed behind accessible icon bands", () => {
     const { getByTestId, getByRole, getByLabelText } = mounted();
     for (const id of ["view-settings", "snap-settings", "annotation-settings", "timeline-panel"])
