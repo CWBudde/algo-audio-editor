@@ -27,7 +27,7 @@ func exportQuantizers(document audiobuf.Document, indices []int, p protocol.Docu
 		if p.Seed != nil {
 			// Source-channel identity preserves a channel's reproducible stream
 			// when exporting a subset. Every quantizer owns separate RNG/shaping.
-			options = append(options, dither.WithRNG(rand.New(rand.NewPCG(uint64(*p.Seed), uint64(sourceChannel)+1))))
+			options = append(options, dither.WithRNG(rand.New(rand.NewPCG(uint64(*p.Seed), uint64(sourceChannel)+1)))) // #nosec G404 G115 -- Source channel indices are nonnegative and bounded by MaxChannels; seeded audio dither must be reproducible; these random values are not used for secrets.
 		}
 		quantizers[index], err = dither.NewQuantizer(float64(document.SampleRate()), options...)
 		if err != nil {

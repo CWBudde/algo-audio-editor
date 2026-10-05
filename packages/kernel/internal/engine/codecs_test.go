@@ -35,13 +35,15 @@ func assertCodecSamples(t *testing.T, e *Engine, want [][]float32) {
 	got := codecSamples(t, e)
 	if len(got) != len(want) {
 		t.Fatal("channels")
+		return
 	}
 	for ch := range got {
-		if len(got[ch]) != len(want[ch]) {
+		if len(got[ch]) != len(want[ch]) { // #nosec G602 -- The channel count equality check above bounds both outer slices.
 			t.Fatal("frames")
+			return
 		}
 		for i, v := range got[ch] {
-			if v != want[ch][i] {
+			if v != want[ch][i] { // #nosec G602 -- Both channel and frame counts were checked equal before this loop.
 				t.Fatalf("ch %d frame %d: %v != %v", ch, i, v, want[ch][i])
 			}
 		}
@@ -241,7 +243,7 @@ func FuzzCodecOpen(f *testing.F) {
 		}
 		f.Add(seed)
 	}
-	f.Fuzz(func(t *testing.T, p []byte) {
+	f.Fuzz(func(_ *testing.T, p []byte) {
 		if len(p) > 1<<20 {
 			return
 		}

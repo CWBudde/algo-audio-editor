@@ -20,6 +20,8 @@ import (
 type WriteDirectories []string
 
 func (d *WriteDirectories) String() string { return fmt.Sprint([]string(*d)) }
+
+// Set appends a repeatable allowed-write directory flag.
 func (d *WriteDirectories) Set(value string) error {
 	*d = append(*d, value)
 	return nil

@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
         with:
           bun: "false"
@@ -22,17 +22,29 @@ jobs:
           go vet ./...
           GOOS=js GOARCH=wasm go vet ./...
       - run: just check-tidy
-      - uses: golangci/golangci-lint-action@v9
+      - name: golangci-lint (native)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: latest
+          version: v2.12.2
           working-directory: packages/kernel
+      - name: golangci-lint (js/wasm bridge)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        env:
+          GOOS: js
+          GOARCH: wasm
+        with:
+          version: v2.12.2
+          working-directory: packages/kernel
+          # The action cache key does not distinguish GOOS/GOARCH. Keep the
+          # native cache above; do not restore/save it for the second target.
+          skip-cache: true
 
   web:
     name: Web (Biome, types)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
         with:
           go: "false"

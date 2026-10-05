@@ -21,6 +21,7 @@ const (
 	MaxNodes = 34
 )
 
+// Config describes an effect graph and its prepared resources.
 type Config struct {
 	Graph          string
 	Wet            float64
@@ -30,6 +31,7 @@ type Config struct {
 	sourceChannels []int
 }
 
+// Descriptors returns the sample-rate-aware upstream effect catalogue.
 func Descriptors(rate float64) ([]protocol.EffectDescriptor, error) {
 	source := effectchain.DefaultDescriptors(rate)
 	descriptors := make([]protocol.EffectDescriptor, len(source))
@@ -114,6 +116,7 @@ func newConfig(document audiobuf.Document, selected ops.Range, graph protocol.Ef
 	return Config{Graph: string(encoded), Wet: wet, Bypass: bypass, Provider: provider, catalogue: descriptors, sourceChannels: indices}, nil
 }
 
+// ValidateResponseGraph checks a graph for effect-response inspection.
 func ValidateResponseGraph(graph protocol.EffectGraph, descriptors []protocol.EffectDescriptor, rate int) error {
 	if err := validateGraph(graph, descriptors, rate, 3, nil); err != nil {
 		return err
@@ -291,6 +294,7 @@ func validateParameters(node protocol.EffectNode, descriptor protocol.EffectDesc
 	return nil
 }
 
+// NewChain prepares an upstream effect chain from this configuration.
 func (config Config) NewChain(rate, channels int) (*effectchain.Chain, error) {
 	chain := effectchain.New(effectchain.Context{SampleRate: float64(rate)}, effectchain.DefaultRegistry(effectchain.WithIRProvider(config.Provider), effectchain.WithSourceChannelMap(config.sourceChannels)))
 	if err := chain.LoadGraph(config.Graph); err != nil {

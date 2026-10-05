@@ -26,6 +26,7 @@ type Job struct {
 	identity bool
 }
 
+// NewJob prepares bounded offline processing of a document selection.
 func NewJob(document audiobuf.Document, selected ops.Range, config Config, limits process.Limits) (*Job, error) {
 	if document.Channels() < 1 || document.Channels() > 8 || selected.Start < 0 || selected.End <= selected.Start || selected.End > document.Frames() || selected.ChannelMask <= 0 || selected.ChannelMask&((1<<document.Channels())-1) != selected.ChannelMask {
 		return nil, fmt.Errorf("effects.job: valid nonempty document selection required")
@@ -54,7 +55,11 @@ func NewJob(document audiobuf.Document, selected ops.Range, config Config, limit
 	}
 	return j, nil
 }
+
+// Progress returns the current processing counters.
 func (j *Job) Progress() process.Progress { return j.progress }
+
+// Step processes one bounded batch, checking cancellation before publication.
 func (j *Job) Step(ctx context.Context) (process.Progress, error) {
 	if j.failure != nil {
 		return j.progress, j.failure
@@ -158,19 +163,28 @@ func (j *Job) fail(err error) (process.Progress, error) {
 	return j.progress, j.failure
 }
 
+// Cancel discards private processing state and prevents publication.
 func (j *Job) Cancel() {
 	if j.failure == nil {
 		_, _ = j.fail(context.Canceled)
 	}
 }
+
+// Identity reports whether processing preserves the source audio.
 func (j *Job) Identity() bool { return j.identity }
+
+// MaterializedBytes returns the candidate sample storage estimate.
 func (j *Job) MaterializedBytes() int64 {
 	if j.identity {
 		return 0
 	}
 	return (j.selected.End - j.selected.Start) * 4 * int64(bits.OnesCount(uint(j.selected.ChannelMask)))
 }
+
+// Peak returns the finite candidate peak and a false nonfinite flag; invalid samples fail processing.
 func (j *Job) Peak() (float64, bool) { return j.peak, false }
+
+// Result returns the completed immutable candidate or a processing error.
 func (j *Job) Result() (audiobuf.Document, error) {
 	if j.failure != nil {
 		return audiobuf.Document{}, j.failure
@@ -181,6 +195,7 @@ func (j *Job) Result() (audiobuf.Document, error) {
 	return j.result, nil
 }
 
+// MemoryDocument exposes private candidate blocks for shared storage accounting.
 func (j *Job) MemoryDocument() (audiobuf.Document, error) {
 	if j.failure != nil {
 		return audiobuf.Document{}, j.failure

@@ -61,7 +61,7 @@ just e2e-pages      # gzip/headerless Pages subpath, cold worker boot and fallba
 just e2e-pages-live # deployed URL from PLAYWRIGHT_BASE_URL; no local build/server
 just e2e-timing     # opt-in @timing hardware gates; target laptop only, not CI
 just e2e-desktop    # Playwright driving Electron (needs a display)
-just lint           # golangci-lint, go vet (js/wasm), biome, typecheck
+just lint           # native + js/wasm golangci-lint, biome, typecheck
 just fmt            # treefmt: gofumpt, gci, biome, shfmt
 just check          # fast local gate: format, lint, unit tests, build
 just ci             # CI test gates, incl. WASM/fuzz, browser/Pages/Electron e2e

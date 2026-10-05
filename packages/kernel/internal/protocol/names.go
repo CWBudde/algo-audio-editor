@@ -5,6 +5,7 @@ package protocol
 // outside the applicable operation family.
 type OperationName string
 
+// Operation wire names identify supported edits and processing algorithms.
 const (
 	OperationCopy              OperationName = "copy"
 	OperationCut               OperationName = "cut"
@@ -45,6 +46,7 @@ const (
 // AnalysisKind identifies the algorithm and its binary result layout.
 type AnalysisKind string
 
+// Analysis kinds identify the kernel’s measurement and visualization algorithms.
 const (
 	AnalysisStatistics  AnalysisKind = "statistics"
 	AnalysisClipping    AnalysisKind = "clipping"
@@ -56,6 +58,7 @@ const (
 // JobState describes a private candidate or analysis job's lifecycle.
 type JobState string
 
+// Job states describe progress, completed candidates and cancellation.
 const (
 	JobRunning   JobState = "running"
 	JobReady     JobState = "ready"
@@ -65,6 +68,7 @@ const (
 // ProcessPhase identifies normalization and processing progress stages.
 type ProcessPhase string
 
+// Processing phases distinguish input analysis, construction and output verification.
 const (
 	PhaseAnalyzing  ProcessPhase = "analyzing"
 	PhaseProcessing ProcessPhase = "processing"

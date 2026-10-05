@@ -177,13 +177,16 @@ type SelectionRange struct {
 	ChannelMask int   `json:"channelMask"`
 }
 
+// SelectionResult identifies a document and its current frame/channel selection.
 type SelectionResult struct {
 	DocumentID string `json:"documentId"`
 	SelectionRange
 }
 
+// SelectionSetParams sets a document selection using the same shape as SelectionResult.
 type SelectionSetParams = SelectionResult
 
+// SelectionGetParams identifies the document whose selection is requested.
 type SelectionGetParams struct {
 	DocumentID string `json:"documentId"`
 }
@@ -197,12 +200,14 @@ type SelectionSnapParams struct {
 	ChannelMask int    `json:"channelMask"`
 }
 
+// SelectionSnapResult reports the nearest zero crossing and whether one was found.
 type SelectionSnapResult struct {
 	DocumentID string `json:"documentId"`
 	Frame      int64  `json:"frame"`
 	Found      bool   `json:"found"`
 }
 
+// TimelineMarker names a single document-frame anchor.
 type TimelineMarker struct {
 	ID    int64  `json:"id"`
 	Frame int64  `json:"frame"`
@@ -210,6 +215,7 @@ type TimelineMarker struct {
 	Color string `json:"color"`
 }
 
+// TimelineRegion names a half-open document-frame interval.
 type TimelineRegion struct {
 	ID    int64  `json:"id"`
 	Start int64  `json:"start"`
@@ -218,20 +224,24 @@ type TimelineRegion struct {
 	Color string `json:"color"`
 }
 
+// TimelineResult reports a document’s current markers and regions.
 type TimelineResult struct {
 	DocumentID string           `json:"documentId"`
 	Markers    []TimelineMarker `json:"markers"`
 	Regions    []TimelineRegion `json:"regions"`
 }
 
+// TimelineGetParams identifies the document whose annotations are requested.
 type TimelineGetParams = SelectionGetParams
 
+// TimelineMutationResult reports annotations and history after an annotation edit.
 type TimelineMutationResult struct {
 	TimelineResult
 	History HistoryListResult `json:"history"`
 	Changed bool              `json:"changed"`
 }
 
+// MarkerAddParams creates a marker and optionally updates the selection atomically.
 type MarkerAddParams struct {
 	DocumentID string          `json:"documentId"`
 	Frame      int64           `json:"frame"`
@@ -240,6 +250,7 @@ type MarkerAddParams struct {
 	Selection  *SelectionRange `json:"selection,omitempty"`
 }
 
+// RegionAddParams creates a region and optionally updates the selection atomically.
 type RegionAddParams struct {
 	DocumentID string          `json:"documentId"`
 	Start      int64           `json:"start"`
@@ -249,22 +260,26 @@ type RegionAddParams struct {
 	Selection  *SelectionRange `json:"selection,omitempty"`
 }
 
+// MarkerUpdateParams replaces the properties of an existing marker.
 type MarkerUpdateParams struct {
 	MarkerAddParams
 	ID int64 `json:"id"`
 }
 
+// RegionUpdateParams replaces the properties of an existing region.
 type RegionUpdateParams struct {
 	RegionAddParams
 	ID int64 `json:"id"`
 }
 
+// TimelineRemoveParams removes an annotation by identity with an optional selection update.
 type TimelineRemoveParams struct {
 	DocumentID string          `json:"documentId"`
 	ID         int64           `json:"id"`
 	Selection  *SelectionRange `json:"selection,omitempty"`
 }
 
+// TimelineExportParams selects a document and annotation export format.
 type TimelineExportParams struct {
 	DocumentID string `json:"documentId"`
 	Format     string `json:"format"`
@@ -290,6 +305,7 @@ type EditApplyParams struct {
 	ClipboardVersion string        `json:"clipboardVersion,omitempty"`
 }
 
+// EditResult reports document, selection, clipboard and history after an edit.
 type EditResult struct {
 	Document  DocumentInfoResult `json:"document"`
 	Selection SelectionResult    `json:"selection"`
@@ -299,7 +315,7 @@ type EditResult struct {
 	History   HistoryListResult  `json:"history"`
 }
 
-// Processing builds a private candidate in bounded worker slices. Only commit
+// ProcessStartParams builds a private candidate in bounded worker slices. Only commit
 // publishes it; preview playback and cancellation leave the document unchanged.
 type ProcessStartParams struct {
 	SelectionResult
@@ -368,6 +384,7 @@ type BinaryDocumentParams struct {
 	Regions      []TimelineRegion  `json:"regions"`
 }
 
+// BinaryDocumentInfo describes a binary document handoff and its separate sample buffer.
 type BinaryDocumentInfo struct {
 	BinaryDocumentParams
 	DataBytes int `json:"dataBytes"`
@@ -383,6 +400,7 @@ type PCMReadParams struct {
 	ChannelMask int    `json:"channelMask"`
 }
 
+// PCMReadInfo describes the packed planar float32 page returned outside JSON.
 type PCMReadInfo struct {
 	SampleRate int `json:"sampleRate"`
 	Channels   int `json:"channels"`
@@ -390,11 +408,13 @@ type PCMReadInfo struct {
 	DataBytes  int `json:"dataBytes"`
 }
 
+// ProcessJobParams identifies a private processing job within a document.
 type ProcessJobParams struct {
 	DocumentID string `json:"documentId"`
 	JobID      string `json:"jobId"`
 }
 
+// ProcessJobResult reports private candidate geometry, progress and measured quality.
 type ProcessJobResult struct {
 	SelectionResult
 	Candidate       *ProcessCandidate `json:"candidate"`
@@ -419,25 +439,30 @@ type ProcessJobResult struct {
 	UnchangedReason string            `json:"unchangedReason,omitempty"`
 }
 
+// HistoryListParams identifies the document whose history is requested.
 type HistoryListParams struct {
 	DocumentID string `json:"documentId"`
 }
 
+// HistoryJumpParams selects a retained history state to restore.
 type HistoryJumpParams struct {
 	DocumentID string `json:"documentId"`
 	StateID    string `json:"stateId"`
 }
 
+// MarkSavedParams acknowledges successful saving of a specific history state.
 type MarkSavedParams struct {
 	DocumentID string `json:"documentId"`
 	StateID    string `json:"stateId"`
 }
 
+// HistoryEntry identifies and labels a retained document state.
 type HistoryEntry struct {
 	StateID string `json:"stateId"`
 	Label   string `json:"label"`
 }
 
+// HistoryListResult reports undo/redo availability, save state and retention limits.
 type HistoryListResult struct {
 	DocumentID     string         `json:"documentId"`
 	CurrentStateID string         `json:"currentStateId"`
@@ -451,6 +476,7 @@ type HistoryListResult struct {
 	RetainedBytes  int64          `json:"retainedBytes"`
 }
 
+// PreparePasteParams requests conversion planning for a specific clipboard version.
 type PreparePasteParams struct {
 	DocumentID       string `json:"documentId"`
 	ChannelMask      int    `json:"channelMask"`
@@ -517,9 +543,11 @@ type TransportResult struct {
 	Playing  bool  `json:"playing"`
 }
 
-// Metadata fields are small UTF-8 text; opaque container bytes stay in Go.
+// MetadataGetParams identifies the document whose metadata is requested.
+// Editable fields are small UTF-8 text; opaque container bytes stay in Go.
 type MetadataGetParams = SelectionGetParams
 
+// MetadataResult reports editable text tags and retained opaque container data.
 type MetadataResult struct {
 	DocumentID     string            `json:"documentId"`
 	StateID        string            `json:"stateId"`
@@ -528,11 +556,14 @@ type MetadataResult struct {
 	Chunks         []string          `json:"chunks"`
 }
 
+// MetadataSetParams replaces text tags for the specified current history state.
 type MetadataSetParams struct {
 	DocumentID string            `json:"documentId"`
 	StateID    string            `json:"stateId"`
 	Tags       map[string]string `json:"tags"`
 }
+
+// MetadataMutationResult reports metadata and history after a tag edit.
 type MetadataMutationResult struct {
 	MetadataResult
 	History HistoryListResult `json:"history"`

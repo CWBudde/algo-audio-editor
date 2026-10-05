@@ -12,13 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      # `bunx --cwd <dir>` parses the directory as a GitHub package spec and
-      # 404s; run Playwright from the app directory instead.
-      - name: Install Playwright Chromium
-        working-directory: apps/editor-web
-        run: bunx playwright install --with-deps chromium
+        with:
+          playwright: "true"
       - run: just e2e
       - name: JS and WASM size budgets
         run: just check-web-budget
@@ -26,7 +23,7 @@ jobs:
         env:
           VITE_BASE: /algo-audio-editor/
         run: just e2e-pages
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: playwright-browser
@@ -40,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       # Electron bundles its own Chromium but needs the same system libraries.
       - name: Install Chromium system dependencies
@@ -49,7 +46,7 @@ jobs:
       - run: bun run --cwd apps/desktop install-electron
       - run: xvfb-run --auto-servernum just e2e-desktop
       - run: xvfb-run --auto-servernum just e2e-desktop-packaged
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: playwright-electron

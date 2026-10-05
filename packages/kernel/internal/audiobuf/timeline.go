@@ -8,13 +8,16 @@ import (
 	"unicode/utf8"
 )
 
+// Timeline constants bound anchor storage and define default display metadata.
 const (
+	// MaxAnchors limits the combined number of markers and regions.
 	MaxAnchors               = 4096
 	MaxAnchorNameBytes       = 256
 	MaxAnchorID        int64 = math.MaxUint32
 	DefaultAnchorColor       = "#a78bfa"
 )
 
+// Marker names a frame position in a document.
 type Marker struct {
 	ID    int64
 	Frame int64
@@ -22,6 +25,7 @@ type Marker struct {
 	Color string
 }
 
+// Region names a half-open frame interval in a document.
 type Region struct {
 	ID         int64
 	Start, End int64
@@ -42,6 +46,7 @@ func (t Timeline) clone() Timeline {
 	return t
 }
 
+// ValidateAnchorName checks the length and encoding of a marker or region name.
 func ValidateAnchorName(name string) error {
 	if name == "" || strings.TrimSpace(name) != name || len(name) > MaxAnchorNameBytes || !utf8.ValidString(name) || strings.ContainsRune(name, 0) {
 		return fmt.Errorf("name must be nonempty, trimmed UTF-8 without NUL and at most %d bytes", MaxAnchorNameBytes)
@@ -49,6 +54,7 @@ func ValidateAnchorName(name string) error {
 	return nil
 }
 
+// ValidateAnchorColor checks the required canonical hexadecimal display color.
 func ValidateAnchorColor(color string) error {
 	if len(color) != 7 || color[0] != '#' {
 		return fmt.Errorf("color must be canonical #rrggbb")
@@ -61,6 +67,7 @@ func ValidateAnchorColor(color string) error {
 	return nil
 }
 
+// Validate checks anchor identities, ranges and display metadata.
 func (t Timeline) Validate(frames int64) error {
 	if len(t.Markers)+len(t.Regions) > MaxAnchors || t.NextID < 1 || t.NextID > MaxAnchorID+1 {
 		return fmt.Errorf("invalid anchor count or next identity")

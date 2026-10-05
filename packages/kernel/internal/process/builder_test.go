@@ -28,9 +28,13 @@ func (f processFunc) NewChannel(rate, channel int, frames int64) (Processor, err
 
 func fixture(t testing.TB, samples ...[]float32) audiobuf.Document {
 	t.Helper()
+	if len(samples) == 0 {
+		t.Fatal("at least one fixture channel is required")
+		return audiobuf.Document{}
+	}
 	channels := make([]audiobuf.Channel, len(samples))
-	for i := range channels {
-		channels[i] = audiobuf.NewChannel(samples[i])
+	for i, channel := range samples {
+		channels[i] = audiobuf.NewChannel(channel)
 	}
 	document, err := audiobuf.NewDocument(channels, 48000, audiobuf.Metadata{Name: "source.wav", Tags: map[string]string{"artist": "original"}, Timeline: audiobuf.Timeline{NextID: 3, Markers: []audiobuf.Marker{{ID: 1, Frame: int64(len(samples[0])), Name: "EOF", Color: audiobuf.DefaultAnchorColor}}, Regions: []audiobuf.Region{{ID: 2, Start: 0, End: 1, Name: "region", Color: "#123456"}}}})
 	if err != nil {

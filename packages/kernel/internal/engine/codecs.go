@@ -2,7 +2,7 @@ package engine
 
 import (
 	"bytes"
-	"crypto/md5"
+	"crypto/md5" // #nosec G501 -- FLAC mandates MD5 of decoded PCM; this is format integrity, not authentication.
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -178,12 +178,16 @@ func (e *Engine) openFLAC(p protocol.DocumentOpenParams, input []byte) (protocol
 	}
 	info := d.Info
 	rate, channels, depth := int(info.SampleRate), int(info.NChannels), int(info.BitsPerSample)
-	if err = validateDecodedFormat(rate, channels, depth, int64(info.NSamples)); err != nil {
+	if info.NSamples > math.MaxInt64 {
+		return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: FLAC sample count exceeds signed frame range")
+	}
+	frames := int64(info.NSamples)
+	if err = validateDecodedFormat(rate, channels, depth, frames); err != nil {
 		return protocol.DocumentInfoResult{}, err
 	}
 	// STREAMINFO bounds sample volume; actual frame sizes are charged below.
 	// A single small frame must not force every frame's estimate to that size.
-	if err = e.checkDecodedStorage(int64(info.NSamples), channels, audiobuf.BlockFrames, len(input)); err != nil {
+	if err = e.checkDecodedStorage(frames, channels, audiobuf.BlockFrames, len(input)); err != nil {
 		return protocol.DocumentInfoResult{}, err
 	}
 	blocks := make([][]*audiobuf.Block, channels)
@@ -192,7 +196,7 @@ func (e *Engine) openFLAC(p protocol.DocumentOpenParams, input []byte) (protocol
 	// Import is synchronous and stages all new blocks privately. Retained
 	// editor state cannot change, so scan its history/clipboard just once.
 	available := e.availableStorage() - max(int64(len(input)), e.callInputBytes)
-	hash := md5.New()
+	hash := md5.New() // #nosec G401 -- Compare the checksum required by FLAC STREAMINFO, not a security credential.
 	for {
 		f, err := d.ParseNext()
 		if errors.Is(err, io.EOF) {
@@ -209,7 +213,7 @@ func (e *Engine) openFLAC(p protocol.DocumentOpenParams, input []byte) (protocol
 		if err = validateDecodedFormat(rate, channels, depth, total+int64(count)); err != nil {
 			return protocol.DocumentInfoResult{}, err
 		}
-		if info.NSamples != 0 && total+int64(count) > int64(info.NSamples) {
+		if frames != 0 && total+int64(count) > frames {
 			return protocol.DocumentInfoResult{}, fmt.Errorf("doc.open: FLAC exceeds declared frame count")
 		}
 		stored += decodedStorage(int64(count), channels, count)
@@ -308,7 +312,7 @@ func (e *Engine) decodeMP3(input []byte) (blocks [][]*audiobuf.Block, rate int, 
 			for ch := range pcm {
 				pcm[ch] = pcm[ch][:count]
 				for i := range count {
-					pcm[ch][i] = int32(int16(binary.LittleEndian.Uint16(raw[(i+first)*4+ch*2:])))
+					pcm[ch][i] = int32(int16(binary.LittleEndian.Uint16(raw[(i+first)*4+ch*2:]))) // #nosec G115 -- Reinterpret the signed two's-complement PCM16 bits emitted by the MP3 decoder.
 				}
 			}
 			if err = appendPCM(blocks, pcm, 16); err != nil {
@@ -399,13 +403,16 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 		if document.Frames() == 0 {
 			return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: FLAC requires at least one frame")
 		}
-		enc, err := flac.NewEncoder(writer, &meta.StreamInfo{SampleRate: uint32(document.SampleRate()), NChannels: uint8(document.Channels()), BitsPerSample: uint8(p.BitDepth), BlockSizeMin: 4096, BlockSizeMax: 4096})
+		enc, err := flac.NewEncoder(writer, &meta.StreamInfo{SampleRate: uint32(document.SampleRate()), NChannels: uint8(document.Channels()), BitsPerSample: uint8(p.BitDepth), BlockSizeMin: 4096, BlockSizeMax: 4096}) // #nosec G115 -- exportSource supplies a validated document rate (8000..384000 Hz), channel count (1..8) and bit depth.
 		if err != nil {
 			return protocol.DocumentExportInfo{}, fmt.Errorf("doc.export: initialize FLAC encoder: %w", err)
 		}
 		write = func(pcm [][]int32) error {
 			n := len(pcm[0])
-			f := &frame.Frame{Header: frame.Header{BlockSize: uint16(n), SampleRate: uint32(document.SampleRate()), BitsPerSample: uint8(p.BitDepth), Channels: frame.Channels(document.Channels() - 1)}}
+			if n < 1 || n > 4096 {
+				return fmt.Errorf("doc.export: invalid FLAC block size %d", n)
+			}
+			f := &frame.Frame{Header: frame.Header{BlockSize: uint16(n), SampleRate: uint32(document.SampleRate()), BitsPerSample: uint8(p.BitDepth), Channels: frame.Channels(document.Channels() - 1)}} // #nosec G115 -- Block size is checked above and document rate is validated by exportSource.
 			for _, samples := range pcm {
 				f.Subframes = append(f.Subframes, &frame.Subframe{SubHeader: frame.SubHeader{Pred: frame.PredVerbatim}, Samples: samples, NSamples: n})
 			}
@@ -433,7 +440,7 @@ func (e *Engine) exportDocument(p protocol.DocumentExportParams) (protocol.Docum
 			pcm[ch] = pcm[ch][:count]
 			for i, v := range scratch[:count] {
 				if quantizers != nil {
-					pcm[ch][i] = int32(quantizers[ch].ProcessInteger(float64(v)))
+					pcm[ch][i] = int32(quantizers[ch].ProcessInteger(float64(v))) // #nosec G115 -- exportQuantizers bounds signed output to the requested PCM depth of at most 32 bits.
 				} else {
 					pcm[ch][i] = int32(max(low, min(high, math.Round(float64(v)*scale))))
 				}

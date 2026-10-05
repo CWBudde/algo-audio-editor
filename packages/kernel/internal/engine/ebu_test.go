@@ -116,9 +116,9 @@ func TestPublishedEBUOutputMeterAndOfflineStatistics(t *testing.T) {
 				t.Fatal("actual rendered frames or meter failure", values[:16])
 			}
 			for i, expected := range []float64{reading.Momentary, reading.ShortTerm, reading.Integrated, reading.LRA} {
-				actual := values[4+i]
+				actual := values[4+i] // #nosec G602 -- meterValues checks the fixed 192-slot snapshot; i spans exactly four loudness slots.
 				if math.IsNaN(actual) || math.IsNaN(expected) || (math.IsInf(actual, 0) || math.IsInf(expected, 0)) && actual != expected || !math.IsInf(actual, 0) && !math.IsInf(expected, 0) && math.Abs(actual-expected) > 1e-10 {
-					t.Fatalf("actual output snapshot slot%d got%.12f reference%.12f", 4+i, values[4+i], expected)
+					t.Fatalf("actual output snapshot slot%d got%.12f reference%.12f", 4+i, actual, expected)
 				}
 			}
 			if test.boolTP {

@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"slices"
@@ -370,7 +371,7 @@ func TestWAVReadSeeker(t *testing.T) {
 	if n, err := reader.Read(buffer); n != 2 || err != nil || string(buffer[:n]) != "io" {
 		t.Fatalf("read tail = %d/%q, %v", n, buffer, err)
 	}
-	if n, err := reader.Read(buffer); n != 0 || err != io.EOF {
+	if n, err := reader.Read(buffer); n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("EOF = %d, %v", n, err)
 	}
 	if n, err := reader.Read(nil); n != 0 || err != nil {

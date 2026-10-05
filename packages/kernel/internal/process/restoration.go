@@ -387,12 +387,12 @@ func stretchTimeline(t *audiobuf.Timeline, selected ops.Range, output int64) {
 		if frame >= selected.End {
 			return frame - (selected.End - selected.Start) + output
 		}
-		hi, lo := bits.Mul64(uint64(frame-selected.Start), uint64(output))
-		q, rem := bits.Div64(hi, lo, uint64(selected.End-selected.Start))
-		if rem >= uint64((selected.End-selected.Start+1)/2) {
+		hi, lo := bits.Mul64(uint64(frame-selected.Start), uint64(output)) // #nosec G115 -- frame is strictly inside the validated nonempty selection; output is a positive budgeted length.
+		q, rem := bits.Div64(hi, lo, uint64(selected.End-selected.Start))  // #nosec G115 -- The validated selection has a strictly positive frame length.
+		if rem >= uint64((selected.End-selected.Start+1)/2) {              // #nosec G115 -- The validated nonempty JS-safe selection length remains positive after adding one.
 			q++
 		}
-		return selected.Start + int64(q)
+		return selected.Start + int64(q) // #nosec G115 -- Rounded q never exceeds the validated positive output frame count, which fits the JS-safe document range.
 	}
 	for i := range t.Markers {
 		t.Markers[i].Frame = scale(t.Markers[i].Frame)

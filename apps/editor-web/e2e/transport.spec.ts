@@ -31,16 +31,64 @@ async function open(
 }
 
 test("short files drain exactly once without EOF underruns and can replay", async ({ page }) => {
+  await capturePlayback(page, { passive: true });
   // "frames played" counts output frames; an unresampled file keeps it exact.
   await open(page, 31, "output");
-  await page.getByTestId("play").click();
-  await expect(page.getByTestId("play")).toBeEnabled();
-  await expect(page.getByTestId("play-position")).toHaveAttribute("data-frame", "31");
-  await expect(page.getByTestId("frames-played")).toHaveText("31");
-  await expect(page.getByTestId("underruns")).toHaveText("0");
-  await page.getByTestId("play").click();
-  await expect(page.getByTestId("play")).toBeEnabled();
-  await expect(page.getByTestId("frames-played")).toHaveText("31");
+  try {
+    await page.getByTestId("play").click();
+    await expect(page.getByTestId("play")).toBeEnabled();
+    await expect(page.getByTestId("play-position")).toHaveAttribute("data-frame", "31");
+    await expect(page.getByTestId("frames-played")).toHaveText("31");
+    await expect(page.getByTestId("underruns")).toHaveText("0");
+    await page.getByTestId("play").click();
+    await expect(page.getByTestId("play")).toBeEnabled();
+    await expect(page.getByTestId("frames-played")).toHaveText("31");
+  } finally {
+    // The old 13-vs-31 failure lost its trace. Keep DOM, device-clock and
+    // shared-counter evidence together without changing the original gate.
+    const snapshot = await page
+      .evaluate(() => {
+        const probe = window.__aaePlaybackProbe;
+        const readout = document.querySelector<HTMLElement>("[data-testid='play-position']");
+        if (!probe) return { cursor: readout?.dataset.frame, probe: "unavailable" };
+        const header = new Int32Array(probe.ring.sab, 0, 4);
+        const counters = new BigInt64Array(probe.ring.sab, 16, 10);
+        const sequenceBefore = Atomics.load(counters, 5);
+        const values = Array.from(counters, (_, index) => Atomics.load(counters, index).toString());
+        const sequenceAfter = Atomics.load(counters, 5);
+        return {
+          cursor: readout?.dataset.frame,
+          contextState: probe.context.state,
+          sampleRate: probe.context.sampleRate,
+          currentTime: probe.context.currentTime,
+          outputTimestamp: probe.context.getOutputTimestamp(),
+          performanceTime: performance.now(),
+          capacityFrames: probe.ring.capacityFrames,
+          header: Array.from(header, (_, index) => Atomics.load(header, index)),
+          counters: values,
+          counterNames: [
+            "consumed",
+            "cursor",
+            "historyStart",
+            "historyEnd",
+            "finalFrame",
+            "sequence",
+            "initialCursor",
+            "firstContextFrame",
+            "epoch",
+            "reserved",
+          ],
+          consumerCountersCoherent: sequenceBefore === sequenceAfter && (sequenceAfter & 1n) === 0n,
+        };
+      })
+      .catch((error: unknown) => ({
+        diagnosticError: error instanceof Error ? error.message : String(error),
+      }));
+    await test.info().attach("short-file-eof-clock", {
+      body: JSON.stringify(snapshot),
+      contentType: "application/json",
+    });
+  }
 });
 
 test("the production worklet outputs document samples and an audible cursor @timing", async ({

@@ -49,7 +49,7 @@ pre-commit:
     - name: golangci-lint
       root: packages/kernel
       glob: "*.go"
-      run: golangci-lint run ./...
+      run: golangci-lint run ./... && GOOS=js GOARCH=wasm golangci-lint run ./...
 
     - name: go-vet
       root: packages/kernel

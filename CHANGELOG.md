@@ -47,6 +47,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Go lint checks both native and WASM targets with restored revive defaults,
+  wrapped-error and security checks. CI pins external actions and the lint
+  binary, bounds every runnable job, and caches dependency/browser downloads
+  while retaining required installation steps.
 - Audio computation stays in the Go kernel and tagged upstream DSP libraries;
   worker render-ahead feeds a SharedArrayBuffer and a copy-only AudioWorklet.
   Native CLI/MCP reuse the platform-independent engine.

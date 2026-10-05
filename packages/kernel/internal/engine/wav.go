@@ -103,7 +103,7 @@ func inspectWAV(input []byte) (wavLayout, error) {
 			if size < 16 {
 				return layout, fmt.Errorf("wav.inspect: format chunk has %d bytes, want at least 16", size)
 			}
-			layout.fmtStart, layout.fmtBytes = int(body), int(size)
+			layout.fmtStart, layout.fmtBytes = int(body), int(size) // #nosec G115 -- body+size was checked against end, which never exceeds len(input).
 			if err := layout.inspectFormat(input[body : body+size]); err != nil {
 				return wavLayout{}, err
 			}
@@ -112,7 +112,7 @@ func inspectWAV(input []byte) (wavLayout, error) {
 			if seenData {
 				return layout, fmt.Errorf("wav.inspect: multiple data chunks")
 			}
-			layout.dataStart, layout.dataBytes = int(body), int(size)
+			layout.dataStart, layout.dataBytes = int(body), int(size) // #nosec G115 -- body+size was checked against end, which never exceeds len(input).
 			seenData = true
 		case "cue ", "aeMD", "LIST":
 			if string(input[pos:pos+4]) == "LIST" && size < 4 {
@@ -166,14 +166,14 @@ func inspectDS64(input []byte) (riff, data uint64, table []rf64Size, next uint64
 		return 0, 0, nil, 0, fmt.Errorf("wav.inspect: RF64 requires a ds64 header")
 	}
 	size := uint64(binary.LittleEndian.Uint32(input[16:20]))
-	if size < 28 || size > maxTimelineMetadataBytes || size > uint64(len(input)-20) {
+	if size < 28 || size > maxTimelineMetadataBytes || size > uint64(len(input)-20) { // #nosec G115 -- The preceding header guard requires len(input) >= 48, so len(input)-20 is nonnegative.
 		return 0, 0, nil, 0, fmt.Errorf("wav.inspect: invalid ds64 size")
 	}
 	count := uint64(binary.LittleEndian.Uint32(input[44:48]))
 	if count > (size-28)/12 {
 		return 0, 0, nil, 0, fmt.Errorf("wav.inspect: truncated ds64 size table")
 	}
-	table = make([]rf64Size, int(count))
+	table = make([]rf64Size, int(count)) // #nosec G115 -- count <= (size-28)/12 and size <= maxTimelineMetadataBytes (2 MiB).
 	for i := range table {
 		offset := 48 + i*12
 		table[i] = rf64Size{id: string(input[offset : offset+4]), size: binary.LittleEndian.Uint64(input[offset+4 : offset+12])}
@@ -209,7 +209,7 @@ func (l *wavLayout) inspectFormat(data []byte) error {
 		return fmt.Errorf("wav.inspect: unsupported WAV format %d/%d bits", tag, l.bitDepth)
 	}
 	align := l.channels * (l.bitDepth / 8)
-	if int(binary.LittleEndian.Uint16(data[12:14])) != align || uint64(binary.LittleEndian.Uint32(data[8:12])) != uint64(l.rate)*uint64(align) {
+	if int(binary.LittleEndian.Uint16(data[12:14])) != align || uint64(binary.LittleEndian.Uint32(data[8:12])) != uint64(l.rate)*uint64(align) { // #nosec G115 -- Validated positive rate/channels and supported bit depths bound align to 64 bytes.
 		return fmt.Errorf("wav.inspect: inconsistent block alignment or byte rate")
 	}
 	return nil
@@ -298,7 +298,7 @@ func (l wavLayout) reader(input []byte) *wavReadSeeker {
 	}
 	header := make([]byte, 12+8+fmtSize+8)
 	copy(header[:4], "RIFF")
-	binary.LittleEndian.PutUint32(header[4:8], uint32(len(header)+l.dataBytes+(l.dataBytes&1)-8))
+	binary.LittleEndian.PutUint32(header[4:8], uint32(len(header)+l.dataBytes+(l.dataBytes&1)-8)) // #nosec G115 -- The decoder uses PCMChunk.LimitReader for actual length; RIFF-size bits deliberately wrap for recovered RF64 data.
 	copy(header[8:16], "WAVEfmt ")
 	binary.LittleEndian.PutUint32(header[16:20], uint32(fmtSize))
 	copy(header[20:20+fmtSize], input[l.fmtStart:l.fmtStart+fmtSize])
@@ -306,7 +306,7 @@ func (l wavLayout) reader(input []byte) *wavReadSeeker {
 		binary.LittleEndian.PutUint16(header[36:38], 22)
 	}
 	copy(header[20+fmtSize:], "data")
-	binary.LittleEndian.PutUint32(header[24+fmtSize:], uint32(l.dataBytes))
+	binary.LittleEndian.PutUint32(header[24+fmtSize:], uint32(l.dataBytes)) // #nosec G115 -- Actual data length is enforced separately by PCMChunk.LimitReader, including RF64 data larger than uint32.
 	return &wavReadSeeker{header: header, data: input[l.dataStart : l.dataStart+l.dataBytes]}
 }
 

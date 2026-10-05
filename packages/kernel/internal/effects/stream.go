@@ -36,11 +36,13 @@ type Stream struct {
 	meters      Meters
 }
 
+// Meters contains the most recent upstream input and output level snapshot.
 type Meters struct {
 	Frames                                     int64
 	InputPeak, InputRMS, OutputPeak, OutputRMS []float64
 }
 
+// NewStream prepares a stateful effect stream over a document selection.
 func NewStream(document audiobuf.Document, selected ops.Range, config Config) (*Stream, error) {
 	chain, err := config.NewChain(document.SampleRate(), bits.OnesCount(uint(selected.ChannelMask)))
 	if err != nil {
@@ -232,8 +234,13 @@ func (s *Stream) renderWet(count int) error {
 	return nil
 }
 
-func (s *Stream) Meters() Meters       { return s.meters }
-func (s *Stream) Identity() bool       { return s.config.Bypass || s.config.Wet == 0 }
+// Meters returns the most recent upstream meter snapshot.
+func (s *Stream) Meters() Meters { return s.meters }
+
+// Identity reports whether processing preserves the source audio.
+func (s *Stream) Identity() bool { return s.config.Bypass || s.config.Wet == 0 }
+
+// Selection returns the source selection processed by the stream.
 func (s *Stream) Selection() ops.Range { return s.selected }
 
 // TryUpdate preserves prepared histories for upstream-supported graph changes.

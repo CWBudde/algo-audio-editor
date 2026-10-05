@@ -1,0 +1,30 @@
+{
+  "baseline": "Existing production build before R.1 lint changes; final four-case functional transport run",
+  "snapshot": {
+    "cursor": "31",
+    "contextState": "running",
+    "sampleRate": 48000,
+    "currentTime": 0.5493333333333333,
+    "outputTimestamp": {
+      "contextTime": 0.38057166666666664,
+      "performanceTime": 1982.2150000333786
+    },
+    "performanceTime": 1985.9550000429153,
+    "capacityFrames": 8192,
+    "header": [31, 31, 0, 1],
+    "counters": ["31", "31", "9856", "26368", "9887", "258", "0", "9856", "6", "0"],
+    "counterNames": [
+      "consumed",
+      "cursor",
+      "historyStart",
+      "historyEnd",
+      "finalFrame",
+      "sequence",
+      "initialCursor",
+      "firstContextFrame",
+      "epoch",
+      "reserved"
+    ],
+    "consumerCountersCoherent": true
+  }
+}

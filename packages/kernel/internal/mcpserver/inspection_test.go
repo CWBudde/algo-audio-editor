@@ -21,9 +21,9 @@ import (
 
 func TestSecondsSelection(t *testing.T) {
 	client, ctx := client(t, nil)
-	id := open(t, ctx, client, writeFixture(t, t.TempDir()))
+	id := open(ctx, t, client, writeFixture(t, t.TempDir()))
 	args := map[string]any{"documentId": id}
-	before := call(t, ctx, client, "history", args, false)
+	before := call(ctx, t, client, "history", args, false)
 	for _, test := range []struct {
 		name               string
 		start, end         float64
@@ -43,20 +43,20 @@ func TestSecondsSelection(t *testing.T) {
 		{"negative mask", 0, 1, -1, 0, 0, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			out := call(t, ctx, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": test.start, "endSeconds": test.end, "channelMask": test.mask}, test.invalid)
+			out := call(ctx, t, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": test.start, "endSeconds": test.end, "channelMask": test.mask}, test.invalid)
 			if !test.invalid && (out["start"] != test.wantStart || out["end"] != test.wantEnd || out["channelMask"] != float64(test.mask)) {
 				t.Fatal(out)
 			}
 		})
 	}
-	call(t, ctx, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": 0, "endSeconds": "NaN", "channelMask": 1}, true)
-	call(t, ctx, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": 0, "endSeconds": 0.1, "channelMask": 1, "unexpected": true}, true)
-	if !reflect.DeepEqual(before, call(t, ctx, client, "history", args, false)) {
+	call(ctx, t, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": 0, "endSeconds": "NaN", "channelMask": 1}, true)
+	call(ctx, t, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": 0, "endSeconds": 0.1, "channelMask": 1, "unexpected": true}, true)
+	if !reflect.DeepEqual(before, call(ctx, t, client, "history", args, false)) {
 		t.Fatal("selection changed history")
 	}
-	call(t, ctx, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": 1.0 / 48000, "endSeconds": 9.0 / 48000, "channelMask": 1}, false)
-	call(t, ctx, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": -1, "endSeconds": 1, "channelMask": 1}, true)
-	result := call(t, ctx, client, "apply_operation", map[string]any{"documentId": id, "operation": automation.Operation{Method: protocol.MethodEditApply, Params: map[string]any{"operation": "crop"}}}, false)
+	call(ctx, t, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": 1.0 / 48000, "endSeconds": 9.0 / 48000, "channelMask": 1}, false)
+	call(ctx, t, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": -1, "endSeconds": 1, "channelMask": 1}, true)
+	result := call(ctx, t, client, "apply_operation", map[string]any{"documentId": id, "operation": automation.Operation{Method: protocol.MethodEditApply, Params: map[string]any{"operation": "crop"}}}, false)
 	if result["document"].(map[string]any)["frames"] != float64(8) {
 		t.Fatal("failed selection lost previous selection", result)
 	}
@@ -82,18 +82,18 @@ func TestMultichannelInspectionAndSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	client, ctx := client(t, nil)
-	id := open(t, ctx, client, path)
+	id := open(ctx, t, client, path)
 	for _, mask := range []int{1, 2, 3} {
-		out := call(t, ctx, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": 0, "endSeconds": 1, "channelMask": mask}, false)
+		out := call(ctx, t, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": 0, "endSeconds": 1, "channelMask": mask}, false)
 		if out["channelMask"] != float64(mask) {
 			t.Fatal("channel mask changed", out)
 		}
-		stats := call(t, ctx, client, "get_statistics", map[string]any{"documentId": id}, false)
+		stats := call(ctx, t, client, "get_statistics", map[string]any{"documentId": id}, false)
 		if got := len(stats["channels"].([]any)); got != map[int]int{1: 1, 2: 1, 3: 2}[mask] {
 			t.Fatal("wrong channels", stats)
 		}
 	}
-	call(t, ctx, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": 0, "endSeconds": 1, "channelMask": 4}, true)
+	call(ctx, t, client, "select_seconds", map[string]any{"documentId": id, "startSeconds": 0, "endSeconds": 1, "channelMask": 4}, true)
 	resource, err := client.ReadResource(ctx, &mcp.ReadResourceParams{URI: peaksURI(id) + "?channel=1"})
 	if err != nil {
 		t.Fatal(err)
@@ -117,10 +117,10 @@ func TestMultichannelInspectionAndSelection(t *testing.T) {
 
 func TestWaveformAndBinaryPeakResources(t *testing.T) {
 	client, ctx := client(t, nil)
-	id := open(t, ctx, client, writeFixture(t, t.TempDir()))
+	id := open(ctx, t, client, writeFixture(t, t.TempDir()))
 	args := map[string]any{"documentId": id}
-	before := call(t, ctx, client, "history", args, false)
-	infoBefore := call(t, ctx, client, "document_info", args, false)
+	before := call(ctx, t, client, "history", args, false)
+	infoBefore := call(ctx, t, client, "document_info", args, false)
 	if infoBefore["waveformURI"] != waveformURI(id) || infoBefore["peaksURI"] != peaksURI(id) {
 		t.Fatal(infoBefore)
 	}
@@ -180,14 +180,14 @@ func TestWaveformAndBinaryPeakResources(t *testing.T) {
 	if binary.LittleEndian.Uint64(selected[32:]) != 2 || binary.LittleEndian.Uint64(selected[40:]) != 5 || binary.LittleEndian.Uint32(selected[16:]) != 3 {
 		t.Fatal("binary viewport missing", selected[:48])
 	}
-	if !reflect.DeepEqual(before, call(t, ctx, client, "history", args, false)) || !reflect.DeepEqual(infoBefore, call(t, ctx, client, "document_info", args, false)) {
+	if !reflect.DeepEqual(before, call(ctx, t, client, "history", args, false)) || !reflect.DeepEqual(infoBefore, call(ctx, t, client, "document_info", args, false)) {
 		t.Fatal("resource read mutated history/metadata")
 	}
-	call(t, ctx, client, "apply_operation", map[string]any{"documentId": id, "operation": automation.Operation{Method: protocol.MethodProcessStart, Params: map[string]any{"operation": "gain", "gainDb": -6}}}, false)
+	call(ctx, t, client, "apply_operation", map[string]any{"documentId": id, "operation": automation.Operation{Method: protocol.MethodProcessStart, Params: map[string]any{"operation": "gain", "gainDb": -6}}}, false)
 	if bytes.Equal(peakData, read(peaksURI(id), peakMIME)) {
 		t.Fatal("resource cached stale history")
 	}
-	call(t, ctx, client, "close_document", args, false)
+	call(ctx, t, client, "close_document", args, false)
 	resources, err := client.ListResources(ctx, nil)
 	if err != nil || len(resources.Resources) != 0 {
 		t.Fatal("closed resources remain", resources, err)
@@ -205,15 +205,15 @@ func TestWaveformAndBinaryPeakResources(t *testing.T) {
 
 func TestWaveformRecordBoundOnFragmentedDocument(t *testing.T) {
 	client, ctx := client(t, nil)
-	id := open(t, ctx, client, writeFixture(t, t.TempDir()))
+	id := open(ctx, t, client, writeFixture(t, t.TempDir()))
 	chain := automation.Chain{Version: 1}
 	// Sixteen doublings reuse the same ten-frame immutable block. This creates
 	// 65536 independent peak records despite requesting only 1024 display pixels.
 	for range 16 {
 		chain.Operations = append(chain.Operations, automation.Operation{Method: protocol.MethodEditApply, Range: "document", Params: map[string]any{"operation": "duplicate"}})
 	}
-	call(t, ctx, client, "apply_chain", map[string]any{"documentId": id, "chain": chain}, false)
-	before := call(t, ctx, client, "history", map[string]any{"documentId": id}, false)
+	call(ctx, t, client, "apply_chain", map[string]any{"documentId": id, "chain": chain}, false)
+	before := call(ctx, t, client, "history", map[string]any{"documentId": id}, false)
 	if _, err := client.ReadResource(ctx, &mcp.ReadResourceParams{URI: waveformURI(id)}); err == nil {
 		t.Fatal("unbounded fragmented waveform accepted")
 	}
@@ -228,7 +228,7 @@ func TestWaveformRecordBoundOnFragmentedDocument(t *testing.T) {
 	if err != nil || binary.LittleEndian.Uint32(result.Contents[0].Blob[16:]) != 65536 {
 		t.Fatal("bounded binary records missing", err)
 	}
-	if !reflect.DeepEqual(before, call(t, ctx, client, "history", map[string]any{"documentId": id}, false)) {
+	if !reflect.DeepEqual(before, call(ctx, t, client, "history", map[string]any{"documentId": id}, false)) {
 		t.Fatal("failed/valid resource read changed history")
 	}
 }

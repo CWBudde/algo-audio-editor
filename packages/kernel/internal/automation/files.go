@@ -15,8 +15,9 @@ import (
 // kernel additionally enforces its own decoded-codec and processing budgets.
 const MaxInputBytes = 128 << 20
 
+// ReadFile reads a regular file within the supplied byte limit.
 func ReadFile(path string, limit int64) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- Native CLI/MCP deliberately permits user-selected reads; regular-file and byte limits are checked on this descriptor.
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
@@ -49,6 +50,7 @@ type FilePolicy struct {
 	roots []writeRoot
 }
 
+// NewFilePolicy opens traversal-resistant roots for explicitly allowed writes.
 func NewFilePolicy(directories []string) (*FilePolicy, error) {
 	p := new(FilePolicy)
 	for _, directory := range directories {
@@ -72,6 +74,7 @@ func NewFilePolicy(directories []string) (*FilePolicy, error) {
 	return p, nil
 }
 
+// Close closes all allowed filesystem roots.
 func (p *FilePolicy) Close() {
 	for _, root := range p.roots {
 		_ = root.root.Close()

@@ -29,29 +29,39 @@ type Operation interface {
 	Apply(audiobuf.Document) (audiobuf.Document, error)
 }
 
+// Delete removes selected frames from selected channels.
 type Delete struct{ Range Range }
 
+// Crop retains the selected time interval in every channel.
 type Crop struct{ Range Range }
 
+// Mute replaces selected samples with silence.
 type Mute struct{ Range Range }
 
+// Duplicate inserts a copy of the selected interval.
 type Duplicate struct{ Range Range }
 
+// SwapChannels exchanges selected channel audio.
 type SwapChannels struct{ Range Range }
 
+// InsertSilence inserts silent frames at the selection start.
 type InsertSilence struct {
 	Range  Range
 	Frames int64
 }
 
+// PasteMode selects insertion, replacement or mixing of clipboard audio.
 type PasteMode string
 
+// Clipboard paste modes control insertion, replacement and mixing.
 const (
+	// PasteInsert inserts clipboard audio without replacing source frames.
 	PasteInsert  PasteMode = "insert"
 	PasteReplace PasteMode = "replace"
 	PasteMix     PasteMode = "mix"
 )
 
+// Paste places clipboard audio according to its range and mode.
 type Paste struct {
 	Range     Range
 	Clipboard Clipboard
@@ -65,6 +75,7 @@ type Clipboard struct {
 	sampleRate int
 }
 
+// NewClipboard retains shared immutable windows from a document selection.
 func NewClipboard(document audiobuf.Document, selected Range) (Clipboard, error) {
 	if err := validate(document, selected, true); err != nil {
 		return Clipboard{}, fmt.Errorf("ops.copy: %w", err)
@@ -92,10 +103,13 @@ func Copy(document audiobuf.Document, selected Range) (Clipboard, error) {
 	return NewClipboard(document, selected)
 }
 
+// SampleRate returns the clipboard sample rate in Hz.
 func (c Clipboard) SampleRate() int { return c.sampleRate }
 
+// Channels returns the number of clipboard channels.
 func (c Clipboard) Channels() int { return len(c.windows) }
 
+// Frames returns the number of audio frames.
 func (c Clipboard) Frames() int64 {
 	if len(c.windows) == 0 {
 		return 0
@@ -103,6 +117,7 @@ func (c Clipboard) Frames() int64 {
 	return c.windows[0].Frames()
 }
 
+// Window returns a selected clipboard channel window.
 func (c Clipboard) Window(channel int) (audiobuf.Window, error) {
 	if channel < 0 || channel >= len(c.windows) {
 		return audiobuf.Window{}, fmt.Errorf("clipboard.window: channel %d outside [0, %d)", channel, len(c.windows))
@@ -110,6 +125,7 @@ func (c Clipboard) Window(channel int) (audiobuf.Window, error) {
 	return c.windows[channel], nil
 }
 
+// Windows returns a copy of the shared clipboard window list.
 func (c Clipboard) Windows() []audiobuf.Window { return slices.Clone(c.windows) }
 
 func (c Clipboard) Read(dst []float32, channel int, start int64) int {
@@ -203,6 +219,7 @@ func rippleMetadata(document audiobuf.Document, selected Range, start, end, inse
 	return metadata, nil
 }
 
+// Apply returns an immutable document with this edit applied.
 func (op Delete) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	if err := validate(document, op.Range, true); err != nil {
 		return document, fmt.Errorf("ops.delete: %w", err)
@@ -220,6 +237,7 @@ func (op Delete) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	return result, nil
 }
 
+// Apply returns an immutable document with this edit applied.
 // Crop always applies the time range to every channel, regardless of the mask.
 func (op Crop) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	if err := validate(document, op.Range, true); err != nil {
@@ -232,6 +250,7 @@ func (op Crop) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	return result, nil
 }
 
+// Apply returns an immutable document with this edit applied.
 // InsertSilence inserts at Start; End does not replace a selected range.
 func (op InsertSilence) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	if err := validate(document, op.Range, false); err != nil {
@@ -257,6 +276,7 @@ func (op InsertSilence) Apply(document audiobuf.Document) (audiobuf.Document, er
 	return result, nil
 }
 
+// Apply returns an immutable document with this edit applied.
 func (op Mute) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	if err := validate(document, op.Range, true); err != nil {
 		return document, fmt.Errorf("ops.mute: %w", err)
@@ -274,6 +294,7 @@ func (op Mute) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	return result, nil
 }
 
+// Apply returns an immutable document with this edit applied.
 func (op Duplicate) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	clipboard, err := NewClipboard(document, op.Range)
 	if err != nil {
@@ -286,6 +307,7 @@ func (op Duplicate) Apply(document audiobuf.Document) (audiobuf.Document, error)
 	return result, nil
 }
 
+// Apply returns an immutable document with this edit applied.
 func (op SwapChannels) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	if err := validate(document, op.Range, false); err != nil {
 		return document, fmt.Errorf("ops.swapChannels: %w", err)
@@ -328,6 +350,7 @@ func (op SwapChannels) Apply(document audiobuf.Document) (audiobuf.Document, err
 	return result, nil
 }
 
+// Apply returns an immutable document with this edit applied.
 func (op Paste) Apply(document audiobuf.Document) (audiobuf.Document, error) {
 	if err := validate(document, op.Range, false); err != nil {
 		return document, fmt.Errorf("ops.paste: %w", err)

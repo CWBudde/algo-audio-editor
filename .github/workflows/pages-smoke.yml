@@ -21,21 +21,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.commit || github.sha }}
       - uses: ./.github/actions/setup
         with:
           go: "false"
-      - name: Install Playwright Chromium
-        working-directory: apps/editor-web
-        run: bunx playwright install --with-deps chromium
+          playwright: "true"
       - name: Cold-cache live verification
         env:
           PLAYWRIGHT_BASE_URL: ${{ inputs.url || 'https://cwbudde.github.io/algo-audio-editor/' }}
           AAE_EXPECTED_COMMIT: ${{ inputs.commit }}
         run: just e2e-pages-live
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: playwright-pages

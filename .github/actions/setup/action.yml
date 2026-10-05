@@ -1,7 +1,7 @@
 name: Set up toolchain
 description: >-
-  Go (from packages/kernel/go.mod), Node 24, Bun with a frozen install, and
-  just. One place for the versions every test-*.yml job shares.
+  Go (from packages/kernel/go.mod), Node 24, Bun with a cached frozen install,
+  just, and optional Playwright Chromium. Shared by CI, Pages and releases.
 
 inputs:
   go:
@@ -10,28 +10,63 @@ inputs:
   bun:
     description: Install Bun and the workspace dependencies.
     default: "true"
+  playwright:
+    description: Cache and install Playwright Chromium and its system dependencies (requires bun).
+    default: "false"
 
 runs:
   using: composite
   steps:
     - if: inputs.go == 'true'
-      uses: actions/setup-go@v7
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: packages/kernel/go.mod
         cache-dependency-path: packages/kernel/go.sum
-    - uses: actions/setup-node@v6
+    - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
       with:
         node-version: "24"
     - if: inputs.bun == 'true'
-      uses: oven-sh/setup-bun@v2
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       with:
         bun-version: "1.4.2"
+    - if: inputs.bun == 'true'
+      name: Cache Bun package downloads
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      with:
+        # Cache downloads, not node_modules: the frozen install always runs,
+        # including workspace links and required dependency lifecycle scripts.
+        path: ${{ runner.temp }}/bun-install-cache
+        key: bun-${{ runner.os }}-${{ runner.arch }}-1.4.2-${{ hashFiles('bun.lock') }}
+        restore-keys: |
+          bun-${{ runner.os }}-${{ runner.arch }}-1.4.2-
     - if: inputs.bun == 'true'
       name: bun install
       shell: bash
       env:
+        # Select the same directory as the cache action; Bun can otherwise
+        # inherit a different cache location from npm/environment settings.
+        BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
         # Only the Electron jobs need the binary; they fetch it explicitly
         # with `install-electron`.
         ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       run: bun install --frozen-lockfile
-    - uses: extractions/setup-just@v4
+    - if: inputs.playwright == 'true' && inputs.bun == 'true'
+      name: Resolve installed Playwright version
+      id: playwright
+      shell: bash
+      run: echo "version=$(node -p "require('./apps/editor-web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+    - if: inputs.playwright == 'true' && inputs.bun == 'true'
+      name: Cache Playwright browsers
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+    - if: inputs.playwright == 'true' && inputs.bun == 'true'
+      name: Install Playwright Chromium and system dependencies
+      shell: bash
+      working-directory: apps/editor-web
+      # Always run: cached browsers do not include apt/system dependencies,
+      # and install also repairs incomplete browser caches. `bunx --cwd`
+      # interprets the directory as a package spec, so use working-directory.
+      run: bunx playwright install --with-deps chromium
+    - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0

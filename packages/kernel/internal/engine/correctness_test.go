@@ -67,7 +67,16 @@ func TestSurroundNormalizeStatisticsExportAndMeters(t *testing.T) {
 				t.Fatal(err)
 			}
 			output := make([]float32, 512*tc.channels)
-			for e.Render(output) == 512 {
+			rendered := 0
+			for {
+				n := e.Render(output)
+				rendered += n
+				if n != 512 {
+					break
+				}
+			}
+			if rendered != frames {
+				t.Fatalf("rendered %d frames, want %d", rendered, frames)
 			}
 			if got := meterValues(t, e)[6]; math.Abs(got+23) > .01 {
 				t.Fatalf("%d-channel meters %g", tc.channels, got)

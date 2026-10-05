@@ -33,6 +33,7 @@ type Gain struct{ DB float64 }
 // one is an exact storage identity, including the signs of zero samples.
 type LinearGain struct{ Factor float64 }
 
+// NewChannel prepares an independent processor for one source channel.
 func (g LinearGain) NewChannel(_ int, _ int, _ int64) (Processor, error) {
 	if math.IsNaN(g.Factor) || math.IsInf(g.Factor, 0) || g.Factor <= 0 {
 		return nil, fmt.Errorf("process.linear-gain: coefficient must be finite and positive")
@@ -40,6 +41,7 @@ func (g LinearGain) NewChannel(_ int, _ int, _ int64) (Processor, error) {
 	return gainProcessor{linear: g.Factor}, nil
 }
 
+// NewChannel prepares an independent processor for one source channel.
 func (g Gain) NewChannel(_ int, _ int, _ int64) (Processor, error) {
 	if math.IsNaN(g.DB) || math.IsInf(g.DB, 0) || g.DB < -120 || g.DB > 60 {
 		return nil, fmt.Errorf("process.gain: dB must be finite in [-120, 60]")

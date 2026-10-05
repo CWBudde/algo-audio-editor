@@ -43,14 +43,16 @@ func assertSamples(t testing.TB, doc audiobuf.Document, want [][]float32) {
 	got := readDocument(t, doc)
 	if len(got) != len(want) {
 		t.Fatalf("channels %d, want %d", len(got), len(want))
+		return
 	}
 	for channel := range got {
-		if len(got[channel]) != len(want[channel]) {
-			t.Fatalf("channel %d frames %d, want %d", channel, len(got[channel]), len(want[channel]))
+		if len(got[channel]) != len(want[channel]) { // #nosec G602 -- The channel count equality check above bounds both outer slices.
+			t.Fatalf("channel %d frames %d, want %d", channel, len(got[channel]), len(want[channel])) // #nosec G602 -- The channel count equality check above bounds both outer slices.
+			return
 		}
 		for frame := range got[channel] {
-			if math.Float32bits(got[channel][frame]) != math.Float32bits(want[channel][frame]) {
-				t.Fatalf("channel %d frame %d = %08x (%v), want %08x (%v)", channel, frame, math.Float32bits(got[channel][frame]), got[channel][frame], math.Float32bits(want[channel][frame]), want[channel][frame])
+			if math.Float32bits(got[channel][frame]) != math.Float32bits(want[channel][frame]) { // #nosec G602 -- Both channel and frame counts were checked equal before this loop.
+				t.Fatalf("channel %d frame %d = %08x (%v), want %08x (%v)", channel, frame, math.Float32bits(got[channel][frame]), got[channel][frame], math.Float32bits(want[channel][frame]), want[channel][frame]) // #nosec G602 -- Both channel and frame counts were checked equal before this loop.
 			}
 		}
 	}

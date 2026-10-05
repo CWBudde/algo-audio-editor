@@ -123,13 +123,13 @@ func decodeWAVMetadata(chunks []audiobuf.FileChunk, timeline audiobuf.Timeline) 
 			}
 			var zero uint32
 			for _, marker := range timeline.Markers {
-				if !used[uint32(marker.ID)] {
-					zero = uint32(marker.ID)
+				if !used[uint32(marker.ID)] { // #nosec G115 -- The imported/encoded timeline passed Timeline.Validate (IDs 1..MaxUint32).
+					zero = uint32(marker.ID) // #nosec G115 -- The imported/encoded timeline passed Timeline.Validate (IDs 1..MaxUint32).
 				}
 			}
 			for _, region := range timeline.Regions {
-				if !used[uint32(region.ID)] {
-					zero = uint32(region.ID)
+				if !used[uint32(region.ID)] { // #nosec G115 -- The imported/encoded timeline passed Timeline.Validate (IDs 1..MaxUint32).
+					zero = uint32(region.ID) // #nosec G115 -- The imported/encoded timeline passed Timeline.Validate (IDs 1..MaxUint32).
 				}
 			}
 			if zero != 0 {
@@ -147,10 +147,10 @@ func decodeWAVMetadata(chunks []audiobuf.FileChunk, timeline audiobuf.Timeline) 
 		}
 		active := map[uint32]bool{}
 		for _, marker := range timeline.Markers {
-			active[uint32(marker.ID)] = true
+			active[uint32(marker.ID)] = true // #nosec G115 -- The imported/encoded timeline passed Timeline.Validate (IDs 1..MaxUint32).
 		}
 		for _, region := range timeline.Regions {
-			active[uint32(region.ID)] = true
+			active[uint32(region.ID)] = true // #nosec G115 -- The imported/encoded timeline passed Timeline.Validate (IDs 1..MaxUint32).
 		}
 		for _, note := range associated.Notes {
 			if !active[note.CuePointID] {
@@ -239,10 +239,10 @@ func encodeWAVMetadata(metadata audiobuf.Metadata, frames int64) ([]wav.RawChunk
 	}
 	active := map[uint32]bool{}
 	for _, marker := range metadata.Timeline.Markers {
-		active[uint32(marker.ID)] = true
+		active[uint32(marker.ID)] = true // #nosec G115 -- The imported/encoded timeline passed Timeline.Validate (IDs 1..MaxUint32).
 	}
 	for _, region := range metadata.Timeline.Regions {
-		active[uint32(region.ID)] = true
+		active[uint32(region.ID)] = true // #nosec G115 -- The imported/encoded timeline passed Timeline.Validate (IDs 1..MaxUint32).
 	}
 	for _, chunk := range metadata.WAVChunks {
 		raw := wav.RawChunk{ID: chunk.ID, Data: chunk.Data}
@@ -304,12 +304,16 @@ func encodeWAVMetadata(metadata audiobuf.Metadata, frames int64) ([]wav.RawChunk
 	}
 	var size int64
 	for i := range chunks {
-		chunks[i].Size = uint32(len(chunks[i].Data))
+		length := len(chunks[i].Data)
+		if length > maxTimelineMetadataBytes {
+			return nil, 0, fmt.Errorf("wav.metadata: metadata exceeds the %d-byte budget", maxTimelineMetadataBytes)
+		}
+		size += 8 + int64(length) + int64(length%2)
+		if size > maxTimelineMetadataBytes {
+			return nil, 0, fmt.Errorf("wav.metadata: metadata exceeds the %d-byte budget", maxTimelineMetadataBytes)
+		}
+		chunks[i].Size = uint32(length)
 		chunks[i].Order = i
-		size += int64(8 + len(chunks[i].Data) + len(chunks[i].Data)%2)
-	}
-	if size > maxTimelineMetadataBytes {
-		return nil, 0, fmt.Errorf("wav.metadata: metadata exceeds the %d-byte budget", maxTimelineMetadataBytes)
 	}
 	return chunks, size, nil
 }

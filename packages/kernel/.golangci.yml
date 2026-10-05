@@ -9,8 +9,11 @@ linters:
     - unused
     - ineffassign
     - revive
+    - errorlint
+    - gosec
   settings:
     revive:
+      enable-default-rules: true
       rules:
         - name: file-length-limit
           arguments:
@@ -22,6 +25,16 @@ linters:
       # Long table-driven test files are fine; the limit targets production code.
       - path: _test\.go$
         linters: [revive]
+        text: file-length-limit
+      # Audio fixture encodings intentionally reinterpret signed PCM bits;
+      # seeded property tests and dither references require reproducible RNGs.
+      - path: _test\.go$
+        linters: [gosec]
+        text: "G115:|G404:"
+      # Test fixture paths come from fixed case tables or t.TempDir, not clients.
+      - path: _test\.go$
+        linters: [gosec]
+        text: "G304:|G703:"
 
 formatters:
   enable:

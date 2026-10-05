@@ -18,8 +18,8 @@ func anchorDocument(t testing.TB, channels int) audiobuf.Document {
 	for i, frame := range []int64{0, 3, 5, 7, 10} {
 		metadata.Timeline.Markers = append(metadata.Timeline.Markers, audiobuf.Marker{ID: int64(i + 1), Frame: frame, Name: "point", Color: audiobuf.DefaultAnchorColor})
 	}
-	for i, range_ := range [][2]int64{{0, 3}, {1, 5}, {3, 7}, {5, 9}, {0, 10}} {
-		metadata.Timeline.Regions = append(metadata.Timeline.Regions, audiobuf.Region{ID: int64(i + 6), Start: range_[0], End: range_[1], Name: "region", Color: audiobuf.DefaultAnchorColor})
+	for i, interval := range [][2]int64{{0, 3}, {1, 5}, {3, 7}, {5, 9}, {0, 10}} {
+		metadata.Timeline.Regions = append(metadata.Timeline.Regions, audiobuf.Region{ID: int64(i + 6), Start: interval[0], End: interval[1], Name: "region", Color: audiobuf.DefaultAnchorColor})
 	}
 	metadata.Timeline.NextID = 11
 	doc, err := doc.WithMetadata(metadata)

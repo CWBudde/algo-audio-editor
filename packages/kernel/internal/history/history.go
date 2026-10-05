@@ -20,11 +20,13 @@ type Limits struct {
 	MaxBytes   int64
 }
 
+// State pairs an immutable snapshot with a stable identity.
 type State[T any] struct {
 	ID    string
 	Value T
 }
 
+// Entry describes a labeled transition between two retained states.
 type Entry[T any] struct {
 	Label         string
 	Before, After State[T]
@@ -62,6 +64,7 @@ func validateLimits(limits Limits) error {
 	return nil
 }
 
+// New initializes bounded history at the supplied saved snapshot.
 func New[T any](initial T, initialLabel string, limits Limits, document func(T) audiobuf.Document) (*History[T], error) {
 	if err := validateLimits(limits); err != nil {
 		return nil, fmt.Errorf("history.new: limits: %w", err)
@@ -86,29 +89,40 @@ func New[T any](initial T, initialLabel string, limits Limits, document func(T) 
 	return h, nil
 }
 
+// Current returns the snapshot at the history cursor.
 func (h *History[T]) Current() State[T] { return h.states[h.cursor] }
 
+// CurrentID returns the identity at the history cursor.
 func (h *History[T]) CurrentID() string { return h.Current().ID }
 
+// SavedID returns the last acknowledged save-point identity.
 func (h *History[T]) SavedID() string { return h.savedID }
 
+// BaseLabel returns the label of the oldest retained state.
 func (h *History[T]) BaseLabel() string { return h.baseLabel }
 
+// Limits returns the configured retention limits.
 func (h *History[T]) Limits() Limits { return h.limits }
 
+// RetainedBytes returns deduplicated retained sample and cached-peak bytes.
 func (h *History[T]) RetainedBytes() int64 { return h.bytes }
 
+// CanUndo reports whether an earlier retained state exists.
 func (h *History[T]) CanUndo() bool { return h.cursor > 0 }
 
+// CanRedo reports whether a later retained state exists.
 func (h *History[T]) CanRedo() bool { return h.cursor < len(h.labels) }
 
+// Dirty reports whether the current state differs from the saved identity.
 func (h *History[T]) Dirty() bool { return h.CurrentID() != h.savedID }
 
 // MarkUnsaved initializes a newly created document without a saved file state.
 func (h *History[T]) MarkUnsaved() { h.savedID = "" }
 
+// States returns a copy of the retained state list.
 func (h *History[T]) States() []State[T] { return slices.Clone(h.states) }
 
+// Entries returns the labeled transitions between retained states.
 func (h *History[T]) Entries() []Entry[T] {
 	entries := make([]Entry[T], len(h.labels))
 	for i, label := range h.labels {
@@ -183,6 +197,7 @@ func (h *History[T]) MemoryStats(documents []audiobuf.Document, windows ...audio
 	return stats
 }
 
+// Clone shares immutable state until a staged mutation copies it.
 func (h *History[T]) Clone() *History[T] {
 	clone := *h
 	return &clone
@@ -224,6 +239,7 @@ func (h *History[T]) StagePush(label string, before, after T) (*History[T], erro
 	return staged, nil
 }
 
+// Push atomically appends an edit and prunes older retained states.
 func (h *History[T]) Push(label string, before, after T) error {
 	staged, err := h.StagePush(label, before, after)
 	if err != nil {
@@ -298,6 +314,7 @@ func (h *History[T]) SetLimits(limits Limits) error {
 	return nil
 }
 
+// Undo moves to the previous retained snapshot.
 func (h *History[T]) Undo() (T, error) {
 	if !h.CanUndo() {
 		var zero T
@@ -307,6 +324,7 @@ func (h *History[T]) Undo() (T, error) {
 	return h.Current().Value, nil
 }
 
+// Redo moves to the next retained snapshot.
 func (h *History[T]) Redo() (T, error) {
 	if !h.CanRedo() {
 		var zero T
@@ -316,6 +334,7 @@ func (h *History[T]) Redo() (T, error) {
 	return h.Current().Value, nil
 }
 
+// Jump moves to a retained snapshot with the supplied identity.
 func (h *History[T]) Jump(stateID string) (T, error) {
 	for i, state := range h.states {
 		if state.ID == stateID {

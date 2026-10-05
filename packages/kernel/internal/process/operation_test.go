@@ -16,9 +16,13 @@ import (
 
 func operationDocument(t *testing.T, samples ...[]float32) audiobuf.Document {
 	t.Helper()
+	if len(samples) == 0 {
+		t.Fatal("at least one fixture channel is required")
+		return audiobuf.Document{}
+	}
 	channels := make([]audiobuf.Channel, len(samples))
-	for i := range channels {
-		channels[i] = audiobuf.NewChannel(samples[i])
+	for i, channel := range samples {
+		channels[i] = audiobuf.NewChannel(channel)
 	}
 	doc, err := audiobuf.NewDocument(channels, 48000, audiobuf.Metadata{Name: "fixture", Timeline: audiobuf.Timeline{NextID: 3, Markers: []audiobuf.Marker{{ID: 1, Frame: 1, Name: "point", Color: "#123456"}}, Regions: []audiobuf.Region{{ID: 2, Start: 0, End: int64(len(samples[0])), Name: "program", Color: "#123456"}}}})
 	if err != nil {

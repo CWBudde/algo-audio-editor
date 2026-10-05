@@ -30,6 +30,7 @@ func (c Channel) Window(start, end int64) (Window, error) {
 	}, nil
 }
 
+// Frames returns the length of the shared channel view.
 func (w Window) Frames() int64 { return w.frames }
 
 // Read copies out only selected frames, never exposing a fractional edge.

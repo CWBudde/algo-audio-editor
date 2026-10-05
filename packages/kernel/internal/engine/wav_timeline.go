@@ -220,13 +220,13 @@ func encodeWAVTimeline(timeline audiobuf.Timeline, frames int64) ([]wav.RawChunk
 	associated := &wav.AssociatedData{}
 	extension := wavTimelineExtension{Version: 1, NextID: timeline.NextID, Colors: make([]wavAnchorColor, 0, cap(cues))}
 	add := func(id, frame int64, name, color string) error {
-		if frame > math.MaxUint32 {
+		if frame < 0 || frame > math.MaxUint32 {
 			return fmt.Errorf("wav.timeline: cue frame exceeds the uint32 WAV annotation limit")
 		}
 		point := &wav.CuePoint{DataChunkID: [4]byte{'d', 'a', 't', 'a'}, SampleOffset: uint32(frame)}
-		binary.LittleEndian.PutUint32(point.ID[:], uint32(id))
+		binary.LittleEndian.PutUint32(point.ID[:], uint32(id)) // #nosec G115 -- Timeline.Validate bounds every cue ID to 1..MaxUint32.
 		cues = append(cues, point)
-		associated.Labels = append(associated.Labels, wav.CueLabel{CuePointID: uint32(id), Text: name})
+		associated.Labels = append(associated.Labels, wav.CueLabel{CuePointID: uint32(id), Text: name}) // #nosec G115 -- Timeline.Validate bounds cue IDs.
 		extension.Colors = append(extension.Colors, wavAnchorColor{ID: id, Color: color})
 		return nil
 	}
@@ -236,13 +236,13 @@ func encodeWAVTimeline(timeline audiobuf.Timeline, frames int64) ([]wav.RawChunk
 		}
 	}
 	for _, region := range timeline.Regions {
-		if region.End-region.Start > math.MaxUint32 {
+		if region.End-region.Start < 0 || region.End-region.Start > math.MaxUint32 {
 			return nil, 0, fmt.Errorf("wav.timeline: region length exceeds the uint32 WAV annotation limit")
 		}
 		if err := add(region.ID, region.Start, region.Name, region.Color); err != nil {
 			return nil, 0, err
 		}
-		associated.Regions = append(associated.Regions, wav.CueRegion{CuePointID: uint32(region.ID), SampleLength: uint32(region.End - region.Start), PurposeID: [4]byte{'r', 'g', 'n', ' '}, CodePage: 65001})
+		associated.Regions = append(associated.Regions, wav.CueRegion{CuePointID: uint32(region.ID), SampleLength: uint32(region.End - region.Start), PurposeID: [4]byte{'r', 'g', 'n', ' '}, CodePage: 65001}) // #nosec G115 -- Timeline.Validate bounds the ID; the region length is checked above.
 	}
 	colors, err := json.Marshal(extension)
 	if err != nil {
@@ -262,12 +262,16 @@ func encodeWAVTimeline(timeline audiobuf.Timeline, frames int64) ([]wav.RawChunk
 	}
 	var size int64
 	for i := range chunks {
-		chunks[i].Size = uint32(len(chunks[i].Data))
+		length := len(chunks[i].Data)
+		if length > maxTimelineMetadataBytes {
+			return nil, 0, fmt.Errorf("wav.timeline: encoded annotations exceed the %d-byte budget", maxTimelineMetadataBytes)
+		}
+		size += 8 + int64(length) + int64(length%2)
+		if size > maxTimelineMetadataBytes {
+			return nil, 0, fmt.Errorf("wav.timeline: encoded annotations exceed the %d-byte budget", maxTimelineMetadataBytes)
+		}
+		chunks[i].Size = uint32(length)
 		chunks[i].Order = i
-		size += int64(8 + len(chunks[i].Data) + len(chunks[i].Data)%2)
-	}
-	if size > maxTimelineMetadataBytes {
-		return nil, 0, fmt.Errorf("wav.timeline: encoded annotations exceed the %d-byte budget", maxTimelineMetadataBytes)
 	}
 	return chunks, size, nil
 }

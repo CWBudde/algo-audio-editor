@@ -1,5 +1,12 @@
 package protocol
 
+// Meter payload is little-endian Float64[192]: version/channels/frames/rate,
+// M/S/I/LRA/correlation/goniometer count, reserved to16, then8channel tuples
+// of linear peak/RMS/hold/truepeak, reserved to64, then64mid/side pairs.
+// Slots10/11 are maxM/maxS,12 is LRAstable,13 is measured loudness frames,
+// 14 is failure(0none,1nonfinite,2capacity,3arithmetic),15 availability(M1,S2,I4,LRA8).
+// Nonfinite loudness means no gated measurement; the transport is unchanged.
+// Meter method names and binary snapshot offsets are shared with the frontend.
 const (
 	MethodMetersConfigure    = "meters.configure"
 	MethodAnalysisStart      = "analysis.start"
@@ -15,22 +22,20 @@ const (
 	MetersGoniometerCapacity = 64
 )
 
+// MetersConfigureParams enables or resets rendered-output metering.
 type MetersConfigureParams struct {
 	Enabled *bool `json:"enabled,omitempty"`
 	Reset   bool  `json:"reset,omitempty"`
 }
+
+// MetersConfigureResult reports meter availability and the binary snapshot layout version.
 type MetersConfigureResult struct {
 	Enabled    bool `json:"enabled"`
 	ByteLength int  `json:"byteLength"`
 	Version    int  `json:"version"`
 }
 
-// Meter payload is little-endian Float64[192]: version/channels/frames/rate,
-// M/S/I/LRA/correlation/goniometer count, reserved to16, then8channel tuples
-// of linear peak/RMS/hold/truepeak, reserved to64, then64mid/side pairs.
-// Slots10/11 are maxM/maxS,12 is LRAstable,13 is measured loudness frames,
-// 14 is failure(0none,1nonfinite,2capacity,3arithmetic),15 availability(M1,S2,I4,LRA8).
-// Nonfinite loudness means no gated measurement; the transport is unchanged.
+// AnalysisStartParams selects an analysis algorithm and its source geometry.
 type AnalysisStartParams struct {
 	SelectionResult
 	Kind      AnalysisKind `json:"kind"`
@@ -49,6 +54,8 @@ type AnalysisStartParams struct {
 	MaxDB     float64      `json:"maxDB,omitempty"`
 	ColorMap  string       `json:"colorMap,omitempty"`
 }
+
+// AnalysisJobParams identifies an analysis job and controls progressive binary copying.
 type AnalysisJobParams struct {
 	DocumentID string `json:"documentId"`
 	JobID      string `json:"jobId"`
@@ -56,6 +63,8 @@ type AnalysisJobParams struct {
 	// binary copying; true requests the current image. Ready results always emit.
 	IncludeData *bool `json:"includeData,omitempty"`
 }
+
+// ChannelStatistics reports measured statistics for one physical source channel.
 type ChannelStatistics struct {
 	Channel        int      `json:"channel"`
 	Peak           float64  `json:"peak"`
@@ -65,6 +74,8 @@ type ChannelStatistics struct {
 	ZeroCrossings  int64    `json:"zeroCrossings"`
 	ClippedSamples int64    `json:"clippedSamples"`
 }
+
+// AnalysisJobResult reports analysis progress, geometry and available measurements.
 type AnalysisJobResult struct {
 	SelectionResult
 	JobID            string              `json:"jobId"`
@@ -86,6 +97,7 @@ type AnalysisJobResult struct {
 	MarkerCount      int                 `json:"markerCount,omitempty"`
 }
 
+// AnalysisSpectrumParams selects the source and settings for a spectrum query.
 // Spectrum binary output is channel-major Float64 pairs (frequencyHz, levelDB).
 // Pitch binary output is Float64 tuples (physicalChannel, sourceFrame, Hz, confidence).
 // Spectrogram output is row-major RGBA8, lowfrequency at bottom.
@@ -99,6 +111,8 @@ type AnalysisSpectrumParams struct {
 	Averaging int     `json:"averaging,omitempty"`
 	Smoothing float64 `json:"smoothing,omitempty"`
 }
+
+// AnalysisSpectrumResult describes the spectrum returned in a separate binary buffer.
 type AnalysisSpectrumResult struct {
 	DocumentID string   `json:"documentId"`
 	JobID      string   `json:"jobId"`

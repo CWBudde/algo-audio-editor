@@ -1,5 +1,6 @@
 //go:build !js
 
+// Command aae-mcp serves the native editor through stdio MCP.
 package main
 
 import (

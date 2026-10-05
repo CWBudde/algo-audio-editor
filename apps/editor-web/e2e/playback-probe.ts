@@ -11,19 +11,31 @@ declare global {
 }
 
 /** Tap the real production node only in tests, with no application debug API. */
-export async function capturePlayback(page: Page) {
-  await page.addInitScript(() => {
-    const NativeContext = window.AudioContext;
-    window.AudioContext = class extends NativeContext {
-      constructor(options?: AudioContextOptions) {
-        super({ ...options, sampleRate: 48000 });
-      }
-    };
+export async function capturePlayback(page: Page, options: { passive?: boolean } = {}) {
+  await page.addInitScript(({ passive }) => {
+    if (!passive) {
+      const NativeContext = window.AudioContext;
+      window.AudioContext = class extends NativeContext {
+        constructor(options?: AudioContextOptions) {
+          super({ ...options, sampleRate: 48000 });
+        }
+      };
+    }
     const NativeNode = window.AudioWorkletNode;
     window.AudioWorkletNode = class extends NativeNode {
       constructor(context: BaseAudioContext, name: string, options?: AudioWorkletNodeOptions) {
         super(context, name, options);
         if (name !== "aae-playback") return;
+        if (passive) {
+          // Preserve the hardware rate and graph while retaining the real SAB
+          // and output clock for EOF failure diagnostics.
+          window.__aaePlaybackProbe = {
+            context: context as AudioContext,
+            analysers: [],
+            ring: options?.processorOptions.ring,
+          };
+          return;
+        }
         const splitter = context.createChannelSplitter(options?.outputChannelCount?.[0] ?? 2);
         this.connect(splitter);
         const mute = context.createGain();
@@ -46,5 +58,5 @@ export async function capturePlayback(page: Page) {
         };
       }
     };
-  });
+  }, options);
 }

@@ -13,6 +13,7 @@ import (
 	timestats "github.com/cwbudde/algo-dsp/stats/time"
 )
 
+// DefaultMaxOutputBytes sets the shared upper bound for private output storage.
 const DefaultMaxOutputBytes int64 = memory.StorageLimit
 
 // Limits bounds newly materialized selected-channel float32 samples. Cached
@@ -22,6 +23,7 @@ const DefaultMaxOutputBytes int64 = memory.StorageLimit
 // are invalid; callers may tighten but not bypass the materialization ceiling.
 type Limits struct{ MaxOutputBytes int64 }
 
+// Progress describes processed frames and candidate completion.
 type Progress struct {
 	FramesDone, FramesTotal int64
 	Done                    bool
@@ -83,6 +85,7 @@ func (b *Builder) ObserveLoudness(analyzer *loudness.TargetAnalyzer) error {
 	return nil
 }
 
+// NewBuilder prepares bounded processing with private output storage.
 func NewBuilder(document audiobuf.Document, selected ops.Range, process Process, limits Limits) (*Builder, error) {
 	if err := validate(document, selected, process, limits); err != nil {
 		return nil, fmt.Errorf("process.new: %w", err)
@@ -355,6 +358,7 @@ func (b *Builder) Cancel() {
 	}
 }
 
+// Result returns the completed immutable candidate or a processing error.
 func (b *Builder) Result() (audiobuf.Document, error) {
 	if b.failure != nil {
 		return audiobuf.Document{}, b.failure

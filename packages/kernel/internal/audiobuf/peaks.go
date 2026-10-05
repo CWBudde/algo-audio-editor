@@ -143,6 +143,6 @@ func (p PeakData) put(record int, summary peakSummary, start, frames int64) {
 	binary.LittleEndian.PutUint32(p.Data[record*12+4:], math.Float32bits(summary.max))
 	rms := float32(math.Sqrt(summary.energy / float64(frames)))
 	binary.LittleEndian.PutUint32(p.Data[record*12+8:], math.Float32bits(rms))
-	binary.LittleEndian.PutUint32(p.Data[p.Count*12+record*4:], uint32(frames))
+	binary.LittleEndian.PutUint32(p.Data[p.Count*12+record*4:], uint32(frames)) // #nosec G115 -- Peaks bounds each bucket to one immutable block of at most BlockFrames (65536) frames.
 	binary.LittleEndian.PutUint64(p.Data[p.Count*16+record*8:], math.Float64bits(float64(start)))
 }

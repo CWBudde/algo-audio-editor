@@ -149,7 +149,7 @@ func inspectionData(d *document, uri string, waveform bool) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if info.Count < 0 || info.Count > 16*1024*1024/24 || len(data) != info.Count*24 {
+	if info.FramesPerBucket < 0 || info.Count < 0 || info.Count > 16*1024*1024/24 || len(data) != info.Count*24 {
 		return nil, fmt.Errorf("overview: invalid or excessive kernel peak buffer")
 	}
 	if waveform {
@@ -163,12 +163,12 @@ func inspectionData(d *document, uri string, waveform bool) ([]byte, error) {
 	result := make([]byte, peakHeaderBytes+len(data))
 	copy(result, "AAEP")
 	binary.LittleEndian.PutUint32(result[4:], 1)
-	binary.LittleEndian.PutUint32(result[8:], uint32(d.info.SampleRate))
-	binary.LittleEndian.PutUint32(result[12:], uint32(channel))
+	binary.LittleEndian.PutUint32(result[8:], uint32(d.info.SampleRate)) // #nosec G115 -- The kernel validates sample rates (8000..384000).
+	binary.LittleEndian.PutUint32(result[12:], uint32(channel))          // #nosec G115 -- The query channel is checked against the kernel’s bounded channel count.
 	binary.LittleEndian.PutUint32(result[16:], uint32(info.Count))
 	binary.LittleEndian.PutUint64(result[24:], uint64(info.FramesPerBucket))
 	binary.LittleEndian.PutUint64(result[32:], uint64(start))
-	binary.LittleEndian.PutUint64(result[40:], uint64(end))
+	binary.LittleEndian.PutUint64(result[40:], uint64(end)) // #nosec G115 -- Query validation requires end >= start >= 0.
 	copy(result[peakHeaderBytes:], data)
 	return result, nil
 }

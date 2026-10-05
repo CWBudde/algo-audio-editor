@@ -77,7 +77,7 @@ func (b *renderBridge) render(eng *engine.Engine, dst, positionDst js.Value, fra
 	if positions != nil {
 		positionRaw := b.positionRaw[:frames*8]
 		for i, position := range positions {
-			binary.LittleEndian.PutUint64(positionRaw[i*8:], uint64(position))
+			binary.LittleEndian.PutUint64(positionRaw[i*8:], uint64(position)) // #nosec G115 -- Preserve signed int64 wire bits, including the -1 no-source sentinel.
 		}
 		js.CopyBytesToJS(positionDst, positionRaw)
 	}

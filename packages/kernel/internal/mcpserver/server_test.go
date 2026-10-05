@@ -70,7 +70,7 @@ func client(t *testing.T, roots []string) (*mcp.ClientSession, context.Context) 
 	return session, ctx
 }
 
-func call(t *testing.T, ctx context.Context, client *mcp.ClientSession, name string, args any, wantError bool) map[string]any {
+func call(ctx context.Context, t *testing.T, client *mcp.ClientSession, name string, args any, wantError bool) map[string]any {
 	t.Helper()
 	result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	if err != nil {
@@ -100,9 +100,9 @@ func writeFixture(t *testing.T, directory string) string {
 	return path
 }
 
-func open(t *testing.T, ctx context.Context, client *mcp.ClientSession, path string) string {
+func open(ctx context.Context, t *testing.T, client *mcp.ClientSession, path string) string {
 	t.Helper()
-	result := call(t, ctx, client, "open_document", map[string]any{"path": path}, false)
+	result := call(ctx, t, client, "open_document", map[string]any{"path": path}, false)
 	return result["document"].(map[string]any)["documentId"].(string)
 }
 
@@ -110,9 +110,9 @@ func TestMCPCLIAndUIProtocolParity(t *testing.T) {
 	directory := t.TempDir()
 	path := writeFixture(t, directory)
 	client, ctx := client(t, []string{directory})
-	id := open(t, ctx, client, path)
+	id := open(ctx, t, client, path)
 	args := map[string]any{"documentId": id}
-	stats := call(t, ctx, client, "get_statistics", args, false)
+	stats := call(ctx, t, client, "get_statistics", args, false)
 	if stats["state"] != "ready" || len(stats["statistics"].([]any)) != 1 {
 		t.Fatal("statistics missing", stats)
 	}
@@ -120,12 +120,12 @@ func TestMCPCLIAndUIProtocolParity(t *testing.T) {
 		{Method: protocol.MethodProcessStart, Params: map[string]any{"operation": "gain", "gainDb": -6.020599913279624}},
 		{Method: protocol.MethodProcessStart, Params: map[string]any{"operation": "reverse"}},
 	}}
-	result := call(t, ctx, client, "apply_chain", map[string]any{"documentId": id, "chain": chain}, false)
+	result := call(ctx, t, client, "apply_chain", map[string]any{"documentId": id, "chain": chain}, false)
 	if result["applied"] != float64(2) {
 		t.Fatal(result)
 	}
 	mcpOutput := filepath.Join(directory, "mcp.wav")
-	call(t, ctx, client, "export_document", map[string]any{"documentId": id, "path": mcpOutput, "format": "wav", "bitDepth": 32, "float": true}, false)
+	call(ctx, t, client, "export_document", map[string]any{"documentId": id, "path": mcpOutput, "format": "wav", "bitDepth": 32, "float": true}, false)
 
 	chainData, err := json.Marshal(chain)
 	if err != nil {
@@ -194,16 +194,16 @@ func TestMCPCLIAndUIProtocolParity(t *testing.T) {
 			t.Fatalf("sample %d=%08x, want %08x", i, got, bits)
 		}
 	}
-	h := call(t, ctx, client, "history", args, false)
+	h := call(ctx, t, client, "history", args, false)
 	if !h["canUndo"].(bool) || len(h["entries"].([]any)) != 3 {
 		t.Fatal("missing undo entries", h)
 	}
-	call(t, ctx, client, "undo", args, false)
-	call(t, ctx, client, "undo", args, false)
-	call(t, ctx, client, "redo", args, false)
-	call(t, ctx, client, "redo", args, false)
-	call(t, ctx, client, "save_document", map[string]any{"documentId": id, "path": mcpOutput, "format": "wav", "bitDepth": 32, "float": true, "overwrite": true}, false)
-	if call(t, ctx, client, "history", args, false)["dirty"] != false {
+	call(ctx, t, client, "undo", args, false)
+	call(ctx, t, client, "undo", args, false)
+	call(ctx, t, client, "redo", args, false)
+	call(ctx, t, client, "redo", args, false)
+	call(ctx, t, client, "save_document", map[string]any{"documentId": id, "path": mcpOutput, "format": "wav", "bitDepth": 32, "float": true, "overwrite": true}, false)
+	if call(ctx, t, client, "history", args, false)["dirty"] != false {
 		t.Fatal("successful save did not mark history clean")
 	}
 }
@@ -212,41 +212,41 @@ func TestSessionIsolationResourcesDryRunAndFailureRecovery(t *testing.T) {
 	directory := t.TempDir()
 	client, ctx := client(t, nil)
 	path := writeFixture(t, directory)
-	one, two := open(t, ctx, client, path), open(t, ctx, client, path)
+	one, two := open(ctx, t, client, path), open(ctx, t, client, path)
 	if one == two {
 		t.Fatal("reused routing id")
 	}
 	args := map[string]any{"documentId": one}
-	before := call(t, ctx, client, "history", args, false)
+	before := call(ctx, t, client, "history", args, false)
 	operation := automation.Operation{Method: protocol.MethodProcessStart, Params: map[string]any{"operation": "gain", "gainDb": -6}}
-	dry := call(t, ctx, client, "apply_operation", map[string]any{"documentId": one, "operation": operation, "dryRun": true}, false)
-	if dry["candidate"].(map[string]any)["state"] != "ready" || !reflect.DeepEqual(before, call(t, ctx, client, "history", args, false)) {
+	dry := call(ctx, t, client, "apply_operation", map[string]any{"documentId": one, "operation": operation, "dryRun": true}, false)
+	if dry["candidate"].(map[string]any)["state"] != "ready" || !reflect.DeepEqual(before, call(ctx, t, client, "history", args, false)) {
 		t.Fatal("dry run mutated history", dry)
 	}
-	call(t, ctx, client, "apply_operation", map[string]any{"documentId": one, "operation": operation}, false)
+	call(ctx, t, client, "apply_operation", map[string]any{"documentId": one, "operation": operation}, false)
 	graph := protocol.EffectGraph{
 		Nodes:       []protocol.EffectNode{{ID: "_input", Type: "_input", Params: map[string]any{}}, {ID: "fx", Type: "ringmod", Params: map[string]any{"carrierHz": 750.0, "mix": 1.0}}, {ID: "_output", Type: "_output", Params: map[string]any{}}},
 		Connections: []protocol.EffectConnection{{From: "_input", To: "fx"}, {From: "fx", To: "_output"}},
 	}
 	effectArgs := map[string]any{"documentId": two, "graph": graph, "dryRun": true}
-	call(t, ctx, client, "apply_effect", effectArgs, false)
-	if call(t, ctx, client, "history", map[string]any{"documentId": two}, false)["dirty"] != false {
+	call(ctx, t, client, "apply_effect", effectArgs, false)
+	if call(ctx, t, client, "history", map[string]any{"documentId": two}, false)["dirty"] != false {
 		t.Fatal("dry effect changed second document")
 	}
 	effectArgs["dryRun"] = false
-	call(t, ctx, client, "apply_effect", effectArgs, false)
-	call(t, ctx, client, "undo", map[string]any{"documentId": two}, false)
-	if call(t, ctx, client, "history", map[string]any{"documentId": two}, false)["dirty"] != false {
+	call(ctx, t, client, "apply_effect", effectArgs, false)
+	call(ctx, t, client, "undo", map[string]any{"documentId": two}, false)
+	if call(ctx, t, client, "history", map[string]any{"documentId": two}, false)["dirty"] != false {
 		t.Fatal("second document changed")
 	}
 	chain := automation.Chain{Version: 1, Operations: []automation.Operation{operation, {Method: protocol.MethodProcessStart, Params: map[string]any{"operation": "gain", "gainDb": 500}}}}
-	failed := call(t, ctx, client, "apply_chain", map[string]any{"documentId": one, "chain": chain}, true)
+	failed := call(ctx, t, client, "apply_chain", map[string]any{"documentId": one, "chain": chain}, true)
 	if failed["result"].(map[string]any)["applied"] != float64(1) || !strings.Contains(failed["error"].(string), "operation 1 failed") {
 		t.Fatal("partial chain did not report completed prefix", failed)
 	}
-	call(t, ctx, client, "apply_operation", map[string]any{"documentId": one, "operation": operation}, false)
-	call(t, ctx, client, "apply_operation", map[string]any{"documentId": one, "operation": automation.Operation{Method: protocol.MethodProcessStart, Params: map[string]any{"operation": "gain", "gain_dB": -6}}}, true)
-	call(t, ctx, client, "export_document", map[string]any{"documentId": one, "path": filepath.Join(directory, "denied.wav"), "format": "wav", "bitDepth": 16}, true)
+	call(ctx, t, client, "apply_operation", map[string]any{"documentId": one, "operation": operation}, false)
+	call(ctx, t, client, "apply_operation", map[string]any{"documentId": one, "operation": automation.Operation{Method: protocol.MethodProcessStart, Params: map[string]any{"operation": "gain", "gain_dB": -6}}}, true)
+	call(ctx, t, client, "export_document", map[string]any{"documentId": one, "path": filepath.Join(directory, "denied.wav"), "format": "wav", "bitDepth": 16}, true)
 	if _, err := os.Stat(filepath.Join(directory, "denied.wav")); !os.IsNotExist(err) {
 		t.Fatal("read-only server wrote a file", err)
 	}
@@ -258,8 +258,8 @@ func TestSessionIsolationResourcesDryRunAndFailureRecovery(t *testing.T) {
 	if err != nil || !strings.Contains(resource.Contents[0].Text, one) {
 		t.Fatal("resource has wrong routing identity", resource, err)
 	}
-	call(t, ctx, client, "close_document", args, false)
-	call(t, ctx, client, "document_info", args, true)
+	call(ctx, t, client, "close_document", args, false)
+	call(ctx, t, client, "document_info", args, true)
 	if _, err := client.ReadResource(ctx, &mcp.ReadResourceParams{URI: summaryURI(one)}); err == nil {
 		t.Fatal("closed resource survived")
 	}
@@ -301,10 +301,10 @@ func TestGoldenToolDiscoveryAndProtocolSchemas(t *testing.T) {
 	encoded = append(encoded, '\n')
 	goldenPath := "testdata/tools.json"
 	if os.Getenv("UPDATE_MCP_SCHEMAS") == "1" {
-		if err := os.MkdirAll("testdata", 0o755); err != nil {
+		if err := os.MkdirAll("testdata", 0o750); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(goldenPath, encoded, 0o644); err != nil {
+		if err := os.WriteFile(goldenPath, encoded, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -322,7 +322,7 @@ func TestGoldenToolDiscoveryAndProtocolSchemas(t *testing.T) {
 	if !reflect.DeepEqual(goldenObject, actualObject) {
 		t.Fatalf("advertised tool schemas changed; review and regenerate the golden: %v", err)
 	}
-	schemas := call(t, ctx, client, "list_operations", map[string]any{}, false)
+	schemas := call(ctx, t, client, "list_operations", map[string]any{}, false)
 	if schemas["protocolVersion"] != float64(protocol.Version) {
 		t.Fatal("schema ABI drift", schemas)
 	}
@@ -358,11 +358,11 @@ func TestGoldenToolDiscoveryAndProtocolSchemas(t *testing.T) {
 			t.Fatal("missing processing parameter schema", name)
 		}
 	}
-	effects := call(t, ctx, client, "list_effects", map[string]any{"limit": 1}, false)
+	effects := call(ctx, t, client, "list_effects", map[string]any{"limit": 1}, false)
 	if len(effects["effects"].([]any)) != 1 || effects["total"].(float64) <= 1 {
 		t.Fatal("effect discovery/pagination failed", effects)
 	}
-	call(t, ctx, client, "list_effects", map[string]any{"limit": 21}, true)
+	call(ctx, t, client, "list_effects", map[string]any{"limit": 21}, true)
 	prompts, err := client.ListPrompts(ctx, nil)
 	if err != nil || len(prompts.Prompts) != 3 {
 		t.Fatal("workflow prompts missing", prompts, err)
@@ -375,28 +375,28 @@ func TestGoldenToolDiscoveryAndProtocolSchemas(t *testing.T) {
 func TestStructuralSelectionClippingAndSaveFailures(t *testing.T) {
 	directory := t.TempDir()
 	client, ctx := client(t, []string{directory})
-	id := open(t, ctx, client, writeFixture(t, directory))
+	id := open(ctx, t, client, writeFixture(t, directory))
 	args := map[string]any{"documentId": id}
-	before := call(t, ctx, client, "history", args, false)
-	clip := call(t, ctx, client, "detect_clipping", map[string]any{"documentId": id, "threshold": 1}, false)
-	if clip["markerCount"].(float64) == 0 || !reflect.DeepEqual(before, call(t, ctx, client, "history", args, false)) {
+	before := call(ctx, t, client, "history", args, false)
+	clip := call(ctx, t, client, "detect_clipping", map[string]any{"documentId": id, "threshold": 1}, false)
+	if clip["markerCount"].(float64) == 0 || !reflect.DeepEqual(before, call(ctx, t, client, "history", args, false)) {
 		t.Fatal("clipping read mutated history or lost clips", clip)
 	}
-	call(t, ctx, client, "select_range", map[string]any{"documentId": id, "range": protocol.SelectionRange{Start: 1, End: 9, ChannelMask: 1}}, false)
-	call(t, ctx, client, "select_range", map[string]any{"documentId": id, "range": protocol.SelectionRange{Start: 1, End: 99, ChannelMask: 1}}, true)
+	call(ctx, t, client, "select_range", map[string]any{"documentId": id, "range": protocol.SelectionRange{Start: 1, End: 9, ChannelMask: 1}}, false)
+	call(ctx, t, client, "select_range", map[string]any{"documentId": id, "range": protocol.SelectionRange{Start: 1, End: 99, ChannelMask: 1}}, true)
 	crop := automation.Operation{Method: protocol.MethodEditApply, Params: map[string]any{"operation": "crop"}}
-	call(t, ctx, client, "apply_operation", map[string]any{"documentId": id, "operation": crop, "dryRun": true}, true)
-	result := call(t, ctx, client, "apply_operation", map[string]any{"documentId": id, "operation": crop}, false)
+	call(ctx, t, client, "apply_operation", map[string]any{"documentId": id, "operation": crop, "dryRun": true}, true)
+	result := call(ctx, t, client, "apply_operation", map[string]any{"documentId": id, "operation": crop}, false)
 	if result["document"].(map[string]any)["frames"] != float64(8) {
 		t.Fatal("failed selection changed the valid crop range", result)
 	}
-	call(t, ctx, client, "save_document", map[string]any{"documentId": id, "path": filepath.Join(directory, "missing", "output.wav"), "format": "wav", "bitDepth": 16}, true)
-	if call(t, ctx, client, "history", args, false)["dirty"] != true {
+	call(ctx, t, client, "save_document", map[string]any{"documentId": id, "path": filepath.Join(directory, "missing", "output.wav"), "format": "wav", "bitDepth": 16}, true)
+	if call(ctx, t, client, "history", args, false)["dirty"] != true {
 		t.Fatal("failed save marked history clean")
 	}
-	call(t, ctx, client, "save_document", map[string]any{"documentId": id, "path": filepath.Join(directory, "output.wav"), "format": "wav", "bitDepth": 16, "scope": "selection"}, true)
-	call(t, ctx, client, "undo", args, false)
-	info := call(t, ctx, client, "document_info", args, false)
+	call(ctx, t, client, "save_document", map[string]any{"documentId": id, "path": filepath.Join(directory, "output.wav"), "format": "wav", "bitDepth": 16, "scope": "selection"}, true)
+	call(ctx, t, client, "undo", args, false)
+	info := call(ctx, t, client, "document_info", args, false)
 	if info["document"].(map[string]any)["frames"] != float64(10) {
 		t.Fatal("crop did not undo", info)
 	}
@@ -423,7 +423,7 @@ func TestStdioProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.CommandContext(ctx, executable, "-test.run=^TestStdioProcess$")
+	cmd := exec.CommandContext(ctx, executable, "-test.run=^TestStdioProcess$") // #nosec G204 -- executable is os.Executable() for the bounded stdio test subprocess, not external input.
 	cmd.Env = append(os.Environ(), "AAE_MCP_TEST_CHILD=1")
 	stderr := new(bytes.Buffer)
 	cmd.Stderr = stderr
@@ -432,8 +432,8 @@ func TestStdioProcess(t *testing.T) {
 		t.Fatal(err, stderr.String())
 	}
 	defer func() { _ = session.Close() }()
-	id := open(t, ctx, session, writeFixture(t, t.TempDir()))
-	stats := call(t, ctx, session, "get_statistics", map[string]any{"documentId": id}, false)
+	id := open(ctx, t, session, writeFixture(t, t.TempDir()))
+	stats := call(ctx, t, session, "get_statistics", map[string]any{"documentId": id}, false)
 	peak := stats["statistics"].([]any)[0].(map[string]any)["peak"].(float64)
 	if peak != float64(math.Float32frombits(0x4640e6b6)) {
 		t.Fatal("stdio statistics mismatch", peak)

@@ -216,7 +216,7 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 	if settings.Operation == protocol.OperationGenerate {
 		b.sharedGenerator = settings.Generator == "silence" || settings.Generator == "sine" || settings.Generator == "linear-sweep" || settings.Generator == "log-sweep"
 		for _, channel := range b.indices {
-			generator, err := signal.NewStreamGenerator(signal.StreamConfig{Kind: signal.StreamKind(settings.Generator), SampleRate: float64(document.SampleRate()), Amplitude: core.DBToLinear(settings.LevelDB), StartHz: settings.Frequency, EndHz: settings.EndFrequency, Frames: b.renderFrames, Seed: settings.Seed + uint64(channel)*0x9e3779b97f4a7c15})
+			generator, err := signal.NewStreamGenerator(signal.StreamConfig{Kind: signal.StreamKind(settings.Generator), SampleRate: float64(document.SampleRate()), Amplitude: core.DBToLinear(settings.LevelDB), StartHz: settings.Frequency, EndHz: settings.EndFrequency, Frames: b.renderFrames, Seed: settings.Seed + uint64(channel)*0x9e3779b97f4a7c15}) // #nosec G115 -- channel is an index into validated document channels; unsigned seed multiplication deliberately wraps.
 			if err != nil {
 				return nil, fmt.Errorf("process.new: generator: %w", err)
 			}

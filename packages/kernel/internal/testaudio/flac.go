@@ -10,7 +10,9 @@ import (
 	"github.com/cwbudde/flac/meta"
 )
 
+// Fixture constants define sample rate, block size and the one-hour frame count.
 const (
+	// SampleRate sets the generated FLAC fixture sample rate.
 	SampleRate        = 48000
 	BlockFrames       = 4096
 	HourFrames  int64 = SampleRate * 3600
@@ -44,7 +46,7 @@ func WriteFLAC(output io.WriteSeeker, frames int64) error {
 	for start := int64(0); start < frames; start += BlockFrames {
 		count := int(min(int64(BlockFrames), frames-start))
 		f := &frame.Frame{Header: frame.Header{
-			BlockSize: uint16(count), SampleRate: SampleRate,
+			BlockSize: uint16(count), SampleRate: SampleRate, // #nosec G115 -- count is min(BlockFrames, remaining), with BlockFrames=4096 and remaining positive.
 			BitsPerSample: 24, Channels: frame.ChannelsLR,
 		}}
 		for channel := range pcm {

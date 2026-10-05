@@ -1,5 +1,6 @@
 //go:build !js
 
+// Command aae applies editor operations to native audio files.
 package main
 
 import (

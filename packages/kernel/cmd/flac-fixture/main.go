@@ -19,7 +19,7 @@ func run() error {
 	if len(os.Args) != 2 {
 		return fmt.Errorf("usage: flac-fixture OUTPUT.flac")
 	}
-	file, err := os.OpenFile(os.Args[1], os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	file, err := os.OpenFile(os.Args[1], os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G703 -- This opt-in CLI intentionally creates the explicitly supplied output path, with O_EXCL preventing replacement.
 	if err != nil {
 		return fmt.Errorf("flac-fixture: create: %w", err)
 	}

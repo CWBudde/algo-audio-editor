@@ -13,6 +13,7 @@ import (
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 )
 
+// MaxChainOperations limits operations in one automation chain.
 const MaxChainOperations = 64
 
 // Operation records a UI protocol method and its control payload. Document
@@ -26,6 +27,7 @@ type Operation struct {
 	Range string `json:"range,omitempty"`
 }
 
+// Chain describes a versioned sequence of editor operations.
 type Chain struct {
 	Version    int         `json:"version"`
 	Operations []Operation `json:"operations"`
@@ -70,6 +72,7 @@ func DecodeStrict(data []byte, target any) error {
 	return nil
 }
 
+// DecodeChain strictly decodes and validates an automation chain.
 func DecodeChain(data []byte) (Chain, error) {
 	var chain Chain
 	if err := DecodeStrict(data, &chain); err != nil {
@@ -128,6 +131,7 @@ func ValidateOperation(op Operation) error {
 	return nil
 }
 
+// OperationResult records the outcome of one chain operation.
 type OperationResult struct {
 	DryRun    bool                       `json:"dryRun"`
 	Edit      *protocol.EditResult       `json:"edit,omitempty"`
@@ -222,6 +226,7 @@ func Apply(ctx context.Context, e *engine.Engine, documentID string, op Operatio
 	return result, nil
 }
 
+// ChainResult records the completed chain and its document state.
 type ChainResult struct {
 	Applied int               `json:"applied"`
 	Results []OperationResult `json:"results"`

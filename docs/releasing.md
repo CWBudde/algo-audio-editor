@@ -33,6 +33,14 @@ These workflow gates do not establish required checks for merging to `main`.
 Required branch checks remain an open R.10 repository-setting task; the branch
 protection API reported `Branch not protected` during the 2026-10-05 audit.
 
+External workflow actions are pinned to verified commits with release comments;
+update the SHA and comment together. `test-lint.yml` pins golangci-lint to
+`v2.12.2`; use that version locally for `just lint-go` and staged-Go checks.
+Both native and `js/wasm` targets use the same revive, errorlint and gosec rules.
+The shared setup caches Bun downloads and Playwright Chromium, while always
+running the frozen workspace install and requested browser/system install.
+Cache hits do not replace validation or installation.
+
 ## First release
 
 No application release has been tagged. `just check-unreleased` reports this

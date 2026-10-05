@@ -28,7 +28,7 @@
 
 Completed implementation is summarized below. Unfinished acceptance, platform and feature work has moved to explicit follow-up phases; **COMPLETE applies to the scope stated in each summary**, not to its follow-up. Open requirements and partial-progress evidence are retained. Detailed completed-phase history is available in [the historical roadmap](https://github.com/cwbudde/algo-audio-editor/blob/9de516f/PLAN.md); old test counts and dependency versions describe those historical runs, not the current build. [Benchmark and validation evidence](docs/benchmarks/README.md) records dates, implementation baselines and limits; its roadmap audit distinguishes local checks from hosted CI and unfinished acceptance.
 
-**Next review work:** R.10 release/process follow-up; R.1 still has CI/lint follow-ups. Feature phases remain separately schedulable; R.9 has delivered the Electron permission prerequisite for recording.
+**Next review work:** R.1's two unconfirmed flakes and R.10's release/process follow-up. CI/lint hardening is implemented; hosted acceptance for its new workflow changes still requires a push and successful CI. Feature phases remain separately schedulable; R.9 has delivered the Electron permission prerequisite for recording.
 
 | Previous location | Remaining work | New location |
 | --- | --- | --- |
@@ -405,22 +405,14 @@ Phase IDs 0–14 and U remain as historical implementation references. Review ID
 - [x] Playwright install/real browser+Electron+packaged CI, green-main gates for Pages/releases, full-depth tag checks, actual V8/WASM CI, opt-in hardware timing, format/lint/type hooks and fail-closed dependency guards are implemented. PR #1 / `b1531cf` established the first green real CI run; reusable timed workflows followed in PR #2. Pitch bridge batching and MP3 panic recovery have regressions.
 - [x] Electron relaunch-bounds regression now waits for applied geometry and the app's own persistence flush; 30/30 loaded Xvfb repeats pass.
 
-- [ ] golangci:
-  - restore revive's default rules
-  - add errorlint and gosec
-  - lint `cmd/kernel` with `GOOS=js GOARCH=wasm`
-  - pin the action's version
-  - add `timeout-minutes`
-  - cache Bun and Playwright
-  - pin third-party actions by SHA
+- [x] `.golangci.yml` restores revive's default rules and enables errorlint/gosec. `just lint-go`, staged-Go hooks and `test-lint.yml` lint both native and `GOOS=js GOARCH=wasm` packages, including `cmd/kernel`. Exported API documentation, wrapped-EOF handling and explicit codec/metadata conversion bounds satisfy the checks; exceptions identify validated wire/PCM widths, required FLAC MD5 and seeded audio/test RNGs. The protocol shape remains ABI 18.
+- [x] All 31 external action references in workflows/shared setup use verified commit SHAs with release comments; golangci-lint's binary is pinned to `v2.12.2`. All 16 runnable jobs have timeouts, including release builds/publication and dependency drift. Shared setup caches Bun downloads and version-keyed Playwright Chromium while always running frozen installation and Chromium/system dependency installation. Release/Pages publication gates remain in force. [R.1 validation](docs/benchmarks/r1-ci-2026-10-05.md) distinguishes local verification from hosted execution. Historical PR #2's split into nine parallel jobs measured 6m52s versus 9m11s; no cache speedup is claimed for these new changes.
 
-  (2026-10-04) — partial: `ci.yml` is split into reusable `test-{format,lint,unit,fuzz,e2e}.yml` workflows, every job has a `timeout-minutes`, and `.github/actions/setup` pins Go, Node, Bun and just in one place (PR #2: 9 parallel jobs, 6m52s against 9m11s for the old four-job run). The other sub-items remain
-
-- [ ] Pre-existing flake: `internal/effects/stream_test.go:181` (`AllocsPerRun`, "prepared auto-wah render+reset allocate 1") failed in 1 of 6 local `-race` runs. Find the stray allocation or make the measurement robust before it reddens CI
+- [ ] Pre-existing flake: `internal/effects/stream_test.go` (`AllocsPerRun`, "prepared auto-wah render+reset allocate 1") failed in 1 of 6 local `-race` runs. Find the stray allocation or make the measurement robust before it reddens CI. On 2026-10-05, 30 isolated auto-wah and 20 full 51-effect catalogue race repetitions passed unchanged; process-global allocation counters are a possible source of interference, not a confirmed cause. [Reproduction evidence](docs/benchmarks/r1-ci-2026-10-05.md#allocation-flake) retains this as open.
 
 - [x] Browser CI run `37239688144` regressions (2026-10-05): `edits.spec.ts` now constructs shared silence exceeding the unified 3 GiB storage budget and checks the engine's memory-budget error; `export.spec.ts` checks centered PCM8 bytes from `wav v0.1.4`. `useProcess.open` captures the launcher before the document lock disables it and the lazy dialog loads; `finish` releases that lock before closing, and `ProcessDialog` restores focus after React's unmount commit. Preview stays in the processing phase until playback startup settles, preventing an enabled Apply click from being discarded while a preview is still pending. Unit regressions cover delayed playback, delayed lock release and conditional-unmount focus. [Dated local follow-up validation](docs/benchmarks/implementation-validation-2026-10-04-05.md#browser-ci-regression-follow-up) records the actual scope and counts.
 
-- [ ] Investigate the historical short-file EOF/device-clock snapshot concern from Phase 3.3: one parallel run reported frame 13 instead of 31, while the initial parallel/final serial 101-case sweeps passed. [Preserved diagnostics](docs/benchmarks/implementation-validation-2026-10-04-05.md#short-file-eof-snapshot) retain the unconfirmed cause, cleaned trace and original assertions; product cursor code is unchanged.
+- [ ] Investigate the historical short-file EOF/device-clock snapshot concern from Phase 3.3: one parallel run reported frame 13 instead of 31, while the initial parallel/final serial 101-case sweeps passed. [Preserved diagnostics](docs/benchmarks/implementation-validation-2026-10-04-05.md#short-file-eof-snapshot) retain the unconfirmed cause and cleaned trace. On 2026-10-05, 30 unchanged and 30 instrumented six-worker repetitions passed; `transport.spec.ts` now attaches passive DOM/output-clock/shared-counter diagnostics with consumer-snapshot coherence. The exact 31-frame, zero-underrun and replay assertions and product cursor behavior are unchanged. [Current reproduction evidence](docs/benchmarks/r1-ci-2026-10-05.md#short-file-eof-flake) leaves the cause open.
 
 ---
 
