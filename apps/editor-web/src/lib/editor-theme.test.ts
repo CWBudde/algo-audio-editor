@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EDITOR_THEME_PROPERTIES, resolveEditorPalette } from "./editor-theme";
+import { drawSampleWaveform, drawWaveform } from "./waveform-drawing";
 
 // Read the production defaults, rather than maintaining a second test palette.
 const stylesheet = readFileSync(
@@ -61,7 +62,7 @@ describe("editor theme", () => {
     }
   });
 
-  it("shares violet selection/focus, tonal amber peaks and RMS, and bright warm playhead", () => {
+  it("shares orchid selection/focus, bright tonal gold signals, and a warm pale playhead", () => {
     vi.spyOn(window, "getComputedStyle").mockReturnValue(computed());
     const palette = resolveEditorPalette();
     expect(palette.focus).toBe(palette.primary);
@@ -72,9 +73,12 @@ describe("editor theme", () => {
     const [purpleR, purpleG, purpleB] = rgb(palette.primary);
     expect(purpleB).toBeGreaterThan(purpleR);
     expect(purpleR).toBeGreaterThan(purpleG);
+    expect(purpleR - purpleG).toBeGreaterThan(40);
+    expect(purpleB - purpleG).toBeGreaterThan(60);
     const [amberR, amberG, amberB] = rgb(palette.waveformPeak);
     expect(amberR).toBeGreaterThan(amberG);
     expect(amberG).toBeGreaterThan(amberB);
+    expect(amberG / amberR).toBeGreaterThan(0.8);
     const [rmsR, rmsG, rmsB] = rgb(palette.waveformRms);
     expect(rmsR).toBeGreaterThan(rmsG);
     expect(rmsG).toBeGreaterThan(rmsB);
@@ -91,6 +95,22 @@ describe("editor theme", () => {
     expect(contrast(palette.waveformPeak, palette.waveformBackground)).toBeGreaterThan(4.5);
   });
 
+  it("keeps ink-blue surfaces quiet and progressively raises interactive surfaces", () => {
+    const surfaces = [
+      "--editor-background",
+      "--editor-surface",
+      "--editor-surface-raised",
+      "--editor-surface-hover",
+    ].map(defaultValue);
+    for (const surface of surfaces) {
+      const [red, green, blue] = rgb(surface);
+      expect(blue).toBeGreaterThan(Math.max(red, green));
+      expect(luminance(surface)).toBeLessThan(0.05);
+    }
+    for (let index = 1; index < surfaces.length; index++)
+      expect(luminance(surfaces[index])).toBeGreaterThan(luminance(surfaces[index - 1]));
+  });
+
   it("keeps normal/muted text and primary control labels readable on dark surfaces", () => {
     expect(contrast(defaultValue("--foreground"), defaultValue("--background"))).toBeGreaterThan(
       4.5,
@@ -104,6 +124,68 @@ describe("editor theme", () => {
     expect(
       contrast(defaultValue("--editor-focus"), defaultValue("--editor-surface")),
     ).toBeGreaterThan(3);
+    expect(
+      contrast(defaultValue("--primary-foreground"), defaultValue("--editor-primary-hover")),
+    ).toBeGreaterThan(4.5);
+    expect(
+      contrast(defaultValue("--muted-foreground"), defaultValue("--editor-surface-hover")),
+    ).toBeGreaterThan(4.5);
+    for (const role of ["--editor-control-border", "--editor-control-track"])
+      expect(
+        contrast(defaultValue(role), defaultValue("--editor-waveform-background")),
+      ).toBeGreaterThan(3);
+  });
+
+  it("keeps every chart and band identity visible on the signal surface", () => {
+    const surface = defaultValue("--editor-waveform-background");
+    for (let index = 1; index <= 8; index++)
+      expect(contrast(defaultValue(`--editor-band-${index}`), surface)).toBeGreaterThan(3);
+    for (let index = 1; index <= 4; index++)
+      expect(contrast(defaultValue(`--chart-${index}`), surface)).toBeGreaterThan(3);
+  });
+
+  it("keeps standalone waveform painter defaults synchronized with CSS signal roles", () => {
+    const fills: string[] = [];
+    const strokes: string[] = [];
+    const ctx = {
+      clearRect() {},
+      save() {},
+      restore() {},
+      beginPath() {},
+      rect() {},
+      clip() {},
+      moveTo() {},
+      lineTo() {},
+      arc() {},
+      fill() {},
+      fillRect() {
+        fills.push(this.fillStyle);
+      },
+      stroke() {
+        strokes.push(this.strokeStyle);
+      },
+      fillStyle: "",
+      strokeStyle: "",
+      lineWidth: 0,
+    };
+    const peaks = {
+      startFrames: new Float64Array([0]),
+      frameCounts: new Uint32Array([1]),
+      peaks: new Float32Array([-0.5, -0.5, 0.5]),
+    };
+    drawWaveform(ctx as unknown as CanvasRenderingContext2D, peaks, { start: 0, end: 1 }, 100, 50);
+    expect(fills).toEqual([
+      defaultValue("--editor-waveform-peak"),
+      defaultValue("--editor-waveform-rms"),
+    ]);
+    drawSampleWaveform(
+      ctx as unknown as CanvasRenderingContext2D,
+      [peaks],
+      { start: 0, end: 1 },
+      100,
+      50,
+    );
+    expect(strokes).toEqual([defaultValue("--editor-waveform-peak")]);
   });
 
   it("maps DOM controls to the same semantic roles without defining marker colors", () => {
@@ -112,6 +194,8 @@ describe("editor theme", () => {
       ["--ring", "--editor-focus"],
       ["--destructive", "--editor-destructive"],
       ["--background", "--editor-background"],
+      ["--input", "--editor-control-border"],
+      ["--accent", "--editor-surface-hover"],
     ]) {
       expect(defaults.get(dom)).toBe(`var(${role})`);
     }
@@ -125,6 +209,10 @@ describe("editor theme", () => {
       "waveform-rms",
       "waveform-grid",
       "waveform-center",
+      "trace-secondary",
+      "trace-tertiary",
+      "trace-quaternary",
+      "control-track",
     ]) {
       expect(stylesheet).toContain(`--color-${token}: var(--editor-${token});`);
     }

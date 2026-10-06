@@ -211,6 +211,7 @@ export function SelectionBar({
             type="button"
             size="xs"
             variant="outline"
+            className="editor-channel-choice aria-pressed:border-primary aria-pressed:bg-selection-fill aria-pressed:text-primary dark:aria-pressed:border-primary dark:aria-pressed:bg-selection-fill"
             aria-pressed={mask === all}
             onClick={() => chooseMask(all)}
           >
@@ -222,6 +223,7 @@ export function SelectionBar({
                 type="button"
                 size="xs"
                 variant="outline"
+                className="editor-channel-choice aria-pressed:border-primary aria-pressed:bg-selection-fill aria-pressed:text-primary dark:aria-pressed:border-primary dark:aria-pressed:bg-selection-fill"
                 aria-pressed={mask === 1}
                 onClick={() => chooseMask(1)}
               >
@@ -231,6 +233,7 @@ export function SelectionBar({
                 type="button"
                 size="xs"
                 variant="outline"
+                className="editor-channel-choice aria-pressed:border-primary aria-pressed:bg-selection-fill aria-pressed:text-primary dark:aria-pressed:border-primary dark:aria-pressed:bg-selection-fill"
                 aria-pressed={mask === 2}
                 onClick={() => chooseMask(2)}
               >

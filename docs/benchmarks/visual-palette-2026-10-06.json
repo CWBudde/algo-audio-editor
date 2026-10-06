@@ -1,0 +1,313 @@
+{
+  "metrics": {
+    "editor-demo": {
+      "width": 1280,
+      "height": 900,
+      "scrollWidth": 1280,
+      "lanes": {
+        "x": 13,
+        "y": 185,
+        "width": 1254,
+        "height": 612,
+        "clientWidth": 1239,
+        "scrollWidth": 1239,
+        "clientHeight": 612,
+        "scrollHeight": 612,
+        "scrollTop": 0
+      },
+      "dock": null,
+      "spectrum": null,
+      "meters": null,
+      "footer": {
+        "x": 0,
+        "y": 867,
+        "width": 1280,
+        "height": 33,
+        "clientWidth": 1280,
+        "scrollWidth": 1280,
+        "clientHeight": 32,
+        "scrollHeight": 32,
+        "scrollTop": 0
+      }
+    },
+    "waveform-full-hd": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "lanes": {
+        "x": 13,
+        "y": 185,
+        "width": 1894,
+        "height": 792,
+        "clientWidth": 1879,
+        "scrollWidth": 1879,
+        "clientHeight": 792,
+        "scrollHeight": 792,
+        "scrollTop": 0
+      },
+      "dock": null,
+      "spectrum": null,
+      "meters": null,
+      "footer": {
+        "x": 0,
+        "y": 1047,
+        "width": 1920,
+        "height": 33,
+        "clientWidth": 1920,
+        "scrollWidth": 1920,
+        "clientHeight": 32,
+        "scrollHeight": 32,
+        "scrollTop": 0
+      }
+    },
+    "selected-waveform": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "lanes": {
+        "x": 13,
+        "y": 201,
+        "width": 1894,
+        "height": 776,
+        "clientWidth": 1879,
+        "scrollWidth": 1879,
+        "clientHeight": 776,
+        "scrollHeight": 776,
+        "scrollTop": 0
+      },
+      "dock": null,
+      "spectrum": null,
+      "meters": null,
+      "footer": {
+        "x": 0,
+        "y": 1047,
+        "width": 1920,
+        "height": 33,
+        "clientWidth": 1920,
+        "scrollWidth": 1920,
+        "clientHeight": 32,
+        "scrollHeight": 32,
+        "scrollTop": 0
+      }
+    },
+    "eq-dialog": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "lanes": {
+        "x": 13,
+        "y": 185,
+        "width": 1894,
+        "height": 792,
+        "clientWidth": 1879,
+        "scrollWidth": 1879,
+        "clientHeight": 792,
+        "scrollHeight": 792,
+        "scrollTop": 0
+      },
+      "dock": null,
+      "spectrum": null,
+      "meters": null,
+      "footer": {
+        "x": 0,
+        "y": 1047,
+        "width": 1920,
+        "height": 33,
+        "clientWidth": 1920,
+        "scrollWidth": 1920,
+        "clientHeight": 32,
+        "scrollHeight": 32,
+        "scrollTop": 0
+      }
+    },
+    "analysis-full-hd": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "lanes": {
+        "x": 13,
+        "y": 185,
+        "width": 1894,
+        "height": 423,
+        "clientWidth": 1879,
+        "scrollWidth": 1879,
+        "clientHeight": 423,
+        "scrollHeight": 423,
+        "scrollTop": 0
+      },
+      "dock": {
+        "x": 0,
+        "y": 678,
+        "width": 1920,
+        "height": 369,
+        "clientWidth": 1920,
+        "scrollWidth": 1920,
+        "clientHeight": 368,
+        "scrollHeight": 368,
+        "scrollTop": 0
+      },
+      "spectrum": {
+        "x": 8,
+        "y": 687,
+        "width": 948,
+        "height": 352,
+        "clientWidth": 946,
+        "scrollWidth": 946,
+        "clientHeight": 350,
+        "scrollHeight": 350,
+        "scrollTop": 0
+      },
+      "meters": {
+        "x": 964,
+        "y": 687,
+        "width": 948,
+        "height": 352,
+        "clientWidth": 946,
+        "scrollWidth": 946,
+        "clientHeight": 350,
+        "scrollHeight": 350,
+        "scrollTop": 0
+      },
+      "footer": {
+        "x": 0,
+        "y": 1047,
+        "width": 1920,
+        "height": 33,
+        "clientWidth": 1920,
+        "scrollWidth": 1920,
+        "clientHeight": 32,
+        "scrollHeight": 32,
+        "scrollTop": 0
+      }
+    },
+    "analysis-narrow": {
+      "width": 640,
+      "height": 720,
+      "scrollWidth": 640,
+      "lanes": {
+        "x": 13,
+        "y": 245,
+        "width": 614,
+        "height": 136,
+        "clientWidth": 599,
+        "scrollWidth": 599,
+        "clientHeight": 136,
+        "scrollHeight": 242,
+        "scrollTop": 0
+      },
+      "dock": {
+        "x": 0,
+        "y": 427.8125,
+        "width": 640,
+        "height": 259.1875,
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "clientHeight": 258,
+        "scrollHeight": 792,
+        "scrollTop": 266
+      },
+      "spectrum": {
+        "x": 8,
+        "y": 170.8125,
+        "width": 624,
+        "height": 352,
+        "clientWidth": 622,
+        "scrollWidth": 622,
+        "clientHeight": 350,
+        "scrollHeight": 350,
+        "scrollTop": 0
+      },
+      "meters": {
+        "x": 8,
+        "y": 530.8125,
+        "width": 624,
+        "height": 416.46875,
+        "clientWidth": 622,
+        "scrollWidth": 622,
+        "clientHeight": 414,
+        "scrollHeight": 414,
+        "scrollTop": 0
+      },
+      "footer": {
+        "x": 0,
+        "y": 687,
+        "width": 640,
+        "height": 33,
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "clientHeight": 32,
+        "scrollHeight": 32,
+        "scrollTop": 0
+      }
+    },
+    "split-workspace": {
+      "width": 1280,
+      "height": 900,
+      "scrollWidth": 1280,
+      "lanes": {
+        "x": 13,
+        "y": 300,
+        "width": 1254,
+        "height": 497,
+        "clientWidth": 1239,
+        "scrollWidth": 1239,
+        "clientHeight": 497,
+        "scrollHeight": 497,
+        "scrollTop": 0
+      },
+      "dock": null,
+      "spectrum": null,
+      "meters": null,
+      "footer": {
+        "x": 0,
+        "y": 867,
+        "width": 1280,
+        "height": 33,
+        "clientWidth": 1280,
+        "scrollWidth": 1280,
+        "clientHeight": 32,
+        "scrollHeight": 32,
+        "scrollTop": 0
+      }
+    }
+  },
+  "errors": [],
+  "baseline": "1855909",
+  "validation": {
+    "webTests": 1143,
+    "webTestFiles": 92,
+    "browserCases": 108,
+    "electronLinuxCases": 10,
+    "browserSweep": {
+      "passed": 101,
+      "traceCleanupFailures": 2,
+      "initialPixelOracleFailures": 2
+    },
+    "isolatedAnalysisRerun": 2,
+    "finalVerticalZoomSuite": 5,
+    "finalPaletteSuite": 3
+  },
+  "zoomCapture": {
+    "source": "production Playwright vertical-zoom.spec.ts, DPR 1 quiet-envelope case",
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "sampleRate": 48000,
+    "frames": 96000,
+    "channels": 2,
+    "format": "float32 WAV",
+    "sourceAmplitudes": [-0.125, 0.125],
+    "verticalZoom": 4,
+    "sourceHistorySelectionUnchanged": true,
+    "overviewUnchanged": true,
+    "peakCallsUnchanged": true
+  },
+  "budgets": {
+    "wasmRaw": 10742038,
+    "wasmGzip": 2906478,
+    "entryRaw": 459129,
+    "entryGzip": 139878,
+    "totalJsGzip": 261833
+  }
+}

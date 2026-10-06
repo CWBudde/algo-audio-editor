@@ -46,4 +46,14 @@ it("labels output units, true peak and provisional LRA without claiming heard au
     String(20 * Math.log10(0.5)),
   );
   expect(ui.getByText("-0.750")).toBeTruthy();
+  const firstBars = ui
+    .getByRole("group", { name: "Channel 1 levels" })
+    .querySelectorAll("div[aria-hidden] > span");
+  const secondBars = ui
+    .getByRole("group", { name: "Channel 2 levels" })
+    .querySelectorAll("div[aria-hidden] > span");
+  expect(firstBars[0].className).toContain("bg-destructive");
+  expect(secondBars[0].className).toContain("bg-waveform-peak");
+  expect(secondBars[1].className).toContain("bg-waveform-rms");
+  expect(secondBars[2].className).toContain("bg-playhead");
 });

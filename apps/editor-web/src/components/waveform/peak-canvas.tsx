@@ -5,7 +5,7 @@ import type { KernelClient } from "@/kernel/client";
 import type { PeakViews } from "@/kernel/peak-data";
 import { resolveEditorPalette } from "@/lib/editor-theme";
 import { drawSampleWaveform, drawWaveform, resizeCanvas } from "@/lib/waveform-drawing";
-import type { FrameRange } from "@/lib/waveform-geometry";
+import { clampVerticalZoom, type FrameRange } from "@/lib/waveform-geometry";
 import { type SampleDisplayMode, sampleViewportRange } from "@/lib/waveform-samples";
 
 interface PeakCanvasProps {
@@ -17,6 +17,7 @@ interface PeakCanvasProps {
   height: number;
   dpr: number;
   overview?: boolean;
+  verticalZoom?: number;
   peaks?: PeaksState;
   sampleMode?: SampleDisplayMode;
   onPointerDown?: (event: PointerEvent<HTMLCanvasElement>) => void;
@@ -36,11 +37,13 @@ export function PeakCanvas({
   height,
   dpr,
   overview = false,
+  verticalZoom = 1,
   peaks,
   sampleMode = "linear",
   ...events
 }: PeakCanvasProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const magnification = overview ? 1 : clampVerticalZoom(verticalZoom);
   const sampleRange = overview ? undefined : sampleViewportRange(viewport, info.frames, width);
   const ownPeaks = useWaveformPeaks(
     client,
@@ -72,6 +75,7 @@ export function PeakCanvas({
     width: number;
     height: number;
     dpr: number;
+    verticalZoom: number;
   }>();
 
   const lastPaint = useRef(paint);
@@ -85,6 +89,7 @@ export function PeakCanvas({
       previous.client === client &&
       previous.width === width &&
       previous.height === height &&
+      previous.verticalZoom === magnification &&
       previous.dpr === dpr
     )
       return;
@@ -103,6 +108,7 @@ export function PeakCanvas({
       gridColor: overview ? undefined : palette.waveformGrid,
       centerLineColor: overview ? undefined : palette.waveformCenter,
       showRMS: !overview,
+      verticalZoom: magnification,
     };
     if (displayMode === "envelope") {
       drawWaveform(context, data ?? null, viewport, width, height, colors);
@@ -120,6 +126,7 @@ export function PeakCanvas({
         width,
         height,
         dpr,
+        verticalZoom: magnification,
       });
   }, [
     source,
@@ -134,6 +141,7 @@ export function PeakCanvas({
     loading,
     info,
     client,
+    magnification,
   ]);
 
   const rendered = Boolean(
@@ -145,6 +153,7 @@ export function PeakCanvas({
       paint.end === viewport.end &&
       paint.width === width &&
       paint.height === height &&
+      paint.verticalZoom === magnification &&
       paint.dpr === dpr,
   );
 
@@ -162,6 +171,7 @@ export function PeakCanvas({
         data-testid={overview ? "waveform-overview" : `waveform-channel-${channel}`}
         data-rendered={String(rendered)}
         data-display-mode={displayMode}
+        data-vertical-zoom={magnification}
         data-sample-start={sampleRange?.start}
         data-sample-end={sampleRange?.end}
         {...events}

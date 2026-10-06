@@ -154,26 +154,41 @@ export function generateTimeTicks(
 }
 
 /** Amplitude coordinates are linear; the dB ruler labels equivalent levels. */
-export function amplitudeToY(value: number, height: number): number {
-  const clipped = Number.isNaN(value) ? 0 : Math.max(-1, Math.min(1, value));
+export const VERTICAL_ZOOM_LEVELS = [1, 2, 4, 8, 16, 32, 64] as const;
+
+export function clampVerticalZoom(zoom: number): number {
+  return Number.isFinite(zoom) ? Math.max(1, Math.min(64, zoom)) : 1;
+}
+
+/** Magnify display coordinates around zero; source amplitudes stay unchanged. */
+export function amplitudeToY(value: number, height: number, zoom = 1): number {
+  const clipped = Number.isNaN(value)
+    ? 0
+    : Math.max(-1, Math.min(1, value * clampVerticalZoom(zoom)));
   return ((1 - clipped) / 2) * Math.max(0, finite(height));
 }
 
 export function formatAmplitude(value: number, scale: AmplitudeScale): string {
   const clipped = Number.isNaN(value) ? 0 : Math.max(-1, Math.min(1, value));
-  if (scale === "linear") return String(Number(clipped.toFixed(3)));
+  if (scale === "linear") return String(Number(clipped.toFixed(Math.abs(clipped) < 0.1 ? 5 : 3)));
   if (clipped === 0) return "−∞";
   return String(Number((20 * Math.log10(Math.abs(clipped))).toFixed(1)));
 }
 
-export function generateAmplitudeTicks(height: number, scale: AmplitudeScale): AmplitudeTick[] {
+export function generateAmplitudeTicks(
+  height: number,
+  scale: AmplitudeScale,
+  zoom = 1,
+): AmplitudeTick[] {
   if (!Number.isFinite(height) || height <= 0) return [];
   const levels = scale === "linear" ? [1, 0.5] : [1, 10 ** (-6 / 20), 10 ** (-12 / 20)];
-  const values =
-    height < 100 ? [1, 0, -1] : [...levels, 0, ...levels.toReversed().map((value) => -value)];
+  const magnification = clampVerticalZoom(zoom);
+  const values = (
+    height < 100 ? [1, 0, -1] : [...levels, 0, ...levels.toReversed().map((value) => -value)]
+  ).map((value) => value / magnification);
   return values.map((value) => ({
     value,
-    y: amplitudeToY(value, height),
+    y: amplitudeToY(value, height, magnification),
     label: formatAmplitude(value, scale),
   }));
 }

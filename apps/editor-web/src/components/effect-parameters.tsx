@@ -200,10 +200,10 @@ function EffectCurve({
         }}
       >
         <title>{descriptor.name} response computed by the audio kernel</title>
-        <path d="M0 80H400" stroke="currentColor" opacity="0.25" />
+        <path d="M0 80H400" stroke="currentColor" className="text-waveform-center" />
         <path
           data-testid="effect-response-path"
-          className="text-primary"
+          className="text-waveform-peak"
           d={path}
           fill="none"
           stroke="currentColor"

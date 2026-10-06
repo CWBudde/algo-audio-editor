@@ -7,18 +7,12 @@ import type {
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { analyse } from "@/kernel/analysis-queue";
 import type { KernelClient } from "@/kernel/client";
+import { analysisChannelStyle } from "@/lib/analysis-colors";
 import type { SpectralSettings } from "@/lib/analysis-settings";
 import { AnalysisControls } from "./analysis-controls";
 
 const PLOT = { left: 44, top: 12, bottom: 158 };
 const FREQUENCY_TICKS = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
-const CHANNEL_COLORS = ["text-primary", "text-waveform-peak", "text-playhead", "text-foreground"];
-function channelStyle(channel: number) {
-  return {
-    color: CHANNEL_COLORS[channel % CHANNEL_COLORS.length],
-    dash: channel < 4 ? undefined : "5 3",
-  };
-}
 function frequencyLabel(hz: number): string {
   return hz >= 1000 ? `${hz / 1000}k` : String(hz);
 }
@@ -189,7 +183,11 @@ export function SpectrumPanel({
         </button>
       </div>
       <AnalysisControls settings={settings} onChange={onSettings} disabled={paused} />
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <p role="alert" className="text-destructive">
+          {error}
+        </p>
+      )}
       <p role="status" className="mt-2 text-[10px] text-muted-foreground">
         {paused
           ? "Paused while a dialog is open"
@@ -205,7 +203,7 @@ export function SpectrumPanel({
           className="analysis-channel-legend mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px]"
         >
           {paths.map(({ channel }) => {
-            const style = channelStyle(channel);
+            const style = analysisChannelStyle(channel);
             return (
               <li key={channel} className="flex items-center gap-1.5">
                 <svg aria-hidden="true" viewBox="0 0 20 6" className={`h-1.5 w-5 ${style.color}`}>
@@ -299,8 +297,8 @@ export function SpectrumPanel({
             d={path}
             fill="none"
             stroke="currentColor"
-            className={channelStyle(channel).color}
-            strokeDasharray={channelStyle(channel).dash}
+            className={analysisChannelStyle(channel).color}
+            strokeDasharray={analysisChannelStyle(channel).dash}
             strokeWidth="1.5"
             clipPath={`url(#${id}-plot)`}
           />

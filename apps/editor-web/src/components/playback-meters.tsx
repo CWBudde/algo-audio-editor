@@ -32,7 +32,7 @@ function Goniometer({ snapshot }: { snapshot?: MeterSnapshot }) {
     ctx.moveTo(0, 50);
     ctx.lineTo(160, 50);
     ctx.stroke();
-    ctx.fillStyle = palette.primary;
+    ctx.fillStyle = palette.waveformPeak;
     const points = snapshot?.goniometer;
     if (points)
       for (let i = 0; i < points.length; i += 2) {
@@ -90,7 +90,9 @@ export function PlaybackMeters({
       </div>
       <p className="mb-3 text-[10px] text-muted-foreground">Rendered ahead of the output device</p>
       {(error || failure) && (
-        <p role="alert">{error ?? `Metering stopped: ${failure}. Reset to retry.`}</p>
+        <p role="alert" className="text-destructive">
+          {error ?? `Metering stopped: ${failure}. Reset to retry.`}
+        </p>
       )}
       <div className="analysis-meter-body min-w-0">
         <div className="analysis-meter-channels min-w-0 space-y-3">
@@ -125,15 +127,15 @@ export function PlaybackMeters({
                 className="relative h-2.5 overflow-hidden rounded-sm bg-muted"
               >
                 <span
-                  className={`absolute inset-y-0 left-0 ${channel.truePeak > 1 ? "bg-destructive" : "bg-primary"}`}
+                  className={`absolute inset-y-0 left-0 ${channel.truePeak > 1 ? "bg-destructive" : "bg-waveform-peak"}`}
                   style={{ width: `${levelWidth(channel.peak)}%` }}
                 />
                 <span
-                  className="absolute inset-y-1 left-0 bg-waveform-peak"
+                  className="absolute inset-y-1 left-0 bg-waveform-rms"
                   style={{ width: `${levelWidth(channel.rms)}%` }}
                 />
                 <span
-                  className="absolute inset-y-0 w-px bg-foreground"
+                  className="absolute inset-y-0 w-px bg-playhead"
                   style={{ left: `${levelWidth(channel.hold)}%` }}
                 />
               </div>

@@ -445,6 +445,102 @@ async function painted(getByTestId: (id: string) => HTMLElement, channel = 0) {
 }
 
 describe("WaveformView", () => {
+  it("shares vertical zoom across channels, repaints cached summaries and keeps overview, selection and RPC unchanged", async () => {
+    const s = mounted(info, { selection: { start: 100, end: 200, channelMask: 2 } });
+    await painted(s.getByTestId, 0);
+    await painted(s.getByTestId, 1);
+    const view = s.getByTestId("waveform-view");
+    const canvas = s.getByTestId("waveform-channel-0") as HTMLCanvasElement;
+    const second = s.getByTestId("waveform-channel-1") as HTMLCanvasElement;
+    const overview = s.getByTestId("waveform-overview") as HTMLCanvasElement;
+    const drawing = contexts.get(canvas);
+    const overviewDrawing = contexts.get(overview);
+    drawing?.fillRect.mockClear();
+    overviewDrawing?.fillRect.mockClear();
+    const beforePeaks = s.worker.peaks.length;
+    const beforeSelection = selectionState(view);
+    const beforeRange = range(view);
+    fireEvent.change(s.getByLabelText("Vertical zoom"), { target: { value: "4" } });
+    await painted(s.getByTestId);
+    expect(view.dataset.verticalZoom).toBe("4");
+    expect(s.getAllByText("4× vertical")).toHaveLength(2);
+    expect(canvas.dataset.verticalZoom).toBe("4");
+    expect(second.dataset.verticalZoom).toBe("4");
+    expect(overview.dataset.verticalZoom).toBe("1");
+    expect(drawing?.fillRect).toHaveBeenCalled();
+    expect(overviewDrawing?.fillRect).not.toHaveBeenCalled();
+    expect(s.getByTestId("waveform-amplitude-ruler-0").textContent).toBe("0.250.1250-0.125-0.25");
+    expect(s.worker.peaks).toHaveLength(beforePeaks);
+    expect(selectionState(view)).toEqual(beforeSelection);
+    expect(range(view)).toEqual(beforeRange);
+    expect(s.worker.calls("selection.set")).toHaveLength(0);
+
+    const ruler = s.getByRole("slider", { name: "Channel 2 vertical zoom" });
+    const wheel = new WheelEvent("wheel", { deltaY: -120, cancelable: true, bubbles: true });
+    fireEvent(ruler, wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+    expect(view.dataset.verticalZoom).toBe("8");
+    fireEvent.keyDown(ruler, { key: "-" });
+    expect(view.dataset.verticalZoom).toBe("4");
+    fireEvent.keyDown(ruler, { key: "End" });
+    fireEvent.keyDown(ruler, { key: "+" });
+    fireEvent.wheel(ruler, { deltaY: -120 });
+    expect(view.dataset.verticalZoom).toBe("64");
+    fireEvent.keyDown(ruler, { key: "Home" });
+    fireEvent.keyDown(ruler, { key: "-" });
+    fireEvent.wheel(ruler, { deltaY: 120 });
+    expect(view.dataset.verticalZoom).toBe("1");
+    fireEvent.keyDown(ruler, { key: "+" });
+    fireEvent.doubleClick(ruler);
+    expect(view.dataset.verticalZoom).toBe("1");
+    act(() => {
+      fireEvent.wheel(ruler, { deltaY: -120 });
+      fireEvent.wheel(ruler, { deltaY: -120 });
+    });
+    expect(view.dataset.verticalZoom).toBe("4");
+    await flushReplies();
+    expect(s.worker.peaks).toHaveLength(beforePeaks);
+    expect(s.worker.calls("selection.set")).toHaveLength(0);
+  });
+
+  it("keeps vertical zoom on same-document refresh and resets it for a new document or client", async () => {
+    const s = mounted();
+    await painted(s.getByTestId);
+    const zoom = s.getByLabelText("Vertical zoom");
+    fireEvent.change(zoom, { target: { value: "16" } });
+    s.rerender(<WaveformView client={s.client} info={{ ...info, name: "renamed.wav" }} />);
+    expect(s.getByTestId("waveform-view").dataset.verticalZoom).toBe("16");
+    s.rerender(<WaveformView client={s.client} info={{ ...info, documentId: "doc-2" }} />);
+    expect(s.getByTestId("waveform-view").dataset.verticalZoom).toBe("1");
+    fireEvent.change(zoom, { target: { value: "8" } });
+    const nextClient = new KernelClient(new PeakWorker(info));
+    s.rerender(<WaveformView client={nextClient} info={{ ...info, documentId: "doc-2" }} />);
+    expect(s.getByTestId("waveform-view").dataset.verticalZoom).toBe("1");
+    await flushReplies();
+  });
+
+  it("leaves a spectrogram-only frequency ruler noninteractive and retains waveform zoom when returning", async () => {
+    const s = mounted();
+    await painted(s.getByTestId);
+    fireEvent.change(s.getByLabelText("Vertical zoom"), { target: { value: "4" } });
+    s.rerender(
+      <WaveformView client={s.client} info={info} spectralView="spectrogram" analysisPaused />,
+    );
+    const ruler = s.getByTestId("waveform-amplitude-ruler-0");
+    expect(ruler.textContent).toBe("24000 Hz0 Hz");
+    expect(ruler.hasAttribute("role")).toBe(false);
+    expect(ruler.hasAttribute("tabindex")).toBe(false);
+    expect((s.getByLabelText("Vertical zoom") as HTMLSelectElement).disabled).toBe(true);
+    const wheel = new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true });
+    fireEvent(ruler, wheel);
+    fireEvent.doubleClick(ruler);
+    fireEvent.keyDown(ruler, { key: "Home" });
+    expect(wheel.defaultPrevented).toBe(false);
+    expect(s.getByTestId("waveform-view").dataset.verticalZoom).toBe("4");
+    s.rerender(<WaveformView client={s.client} info={info} spectralView="waveform" />);
+    await painted(s.getByTestId);
+    expect(s.getByTestId("waveform-channel-0").dataset.verticalZoom).toBe("4");
+  });
   it("seeks Home at the already selected origin and End at EOF after playback advances", async () => {
     const onSeek = vi.fn();
     const s = mounted(info, { onSeek });

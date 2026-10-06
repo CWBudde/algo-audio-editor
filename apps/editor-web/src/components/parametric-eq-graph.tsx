@@ -9,15 +9,16 @@ const LEFT = 52;
 const RIGHT = 620;
 const TOP = 20;
 const BOTTOM = 170;
+// Band colors identify physical EQ bands; selected controls use the interaction role.
 export const EQ_BAND_COLORS = [
-  "#fb923c",
-  "#facc15",
-  "#a3e635",
-  "#2dd4bf",
-  "#38bdf8",
-  "#a78bfa",
-  "#e879f9",
-  "#fb7185",
+  "var(--editor-band-1)",
+  "var(--editor-band-2)",
+  "var(--editor-band-3)",
+  "var(--editor-band-4)",
+  "var(--editor-band-5)",
+  "var(--editor-band-6)",
+  "var(--editor-band-7)",
+  "var(--editor-band-8)",
 ];
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const formatHz = (hz: number) =>
@@ -236,7 +237,7 @@ export function ParametricEQGraph({
             d={path}
             clipPath={`url(#${id}-plot)`}
             fill="none"
-            className="text-primary"
+            className="text-waveform-peak"
             stroke="currentColor"
             strokeWidth="2.5"
             strokeLinecap="round"
@@ -256,9 +257,9 @@ export function ParametricEQGraph({
                 cy={y(gain)}
                 r="6"
                 fill={EQ_BAND_COLORS[band - 1]}
-                stroke={activeBand === band ? "currentColor" : "transparent"}
+                stroke={activeBand === band ? "var(--editor-primary)" : "transparent"}
                 strokeWidth="2"
-                className="cursor-grab focus:stroke-foreground focus:stroke-[3px] focus:outline-none"
+                className="cursor-grab focus:stroke-primary focus:stroke-[3px] focus:outline-none"
                 role="slider"
                 tabIndex={disabled ? -1 : 0}
                 aria-label={`EQ band ${band}`}

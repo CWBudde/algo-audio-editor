@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef } from "react";
 import type { AnalysisView } from "@/hooks/use-analysis-dialog";
+import { analysisChannelStyle } from "@/lib/analysis-colors";
 import { amplitudeDB, meterNumber } from "./playback-meters";
 
 function PitchTrack({ view }: { view: AnalysisView }) {
@@ -47,7 +48,8 @@ function PitchTrack({ view }: { view: AnalysisView }) {
             d={path}
             fill="none"
             stroke="currentColor"
-            className={channel % 2 ? "text-warning" : "text-primary"}
+            className={analysisChannelStyle(channel).color}
+            strokeDasharray={analysisChannelStyle(channel).dash}
             strokeWidth="1.5"
           />
         ))}

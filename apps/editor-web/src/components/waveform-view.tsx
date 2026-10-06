@@ -45,12 +45,14 @@ import {
 import type { SpectralSelection, SpectralTool } from "@/lib/spectral-selection";
 import {
   type AmplitudeScale,
+  clampVerticalZoom,
   clampViewport,
   type FrameRange,
   frameToX,
   generateAmplitudeTicks,
   panViewport,
   type TimeFormat,
+  VERTICAL_ZOOM_LEVELS,
   zoomViewport,
 } from "@/lib/waveform-geometry";
 import type { SampleDisplayMode } from "@/lib/waveform-samples";
@@ -205,6 +207,21 @@ function WaveformContent({
   );
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("seconds");
   const [amplitudeScale, setAmplitudeScale] = useState<AmplitudeScale>("linear");
+  const [verticalZoom, setVerticalZoom] = useState(1);
+  const changeVerticalZoom = useCallback(
+    (zoom: number) => setVerticalZoom(clampVerticalZoom(zoom)),
+    [],
+  );
+  const zoomSession = useRef({ client, documentId: info.documentId });
+  useLayoutEffect(() => {
+    if (
+      zoomSession.current.client !== client ||
+      zoomSession.current.documentId !== info.documentId
+    ) {
+      zoomSession.current = { client, documentId: info.documentId };
+      setVerticalZoom(1);
+    }
+  }, [client, info.documentId]);
   const [sampleMode, setSampleMode] = useState<SampleDisplayMode>("linear");
   const scrollbar = useRef<HTMLDivElement>(null);
   const [snapZero, setSnapZero] = useState(false);
@@ -452,7 +469,7 @@ function WaveformContent({
     pendingScroll.current = element.scrollLeft;
   }, [viewport.start, maxStart, scrollWidth, width]);
 
-  const amplitudeTicks = generateAmplitudeTicks(laneHeight, amplitudeScale);
+  const amplitudeTicks = generateAmplitudeTicks(laneHeight, amplitudeScale, verticalZoom);
   const selectionStart = selection ? Math.max(viewport.start, selection.start) : 0;
   const selectionEnd = selection ? Math.min(viewport.end, selection.end) : 0;
   const overviewLeft = info.frames > 0 ? (viewport.start / info.frames) * width : 0;
@@ -492,6 +509,7 @@ function WaveformContent({
       className="waveform-workspace flex min-h-[20rem] min-w-0 flex-1 flex-col overflow-hidden rounded-lg border"
       data-testid="waveform-view"
       data-document-id={info.documentId}
+      data-vertical-zoom={verticalZoom}
       data-start-frame={viewport.start}
       data-end-frame={viewport.end}
       data-selection-start={selection.start}
@@ -556,6 +574,22 @@ function WaveformContent({
                 </select>
               </label>
               <label className="flex items-center gap-1 text-xs">
+                Vertical zoom
+                <select
+                  aria-label="Vertical zoom"
+                  className="studio-field rounded border p-1"
+                  value={verticalZoom}
+                  disabled={spectralView === "spectrogram"}
+                  onChange={(event) => changeVerticalZoom(Number(event.target.value))}
+                >
+                  {VERTICAL_ZOOM_LEVELS.map((zoom) => (
+                    <option key={zoom} value={zoom}>
+                      {zoom}×
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-1 text-xs">
                 Sample display
                 <select
                   aria-label="Sample display"
@@ -570,7 +604,9 @@ function WaveformContent({
               </label>
 
               <p className="text-muted-foreground">
-                Peak / RMS at overview zoom; sample dots and connections above one pixel per sample.
+                Peak / RMS at overview zoom; sample dots and connections above one pixel per sample.{" "}
+                Scroll the amplitude ruler or press + / − to magnify vertically; Home or
+                double-click resets.
               </p>
             </div>
           </ControlDisclosure>
@@ -724,7 +760,7 @@ function WaveformContent({
             </span>
             <select
               aria-label="Spectrogram selection tool"
-              className="studio-field rounded border bg-background px-2 py-1 text-xs"
+              className="studio-field rounded border px-2 py-1 text-xs"
               disabled={disabled}
               value={spectralTool}
               onChange={(event) => {
@@ -831,6 +867,14 @@ function WaveformContent({
                 <span className="min-w-0 truncate font-medium uppercase tracking-widest">
                   Channel {channel + 1}
                 </span>
+                {verticalZoom > 1 && spectralView !== "spectrogram" && (
+                  <span
+                    className="shrink-0 font-mono tabular-nums text-primary"
+                    title="Display-only vertical magnification"
+                  >
+                    {verticalZoom}× vertical
+                  </span>
+                )}
                 <span className="ml-auto uppercase tracking-widest">
                   {info.channels === 1
                     ? "Mono"
@@ -848,6 +892,8 @@ function WaveformContent({
                 <AmplitudeRuler
                   channel={channel}
                   height={laneHeight}
+                  verticalZoom={verticalZoom}
+                  onZoomChange={spectralView === "spectrogram" ? undefined : changeVerticalZoom}
                   ticks={
                     spectralView === "spectrogram"
                       ? [
@@ -878,6 +924,7 @@ function WaveformContent({
                       height={laneHeight}
                       dpr={dpr}
                       sampleMode={sampleMode}
+                      verticalZoom={verticalZoom}
                       peaks={
                         channel === 0 && viewport.start === 0 && viewport.end === info.frames
                           ? fullPeaks

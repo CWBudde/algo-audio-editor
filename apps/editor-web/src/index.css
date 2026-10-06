@@ -35,6 +35,10 @@
     --color-waveform-rms: var(--editor-waveform-rms);
     --color-waveform-grid: var(--editor-waveform-grid);
     --color-waveform-center: var(--editor-waveform-center);
+    --color-trace-secondary: var(--editor-trace-secondary);
+    --color-trace-tertiary: var(--editor-trace-tertiary);
+    --color-trace-quaternary: var(--editor-trace-quaternary);
+    --color-control-track: var(--editor-control-track);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -62,24 +66,39 @@
    and region colors are deliberately independent of this semantic palette. */
 :root {
     color-scheme: dark;
-    --editor-background: #0b1020;
-    --editor-foreground: #e4e9f2;
-    --editor-surface: #111a2c;
-    --editor-surface-raised: #1a253b;
-    --editor-muted-foreground: #9eabc0;
-    --editor-border: #2b3850;
-    --editor-border-strong: #455575;
-    --editor-primary: #b69aef;
-    --editor-primary-foreground: #171027;
+    --editor-background: #090d27;
+    --editor-foreground: #f0ecff;
+    --editor-surface: #111634;
+    --editor-surface-raised: #211e45;
+    --editor-surface-hover: #302551;
+    --editor-muted-foreground: #b4b3d2;
+    --editor-border: #34345a;
+    --editor-border-strong: #6772a1;
+    --editor-control-border: #697299;
+    --editor-control-track: #6772a1;
+    --editor-primary: #d69cff;
+    --editor-primary-hover: #e5b8ff;
+    --editor-primary-foreground: #211030;
     --editor-focus: var(--editor-primary);
     --editor-selection: var(--editor-primary);
-    --editor-selection-fill: #b69aef24;
-    --editor-waveform-background: #0d1527;
-    --editor-waveform-peak: #e4b967;
+    --editor-selection-fill: #d69cff2e;
+    --editor-waveform-background: #070f32;
+    --editor-waveform-peak: #ffd45a;
     --editor-waveform-sample: var(--editor-waveform-peak);
-    --editor-waveform-rms: #b08d4e;
-    --editor-waveform-grid: #1b2940;
-    --editor-waveform-center: #35425a;
+    --editor-waveform-rms: #dbb446;
+    --editor-waveform-grid: #18244d;
+    --editor-waveform-center: #394672;
+    --editor-trace-secondary: #a7afff;
+    --editor-trace-tertiary: #f695dd;
+    --editor-trace-quaternary: #66d7d0;
+    --editor-band-1: var(--editor-waveform-peak);
+    --editor-band-2: var(--editor-trace-secondary);
+    --editor-band-3: var(--editor-trace-tertiary);
+    --editor-band-4: var(--editor-trace-quaternary);
+    --editor-band-5: #bd8aff;
+    --editor-band-6: #ffb37f;
+    --editor-band-7: #8fd5ff;
+    --editor-band-8: #ff97b9;
     --editor-playhead: #fff1ac;
     --editor-warning: var(--editor-playhead);
     --editor-destructive: #f87171;
@@ -97,23 +116,23 @@
     --secondary-foreground: var(--editor-foreground);
     --muted: var(--editor-surface-raised);
     --muted-foreground: var(--editor-muted-foreground);
-    --accent: var(--editor-surface-raised);
+    --accent: var(--editor-surface-hover);
     --accent-foreground: var(--editor-primary);
     --destructive: var(--editor-destructive);
     --border: var(--editor-border);
-    --input: var(--editor-border);
+    --input: var(--editor-control-border);
     --ring: var(--editor-focus);
-    --chart-1: var(--editor-primary);
-    --chart-2: var(--editor-waveform-peak);
-    --chart-3: var(--editor-waveform-rms);
-    --chart-4: var(--editor-playhead);
+    --chart-1: var(--editor-waveform-peak);
+    --chart-2: var(--editor-trace-secondary);
+    --chart-3: var(--editor-trace-tertiary);
+    --chart-4: var(--editor-trace-quaternary);
     --chart-5: var(--editor-destructive);
     --radius: 0.45rem;
     --sidebar: var(--editor-surface);
     --sidebar-foreground: var(--editor-foreground);
     --sidebar-primary: var(--editor-primary);
     --sidebar-primary-foreground: var(--editor-primary-foreground);
-    --sidebar-accent: var(--editor-surface-raised);
+    --sidebar-accent: var(--editor-surface-hover);
     --sidebar-accent-foreground: var(--editor-primary);
     --sidebar-border: var(--editor-border);
     --sidebar-ring: var(--editor-focus);
@@ -181,6 +200,23 @@
   }
   .editor-save-status[data-dirty="false"] .editor-save-dot {
     color: var(--editor-primary);
+  }
+  .editor-toggle {
+    color: var(--editor-muted-foreground);
+    background: var(--editor-surface-raised);
+    border: 1px solid var(--editor-border);
+  }
+  .editor-toggle:hover {
+    background: var(--editor-surface-hover);
+  }
+  .editor-toggle:has(input:checked) {
+    color: var(--editor-primary);
+    background: var(--editor-selection-fill);
+    border-color: var(--editor-primary);
+  }
+  .editor-toggle:has(input:focus-visible) {
+    outline: 2px solid var(--editor-focus);
+    outline-offset: 2px;
   }
   .editor-disclosure > summary {
     transition: background-color 120ms, color 120ms;
@@ -299,7 +335,7 @@
   }
   .studio-field {
     background: var(--editor-waveform-background);
-    border-color: var(--editor-border);
+    border-color: var(--editor-control-border);
     border-radius: 0.375rem;
     font-variant-numeric: tabular-nums;
   }
@@ -314,7 +350,7 @@
     font-weight: 500;
   }
   .studio-button:hover:enabled {
-    background: #24314a;
+    background: var(--editor-surface-hover);
     border-color: var(--editor-border-strong);
   }
   .studio-button-primary {
@@ -323,8 +359,8 @@
     border-color: var(--editor-primary);
   }
   .studio-button-primary:hover:enabled {
-    background: #c4adf5;
-    border-color: #c4adf5;
+    background: var(--editor-primary-hover);
+    border-color: var(--editor-primary-hover);
   }
   .studio-dialog-actions {
     border-color: var(--editor-border);
@@ -352,6 +388,9 @@
     }
   html {
     @apply font-sans;
+    }
+  input:is([type="checkbox"], [type="radio"], [type="range"]) {
+    accent-color: var(--editor-primary);
     }
   ::selection {
     background: var(--editor-selection-fill);

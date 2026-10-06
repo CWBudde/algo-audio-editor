@@ -31,6 +31,50 @@ function recordingCanvas() {
 }
 
 describe("waveform canvas drawing", () => {
+  it("keeps both positive and negative fully saturated buckets visible inside the display clip", () => {
+    const { ctx } = recordingCanvas();
+    const peaks: PeakViews = {
+      peaks: new Float32Array([0.5, 0.75, 0.5, -0.75, -0.5, 0.5]),
+      startFrames: new Float64Array([0, 10]),
+      frameCounts: new Uint32Array([10, 10]),
+    };
+    drawWaveform(
+      ctx as unknown as CanvasRenderingContext2D,
+      peaks,
+      { start: 0, end: 20 },
+      100,
+      200,
+      { verticalZoom: 4, showRMS: false },
+    );
+    expect(ctx.fillRect.mock.calls).toEqual([
+      [0, 0, 50, 1],
+      [50, 199, 50, 1],
+    ]);
+  });
+  it("magnifies signed envelopes and RMS while retaining bucket extents and immutable summaries", () => {
+    const { ctx } = recordingCanvas();
+    const peaks: PeakViews = {
+      peaks: new Float32Array([-0.125, 0.25, 0.0625, -0.5, 0.75, 0.5]),
+      startFrames: new Float64Array([10, 20]),
+      frameCounts: new Uint32Array([10, 10]),
+    };
+    const original = new Uint32Array(peaks.peaks.buffer).slice();
+    drawWaveform(
+      ctx as unknown as CanvasRenderingContext2D,
+      peaks,
+      { start: 10, end: 30 },
+      100,
+      200,
+      { verticalZoom: 4 },
+    );
+    expect(ctx.fillRect.mock.calls).toEqual([
+      [0, 0, 50, 150],
+      [50, 0, 50, 200],
+      [0, 75, 50, 50],
+      [50, 0, 50, 200],
+    ]);
+    expect(new Uint32Array(peaks.peaks.buffer)).toEqual(original);
+  });
   it("sizes the bitmap for DPR and draws in CSS pixels", () => {
     const { ctx, canvas } = recordingCanvas();
     expect(resizeCanvas(canvas as unknown as HTMLCanvasElement, 301, 125, 2)).toBe(ctx);
@@ -216,6 +260,33 @@ function samples(start: number, values: number[]): PeakViews {
 }
 
 describe("sample waveform geometry", () => {
+  it("magnifies actual signed samples in both modes without changing time, source or gap semantics", () => {
+    const page = samples(0, [-0.125, 0.125, NaN, 0.5, -0.5]);
+    const original = new Uint32Array(page.peaks.buffer).slice();
+    for (const mode of ["linear", "steps"] as const) {
+      const { ctx } = recordingCanvas();
+      drawSampleWaveform(
+        ctx as unknown as CanvasRenderingContext2D,
+        [page],
+        { start: 0, end: 5 },
+        500,
+        200,
+        mode,
+        { verticalZoom: 4 },
+      );
+      expect(ctx.arc.mock.calls.map((call) => call.slice(0, 2))).toEqual([
+        [0, 150],
+        [100, 50],
+        [300, 0],
+        [400, 200],
+      ]);
+      expect(ctx.moveTo.mock.calls).toContainEqual([300, 0]);
+      expect(ctx.lineTo.mock.calls).toContainEqual([100, 50]);
+      expect(ctx.lineTo.mock.calls).toContainEqual([400, 200]);
+      expect(ctx.fillRect).not.toHaveBeenCalled();
+    }
+    expect(new Uint32Array(page.peaks.buffer)).toEqual(original);
+  });
   it("keeps exact sample connections after subdued amplitude guides without painting RMS", () => {
     const { ctx } = recordingCanvas();
     drawSampleWaveform(
@@ -241,7 +312,7 @@ describe("sample waveform geometry", () => {
     ]);
     expect(ctx.fillRect).not.toHaveBeenCalled();
     expect(ctx.stroke).toHaveBeenCalledTimes(3);
-    expect(ctx.strokeStyle).toBe("#e4b967");
+    expect(ctx.strokeStyle).toBe("#ffd45a");
   });
 
   it("draws signed exact sample points and straight connections by default, without RMS", () => {

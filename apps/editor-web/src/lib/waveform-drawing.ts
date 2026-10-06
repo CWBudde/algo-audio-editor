@@ -10,6 +10,7 @@ export interface WaveformColors {
   gridColor?: string;
   centerLineColor?: string;
   showRMS?: boolean;
+  verticalZoom?: number;
 }
 
 /** Amplitude guides are display geometry, independent of the kernel summaries. */
@@ -69,8 +70,8 @@ export function drawSampleWaveform(
   ctx.rect(0, 0, width, height);
   ctx.clip();
   drawAmplitudeGuides(ctx, width, height, colors);
-  ctx.strokeStyle = colors.peakColor ?? "#e4b967";
-  ctx.fillStyle = colors.peakColor ?? "#e4b967";
+  ctx.strokeStyle = colors.peakColor ?? "#ffd45a";
+  ctx.fillStyle = colors.peakColor ?? "#ffd45a";
   ctx.lineWidth = 1;
   ctx.beginPath();
   let previousFrame = Number.NaN;
@@ -92,7 +93,7 @@ export function drawSampleWaveform(
         continue;
       }
       const x = frameToX(frame, range, width);
-      const y = amplitudeToY(value, height);
+      const y = amplitudeToY(value, height, colors.verticalZoom);
       if (frame === previousFrame + 1) ctx.lineTo(x, y);
       else ctx.moveTo(x, y);
       if (mode === "steps") ctx.lineTo(frameToX(frame + 1, range, width), y);
@@ -103,7 +104,7 @@ export function drawSampleWaveform(
   // One fill path for visible dots, independent of page seams or DPR. Context
   // neighbors contribute connections but never phantom offscreen sample dots.
   const radius = Math.min(2.5, Math.max(0.75, (width / (range.end - range.start)) * 0.25));
-  ctx.fillStyle = colors.sampleColor ?? colors.peakColor ?? "#e4b967";
+  ctx.fillStyle = colors.sampleColor ?? colors.peakColor ?? "#ffd45a";
   ctx.beginPath();
   for (const page of pages) {
     for (let index = 0; index < page.frameCounts.length; index++) {
@@ -119,7 +120,7 @@ export function drawSampleWaveform(
       )
         continue;
       const x = frameToX(frame, range, width);
-      const y = amplitudeToY(value, height);
+      const y = amplitudeToY(value, height, colors.verticalZoom);
       ctx.moveTo(x + radius, y);
       ctx.arc(x, y, radius, 0, Math.PI * 2);
     }
@@ -170,7 +171,7 @@ export function drawWaveform(
   ctx.rect(0, 0, width, height);
   ctx.clip();
   drawAmplitudeGuides(ctx, width, height, colors);
-  ctx.fillStyle = colors.peakColor ?? "#e4b967";
+  ctx.fillStyle = colors.peakColor ?? "#ffd45a";
   for (let index = 0; index < peaks.frameCounts.length; index++) {
     const start = peaks.startFrames[index];
     const end = start + peaks.frameCounts[index];
@@ -180,15 +181,17 @@ export function drawWaveform(
     if (Number.isNaN(minimum) || Number.isNaN(maximum)) continue;
     const left = frameToX(Math.max(start, range.start), range, width);
     const right = frameToX(Math.min(end, range.end), range, width);
-    const top = amplitudeToY(maximum, height);
-    const bottom = amplitudeToY(minimum, height);
-    ctx.fillRect(left, top, Math.max(1, right - left), Math.max(1, bottom - top));
+    const top = amplitudeToY(maximum, height, colors.verticalZoom);
+    const bottom = amplitudeToY(minimum, height, colors.verticalZoom);
+    // A saturated negative/DC bucket still needs its one-pixel strip inside the clip.
+    const visibleTop = top === height && bottom === height ? Math.max(0, height - 1) : top;
+    ctx.fillRect(left, visibleTop, Math.max(1, right - left), Math.max(1, bottom - top));
   }
   if (colors.showRMS !== false) {
     // A quieter tonal core keeps RMS legible without a second competing trace.
     // Each fill retains the exact kernel bucket extent; no interpolated contour
     // crosses page gaps or implies sample values between aggregate buckets.
-    ctx.fillStyle = colors.rmsColor ?? "#b08d4e";
+    ctx.fillStyle = colors.rmsColor ?? "#dbb446";
     for (let index = 0; index < peaks.frameCounts.length; index++) {
       const start = peaks.startFrames[index];
       const end = start + peaks.frameCounts[index];
@@ -197,8 +200,8 @@ export function drawWaveform(
       if (Number.isNaN(rms)) continue;
       const left = frameToX(Math.max(start, range.start), range, width);
       const right = frameToX(Math.min(end, range.end), range, width);
-      const top = amplitudeToY(rms, height);
-      const bottom = amplitudeToY(-rms, height);
+      const top = amplitudeToY(rms, height, colors.verticalZoom);
+      const bottom = amplitudeToY(-rms, height, colors.verticalZoom);
       ctx.fillRect(left, top, Math.max(1, right - left), Math.max(1, bottom - top));
     }
   }

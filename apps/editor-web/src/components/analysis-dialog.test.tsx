@@ -117,3 +117,34 @@ it("displays kernel pitch frequency and confidence and permits bounded-job Escap
     true,
   );
 });
+
+it("keeps selected pitch channels aligned with spectrum channel identity and leaves data unchanged", () => {
+  const data = new Float64Array([2, 20, 440, 0.98, 6, 20, 220, 0.99]);
+  const original = data.slice();
+  const ui = render(
+    <AnalysisDialog
+      view={{
+        ...view,
+        kind: "pitch",
+        job: {
+          ...(view.job as AnalysisJobResult),
+          kind: "pitch",
+          channels: [2, 6],
+          records: 2,
+          dataBytes: data.byteLength,
+          data: data.buffer,
+        },
+      }}
+      onCancel={vi.fn()}
+      onCommit={vi.fn()}
+    />,
+  );
+  const paths = ui.getAllByTestId("pitch-track-path");
+  expect(paths.map((path) => path.getAttribute("class"))).toEqual([
+    "text-trace-tertiary",
+    "text-trace-tertiary",
+  ]);
+  expect(paths.map((path) => path.getAttribute("stroke-dasharray"))).toEqual([null, "5 3"]);
+  expect(paths.map((path) => path.getAttribute("d"))).toEqual(["M300.00,58.06", "M300.00,84.63"]);
+  expect(data).toEqual(original);
+});

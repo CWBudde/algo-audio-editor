@@ -125,7 +125,7 @@ export function EffectKnob({
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
-          className="text-muted-foreground/30"
+          className="text-control-track"
         />
         <path
           d="M9.15 38.85A21 21 0 1 1 38.85 38.85"
@@ -144,6 +144,7 @@ export function EffectKnob({
           y2="18"
           stroke="currentColor"
           strokeWidth="2.5"
+          className="text-waveform-peak"
           strokeLinecap="round"
           transform={`rotate(${-135 + clamp(position) * 270} 24 24)`}
         />

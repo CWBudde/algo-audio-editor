@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   amplitudeToY,
+  clampVerticalZoom,
   clampViewport,
   formatAmplitude,
   formatTime,
@@ -104,6 +105,40 @@ describe("waveform viewport geometry", () => {
 });
 
 describe("waveform rulers", () => {
+  it("magnifies signed amplitude around zero, clips display overflow and bounds invalid zoom", () => {
+    expect(amplitudeToY(0.125, 200, 4)).toBe(50);
+    expect(amplitudeToY(-0.125, 200, 4)).toBe(150);
+    expect(amplitudeToY(0, 200, 64)).toBe(100);
+    expect(amplitudeToY(0.5, 200, 4)).toBe(0);
+    expect(amplitudeToY(-0.5, 200, 4)).toBe(200);
+    expect(amplitudeToY(Number.NaN, 200, 64)).toBe(100);
+    expect(amplitudeToY(Infinity, 200, 64)).toBe(0);
+    expect(amplitudeToY(-Infinity, 200, 64)).toBe(200);
+    for (const zoom of [NaN, Infinity, -1, 0]) {
+      expect(clampVerticalZoom(zoom)).toBe(1);
+      expect(amplitudeToY(0.125, 200, zoom)).toBe(87.5);
+    }
+    expect(clampVerticalZoom(128)).toBe(64);
+    expect(amplitudeToY(1 / 128, 200, 128)).toBe(50);
+  });
+
+  it("labels actual original amplitudes and dB levels at magnified display positions", () => {
+    const linear = generateAmplitudeTicks(200, "linear", 4);
+    expect(linear.map((tick) => tick.value)).toEqual([0.25, 0.125, 0, -0.125, -0.25]);
+    expect(linear.map((tick) => tick.y)).toEqual([0, 50, 100, 150, 200]);
+    expect(linear.map((tick) => tick.label)).toEqual(["0.25", "0.125", "0", "-0.125", "-0.25"]);
+    const db = generateAmplitudeTicks(200, "db", 4);
+    expect(db.map((tick) => tick.label)).toEqual(["-12", "-18", "-24", "−∞", "-24", "-18", "-12"]);
+    expect(db[1].y).toBeCloseTo(generateAmplitudeTicks(200, "db")[1].y);
+    expect(generateAmplitudeTicks(80, "linear", 64).map((tick) => tick.label)).toEqual([
+      "0.01563",
+      "0",
+      "-0.01563",
+    ]);
+    expect(generateAmplitudeTicks(200, "linear", NaN)).toEqual(
+      generateAmplitudeTicks(200, "linear"),
+    );
+  });
   it("formats samples, seconds and clock time without losing long-file offsets", () => {
     expect(formatTime(2 ** 32 + 123, 48000, "samples")).toBe("4,294,967,419");
     expect(formatTime(72000, 48000, "seconds")).toBe("1.5 s");

@@ -133,7 +133,7 @@ export function DynamicsGraph({
               width={x(threshold + knee / 2) - x(threshold - knee / 2)}
               height={BOTTOM - TOP}
               fill="currentColor"
-              className="text-warning"
+              className="text-trace-secondary"
               opacity="0.08"
             />
           )}
@@ -153,7 +153,7 @@ export function DynamicsGraph({
               y1={TOP}
               y2={BOTTOM}
               stroke="currentColor"
-              className="text-warning"
+              className="text-trace-secondary"
               strokeDasharray="3 4"
             />
           )}
@@ -162,7 +162,7 @@ export function DynamicsGraph({
             d={path}
             fill="none"
             stroke="currentColor"
-            className="text-primary"
+            className="text-waveform-peak"
             strokeWidth="2.5"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -191,10 +191,10 @@ export function DynamicsGraph({
         </g>
       </svg>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span className="text-primary">Transfer curve</span>
+        <span className="text-waveform-peak">Transfer curve</span>
         <span>Dashed: unity (1:1)</span>
         {Number.isFinite(threshold) && (
-          <span className="text-warning">
+          <span className="text-trace-secondary">
             Threshold {formatDB(threshold)}
             {Number.isFinite(knee) && knee > 0 ? ` · Knee ${formatDB(knee)}` : ""}
           </span>

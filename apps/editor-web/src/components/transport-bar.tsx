@@ -81,7 +81,7 @@ export function TransportBar(props: TransportBarProps) {
         testId="stop"
       />
       <label
-        className="relative flex size-7 cursor-pointer items-center justify-center rounded-md has-[:focus-visible]:ring-2 has-[:disabled]:cursor-default has-[:disabled]:opacity-50 has-[:checked]:bg-primary/15"
+        className="editor-toggle relative flex size-7 cursor-pointer items-center justify-center rounded-md has-[:focus-visible]:ring-2 has-[:disabled]:cursor-default has-[:disabled]:opacity-50"
         title="Loop"
       >
         <input
