@@ -63,6 +63,9 @@ All notable changes to this project are documented here. The format follows
 - Waveform vertical zoom from 1× to 64× is available in View settings or through
   the amplitude ruler's wheel and keyboard controls. Linear/dB scales reflect
   actual amplitudes; the overview, spectral view and audio remain unchanged.
+- Spectrogram and split views have adaptive linear frequency rulers with actual
+  Nyquist endpoints and pointer time/frequency readouts. Analysis progress and
+  errors sit below the image, preserving spectral selection geometry and detail.
 - System UI fonts replace the bundled Geist font; MIT Heroicons replace Lucide
   artwork while preserving accessible editor actions and generated UI components.
 - Go lint checks both native and WASM targets with restored revive defaults,

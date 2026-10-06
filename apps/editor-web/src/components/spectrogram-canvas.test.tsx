@@ -1,5 +1,5 @@
 import type { AnalysisJobResult } from "@aae/protocol";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { analyse } from "@/kernel/analysis-queue";
 import type { KernelClient } from "@/kernel/client";
@@ -40,6 +40,7 @@ function tile(value: number): AnalysisJobResult {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal("PointerEvent", MouseEvent);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
     context as unknown as CanvasRenderingContext2D,
   );
@@ -155,4 +156,131 @@ it("requests nonempty ranges when zoomed to more than one pixel per sample", asy
     [0, 3],
     [2, 5],
   ]);
+});
+
+function canvasBounds(canvas: HTMLElement) {
+  vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
+    left: 10,
+    top: 20,
+    width: 256,
+    height: 80,
+  } as DOMRect);
+}
+
+it("reads display time/frequency, forwards pointer handlers and does not analyse pointer movement", async () => {
+  vi.mocked(analyse).mockResolvedValue(tile(10));
+  const move = vi.fn(),
+    leave = vi.fn();
+  const ui = render(
+    <SpectrogramCanvas {...props()} onPointerMove={move} onPointerLeave={leave}>
+      <svg data-testid="selection-overlay" />
+    </SpectrogramCanvas>,
+  );
+  await waitFor(() => expect(context.putImageData).toHaveBeenCalledTimes(1));
+  const canvas = ui.getByRole("img");
+  canvasBounds(canvas);
+  const readout = ui.getByTestId("spectrogram-readout-0") as HTMLTextAreaElement;
+  expect(readout.getAttribute("aria-live")).toBe("off");
+  expect(readout.tabIndex).toBe(0);
+  expect(readout.getAttribute("aria-describedby")).toBeTruthy();
+  fireEvent.pointerMove(canvas, { clientX: 138, clientY: 60 });
+  expect(readout.value).toBe("0.500000 s · 12 kHz");
+  expect(move).toHaveBeenCalledOnce();
+  fireEvent.pointerMove(ui.getByTestId("selection-overlay"), { clientX: 74, clientY: 80 });
+  expect(readout.value).toBe("0.250000 s · 6 kHz");
+  expect(move).toHaveBeenCalledOnce();
+  fireEvent.pointerLeave(canvas);
+  expect(leave).toHaveBeenCalledOnce();
+  expect(readout.value).toBe("— s · — Hz");
+  expect(analyse).toHaveBeenCalledOnce();
+  expect(context.putImageData).toHaveBeenCalledTimes(1);
+  expect(canvas.parentElement?.style.height).toBe("8px");
+  const footer = ui.getByTestId("spectrogram-footer-0");
+  expect(footer.style.minHeight).toBe("24px");
+  expect(footer.contains(canvas)).toBe(false);
+});
+
+it("uses the actual Nyquist and clamped audio boundaries, including transparent EOF", async () => {
+  vi.mocked(analyse).mockImplementation(async (_client, params) => ({
+    ...tile(10),
+    width: params.width,
+    dataBytes: (params.width ?? 0) * 8 * 4,
+    data: new Uint8Array((params.width ?? 0) * 8 * 4).buffer,
+  }));
+  const p = {
+    ...props(),
+    info: { ...info, frames: 44100, sampleRate: 44100 },
+    viewport: { start: 44000, end: 44200 },
+  };
+  const ui = render(<SpectrogramCanvas {...p} />);
+  await waitFor(() => expect(context.putImageData).toHaveBeenCalledTimes(1));
+  const canvas = ui.getByRole("img");
+  canvasBounds(canvas);
+  fireEvent.pointerMove(canvas, { clientX: 266, clientY: 0 });
+  expect((ui.getByTestId("spectrogram-readout-0") as HTMLTextAreaElement).value).toBe(
+    "1.000000 s · 22.05 kHz · Outside audio",
+  );
+  fireEvent.pointerMove(canvas, { clientX: 10, clientY: 110 });
+  expect((ui.getByTestId("spectrogram-readout-0") as HTMLTextAreaElement).value).toBe(
+    "0.997732 s · 0 Hz",
+  );
+  ui.rerender(<SpectrogramCanvas {...p} viewport={{ start: -100, end: 100 }} paused />);
+  fireEvent.pointerMove(canvas, { clientX: -20, clientY: 60 });
+  expect((ui.getByTestId("spectrogram-readout-0") as HTMLTextAreaElement).value).toBe(
+    "0.000000 s · 11.025 kHz · Outside audio",
+  );
+  expect(analyse).toHaveBeenCalledOnce();
+});
+
+it("keeps paused images intact with below-image status and coordinates", async () => {
+  vi.mocked(analyse).mockResolvedValue(tile(10));
+  const p = props(),
+    ui = render(<SpectrogramCanvas {...p} />);
+  await waitFor(() => expect(context.putImageData).toHaveBeenCalledTimes(1));
+  const clears = context.clearRect.mock.calls.length;
+  ui.rerender(<SpectrogramCanvas {...p} paused />);
+  expect(ui.getByRole("status").textContent).toContain("Analysis paused");
+  expect(context.clearRect).toHaveBeenCalledTimes(clears);
+  const canvas = ui.getByRole("img");
+  canvasBounds(canvas);
+  fireEvent.pointerMove(canvas, { clientX: 138, clientY: 60 });
+  expect((ui.getByTestId("spectrogram-readout-0") as HTMLTextAreaElement).value).toBe(
+    "0.500000 s · 12 kHz",
+  );
+  expect(analyse).toHaveBeenCalledOnce();
+});
+
+it("shows errors in a wrapping destructive footer and clears stale errors for an empty document", async () => {
+  const error = "Spectrogram analysis failed: ".repeat(20);
+  vi.mocked(analyse).mockRejectedValue(new Error(error));
+  const p = props(),
+    ui = render(<SpectrogramCanvas {...p} />);
+  const alert = await ui.findByRole("alert");
+  expect(alert.textContent).toBe(error);
+  expect(alert.className).toContain("text-destructive");
+  expect(alert.className).toContain("[overflow-wrap:anywhere]");
+  expect(alert.className).not.toContain("absolute");
+  expect(ui.getByTestId("spectrogram-footer-0").contains(alert)).toBe(true);
+  expect(ui.getByRole("status").textContent).toContain("Analysis failed");
+  ui.rerender(
+    <SpectrogramCanvas {...p} info={{ ...info, documentId: "empty", frames: 0 }} paused />,
+  );
+  expect(ui.queryByRole("alert")).toBeNull();
+  expect(ui.getByRole("status").textContent).toContain("No audio");
+  expect(analyse).toHaveBeenCalledOnce();
+});
+
+it("clears stale pointer coordinates when image dimensions change", async () => {
+  vi.mocked(analyse).mockResolvedValue(tile(10));
+  const p = props(),
+    ui = render(<SpectrogramCanvas {...p} paused />);
+  const canvas = ui.getByRole("img");
+  canvasBounds(canvas);
+  fireEvent.pointerMove(canvas, { clientX: 138, clientY: 60 });
+  expect((ui.getByTestId("spectrogram-readout-0") as HTMLTextAreaElement).value).toBe(
+    "0.500000 s · 12 kHz",
+  );
+  ui.rerender(<SpectrogramCanvas {...p} paused width={256} />);
+  expect((ui.getByTestId("spectrogram-readout-0") as HTMLTextAreaElement).value).toBe("— s · — Hz");
+  expect(analyse).not.toHaveBeenCalled();
 });

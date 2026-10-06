@@ -96,6 +96,13 @@ the interval between adjacent markers, or the whole file if there are none.
 Choose All, Left, Right or individual channels to target edits; this does
 not mute playback channels.
 
+Spectrogram and split views show a linear frequency ruler from the file's
+Nyquist frequency down to 0 Hz. Move over the spectral image to read time in
+seconds and frequency in its footer, including while drawing a rectangle or
+lasso. These are pointer coordinates; they do not measure the signal's level.
+Tile progress, the displayed dBFS range and analysis errors appear below the
+image so quiet spectral detail stays visible.
+
 Tab to a channel waveform to move the cursor with Left/Right or jump to the
 document start/end with Home/End. Hold Shift to extend the selection from a
 fixed anchor, including across that anchor. Selection edges are labeled sliders:

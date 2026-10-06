@@ -17,7 +17,8 @@ import { SpectralSelectionLayer } from "@/components/spectral-selection-layer";
 import { SpectrogramCanvas } from "@/components/spectrogram-canvas";
 import { TimelinePanel } from "@/components/timeline-panel";
 import type { PlaybackFollow } from "@/components/transport-bar";
-import { waveformLaneHeight } from "@/components/waveform/lane-layout";
+import { FrequencyRuler } from "@/components/waveform/frequency-ruler";
+import { SPECTROGRAM_FOOTER_HEIGHT, waveformLaneHeight } from "@/components/waveform/lane-layout";
 import { PeakCanvas } from "@/components/waveform/peak-canvas";
 import { AmplitudeRuler, TimeRuler } from "@/components/waveform/rulers";
 import { TimelineAnchors } from "@/components/waveform/timeline-anchors";
@@ -60,6 +61,7 @@ import type { SampleDisplayMode } from "@/lib/waveform-samples";
 const RULER_WIDTH = 56;
 const OVERVIEW_HEIGHT = 40;
 const MAX_SCROLL_WIDTH = 1_000_000;
+const MIN_LANES_HEIGHT = 128;
 
 export interface WaveformViewHandle {
   zoomIn(): void;
@@ -159,6 +161,7 @@ function WaveformContent({
     availableLaneHeight,
     info.channels,
     spectralView === "split",
+    spectralView !== "waveform",
   );
   const cursorLines = useRef<(HTMLDivElement | null)[]>([]);
   const overviewCursor = useRef<HTMLDivElement>(null);
@@ -176,6 +179,49 @@ function WaveformContent({
     dpr,
     resetViewport,
   } = useWaveformViewport(info, lanes, playing, follow);
+  const [minimumWorkspaceHeight, setMinimumWorkspaceHeight] = useState(MIN_LANES_HEIGHT);
+  useLayoutEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    const measure = () => {
+      const style = getComputedStyle(element);
+      const pixels = (value: string) => Number.parseFloat(value) || 0;
+      let chromeHeight =
+        pixels(style.borderTopWidth) +
+        pixels(style.borderBottomWidth) +
+        pixels(style.paddingTop) +
+        pixels(style.paddingBottom);
+      for (const child of element.children) {
+        if (child === lanes.current) continue;
+        const childStyle = getComputedStyle(child);
+        chromeHeight +=
+          child.getBoundingClientRect().height +
+          pixels(childStyle.marginTop) +
+          pixels(childStyle.marginBottom);
+      }
+      setMinimumWorkspaceHeight(Math.ceil(chromeHeight + MIN_LANES_HEIGHT));
+    };
+    let observer: ResizeObserver | undefined;
+    const observeChrome = () => {
+      observer?.disconnect();
+      observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+      for (const child of element.children) {
+        if (child !== lanes.current) observer?.observe(child);
+      }
+      measure();
+    };
+    observeChrome();
+    // Wrapped tools/selection/errors must grow the outer scrollable workspace;
+    // channel content stays inside its bounded, independently scrolling lanes.
+    const mutations = new MutationObserver(observeChrome);
+    mutations.observe(element, { childList: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      mutations.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [host]);
   useLayoutEffect(() => {
     const element = lanes.current;
     if (!element) return;
@@ -267,13 +313,10 @@ function WaveformContent({
   const commandsBlocked = Boolean(
     disabled || timelineOptions?.busy || !client || editor.adding || editor.previewing,
   );
+  const interactionDisabled =
+    disabled || Boolean(timelineOptions?.busy) || !client || editor.adding || info.frames === 0;
   const keyboardDisabled =
-    disabled ||
-    Boolean(timelineOptions?.busy) ||
-    !client ||
-    editor.adding ||
-    info.frames === 0 ||
-    (spectralView !== "waveform" && spectralTool !== "time");
+    interactionDisabled || (spectralView !== "waveform" && spectralTool !== "time");
   const keyboardWrites = useKeyboardSelection({
     client,
     info,
@@ -470,6 +513,7 @@ function WaveformContent({
   }, [viewport.start, maxStart, scrollWidth, width]);
 
   const amplitudeTicks = generateAmplitudeTicks(laneHeight, amplitudeScale, verticalZoom);
+  const imagePanelsHeight = laneHeight * (spectralView === "split" ? 2 : 1);
   const selectionStart = selection ? Math.max(viewport.start, selection.start) : 0;
   const selectionEnd = selection ? Math.min(viewport.end, selection.end) : 0;
   const overviewLeft = info.frames > 0 ? (viewport.start / info.frames) * width : 0;
@@ -507,6 +551,7 @@ function WaveformContent({
     <section
       ref={host}
       className="waveform-workspace flex min-h-[20rem] min-w-0 flex-1 flex-col overflow-hidden rounded-lg border"
+      style={{ minHeight: `max(20rem, ${minimumWorkspaceHeight}px)` }}
       data-testid="waveform-view"
       data-document-id={info.documentId}
       data-vertical-zoom={verticalZoom}
@@ -842,7 +887,7 @@ function WaveformContent({
         id={lanesId}
         data-testid="waveform-lanes"
         className="waveform-lanes min-h-0 flex-1 overflow-y-auto overscroll-contain"
-        style={{ scrollbarGutter: "stable" }}
+        style={{ scrollbarGutter: "stable", minHeight: MIN_LANES_HEIGHT }}
       >
         <p id={keyboardHelpId} className="sr-only">
           Left and Right move one frame. Shift extends the selection. Home and End jump to the
@@ -889,26 +934,37 @@ function WaveformContent({
                 className="grid"
                 style={{ gridTemplateColumns: `${RULER_WIDTH}px minmax(0, 1fr)` }}
               >
-                <AmplitudeRuler
-                  channel={channel}
-                  height={laneHeight}
-                  verticalZoom={verticalZoom}
-                  onZoomChange={spectralView === "spectrogram" ? undefined : changeVerticalZoom}
-                  ticks={
-                    spectralView === "spectrogram"
-                      ? [
-                          { value: info.sampleRate / 2, y: 8, label: `${info.sampleRate / 2} Hz` },
-                          { value: 0, y: laneHeight - 8, label: "0 Hz" },
-                        ]
-                      : amplitudeTicks
-                  }
-                />
+                <div>
+                  {spectralView !== "spectrogram" && (
+                    <AmplitudeRuler
+                      channel={channel}
+                      height={laneHeight}
+                      verticalZoom={verticalZoom}
+                      onZoomChange={changeVerticalZoom}
+                      ticks={amplitudeTicks}
+                    />
+                  )}
+                  {spectralView !== "waveform" && (
+                    <>
+                      <FrequencyRuler
+                        channel={channel}
+                        height={laneHeight}
+                        sampleRate={info.sampleRate}
+                      />
+                      <div
+                        aria-hidden="true"
+                        className="border-r"
+                        style={{ height: SPECTROGRAM_FOOTER_HEIGHT }}
+                      />
+                    </>
+                  )}
+                </div>
                 <fieldset
                   className="waveform-track-surface relative min-w-0 overflow-hidden focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
                   data-testid="waveform-track"
                   aria-label={`Channel ${channel + 1} waveform editor`}
                   aria-describedby={keyboardHelpId}
-                  aria-disabled={keyboardDisabled}
+                  aria-disabled={interactionDisabled}
                   tabIndex={keyboardDisabled ? -1 : 0}
                   onKeyDown={keyboard.onSurfaceKeyDown}
                   onKeyUp={keyboard.onKeyUp}
@@ -956,21 +1012,22 @@ function WaveformContent({
                         onPointerCancel={cancelSelection}
                         onLostPointerCapture={cancelSelection}
                         onDoubleClick={selectRegion}
-                      />
-                      <SpectralSelectionLayer
-                        key={info.documentId}
-                        documentId={info.documentId}
-                        frames={info.frames}
-                        sampleRate={info.sampleRate}
-                        channel={channel}
-                        viewport={viewport}
-                        width={width}
-                        height={laneHeight}
-                        tool={spectralTool}
-                        selection={spectralSelection}
-                        disabled={disabled}
-                        onChange={changeSpectralSelection}
-                      />
+                      >
+                        <SpectralSelectionLayer
+                          key={info.documentId}
+                          documentId={info.documentId}
+                          frames={info.frames}
+                          sampleRate={info.sampleRate}
+                          channel={channel}
+                          viewport={viewport}
+                          width={width}
+                          height={laneHeight}
+                          tool={spectralTool}
+                          selection={spectralSelection}
+                          disabled={disabled}
+                          onChange={changeSpectralSelection}
+                        />
+                      </SpectrogramCanvas>
                     </div>
                   )}
                   {(spectralView === "waveform" || spectralTool === "time") &&
@@ -981,8 +1038,9 @@ function WaveformContent({
                         data-testid={
                           channel === 0 ? "waveform-selection" : `waveform-selection-${channel}`
                         }
-                        className="pointer-events-none absolute inset-y-0 border border-selection bg-selection-fill"
+                        className="pointer-events-none absolute top-0 border border-selection bg-selection-fill"
                         style={{
+                          height: imagePanelsHeight,
                           left: frameToX(selectionStart, viewport, width),
                           width: Math.max(
                             1,
@@ -1014,8 +1072,9 @@ function WaveformContent({
                               disabled || Boolean(timelineOptions?.busy) || !client || editor.adding
                             }
                             data-testid={`selection-${edge}-edge-${channel}`}
-                            className="absolute inset-y-0 z-10 w-2 cursor-ew-resize touch-none border-x border-selection bg-selection-fill"
+                            className="absolute top-0 z-10 w-2 cursor-ew-resize touch-none border-x border-selection bg-selection-fill"
                             style={{
+                              height: imagePanelsHeight,
                               left: Math.max(
                                 0,
                                 Math.min(width - 8, frameToX(selection[edge], viewport, width) - 4),
@@ -1041,8 +1100,11 @@ function WaveformContent({
                       aria-hidden="true"
                       data-testid={`play-cursor-${channel}`}
                       data-frame={position}
-                      className="pointer-events-none absolute inset-y-0 border-l border-playhead"
-                      style={{ left: Math.min(width - 1, frameToX(position, viewport, width)) }}
+                      className="pointer-events-none absolute top-0 border-l border-playhead"
+                      style={{
+                        height: imagePanelsHeight,
+                        left: Math.min(width - 1, frameToX(position, viewport, width)),
+                      }}
                     />
                   )}
                 </fieldset>

@@ -445,6 +445,71 @@ async function painted(getByTestId: (id: string) => HTMLElement, channel = 0) {
 }
 
 describe("WaveformView", () => {
+  it("reserves a usable scrolling lane viewport when controls wrap without sizing the workspace to dense channel content", async () => {
+    const originalBounds = vi
+      .mocked(HTMLElement.prototype.getBoundingClientRect)
+      .getMockImplementation();
+    let selectionHeight = 120;
+    let laneContentHeight = 1600;
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const bounds = originalBounds?.call(this) ?? new DOMRect();
+      const height =
+        this.dataset.testid === "selection-bar"
+          ? selectionHeight
+          : this.dataset.testid === "waveform-lanes"
+            ? laneContentHeight
+            : bounds.height;
+      return { ...bounds, height, bottom: bounds.top + height };
+    });
+    const s = mounted({ ...info, channels: 8 });
+    await painted(s.getByTestId);
+    const view = s.getByTestId("waveform-view");
+    const minimum = () => Number(view.style.minHeight.match(/, (\d+)px/)?.[1]);
+    const before = minimum();
+    expect(s.getByTestId("waveform-lanes").style.minHeight).toBe("128px");
+    selectionHeight += 80;
+    act(() =>
+      observers
+        .filter((observer) => !observer.disconnected)
+        .forEach((observer) => {
+          observer.callback();
+        }),
+    );
+    expect(minimum()).toBe(before + 80);
+    const expanded = minimum();
+    const beforePeaks = s.worker.peaks.length;
+    laneContentHeight += 4000;
+    act(() =>
+      observers
+        .filter((observer) => !observer.disconnected)
+        .forEach((observer) => {
+          observer.callback();
+        }),
+    );
+    expect(minimum()).toBe(expanded);
+    expect(s.worker.peaks).toHaveLength(beforePeaks);
+    expect(s.worker.calls("selection.set")).toHaveLength(0);
+  });
+
+  it("keeps active spectral selection and coordinate fields available when waveform keyboard navigation is fenced", async () => {
+    const s = mounted();
+    await painted(s.getByTestId);
+    s.rerender(
+      <WaveformView client={s.client} info={info} spectralView="spectrogram" analysisPaused />,
+    );
+    fireEvent.change(s.getByLabelText("Spectrogram selection tool"), {
+      target: { value: "rectangle" },
+    });
+    for (const track of s.getAllByTestId("waveform-track")) {
+      expect(track.getAttribute("aria-disabled")).toBe("false");
+      expect(track.tabIndex).toBe(-1);
+    }
+    expect(s.getByTestId("spectral-selection-0").getAttribute("tabindex")).toBe("0");
+    expect((s.getByTestId("spectrogram-readout-0") as HTMLTextAreaElement).readOnly).toBe(true);
+    expect(s.worker.calls("selection.set")).toHaveLength(0);
+  });
   it("shares vertical zoom across channels, repaints cached summaries and keeps overview, selection and RPC unchanged", async () => {
     const s = mounted(info, { selection: { start: 100, end: 200, channelMask: 2 } });
     await painted(s.getByTestId, 0);
@@ -526,9 +591,10 @@ describe("WaveformView", () => {
     s.rerender(
       <WaveformView client={s.client} info={info} spectralView="spectrogram" analysisPaused />,
     );
-    const ruler = s.getByTestId("waveform-amplitude-ruler-0");
-    expect(ruler.textContent).toBe("24000 Hz0 Hz");
-    expect(ruler.hasAttribute("role")).toBe(false);
+    const ruler = s.getByTestId("spectrogram-frequency-ruler-0");
+    expect(ruler.textContent).toContain("24 kHz");
+    expect(ruler.textContent).toContain("0 Hz");
+    expect(ruler.getAttribute("role")).toBe("img");
     expect(ruler.hasAttribute("tabindex")).toBe(false);
     expect((s.getByLabelText("Vertical zoom") as HTMLSelectElement).disabled).toBe(true);
     const wheel = new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true });
@@ -540,6 +606,41 @@ describe("WaveformView", () => {
     s.rerender(<WaveformView client={s.client} info={info} spectralView="waveform" />);
     await painted(s.getByTestId);
     expect(s.getByTestId("waveform-channel-0").dataset.verticalZoom).toBe("4");
+  });
+
+  it("stacks independent amplitude/frequency gutters in split view and bounds selection/playhead to image panels", async () => {
+    const s = mounted({ ...info, sampleRate: 44100 }, { selection: { start: 100, end: 200 } });
+    await painted(s.getByTestId);
+    fireEvent.change(s.getByLabelText("Vertical zoom"), { target: { value: "4" } });
+    s.rerender(
+      <WaveformView
+        client={s.client}
+        info={{ ...info, sampleRate: 44100 }}
+        spectralView="split"
+        analysisPaused
+      />,
+    );
+    await painted(s.getByTestId);
+    const amplitude = s.getByTestId("waveform-amplitude-ruler-0");
+    const frequency = s.getByTestId("spectrogram-frequency-ruler-0");
+    const canvas = s.getByTestId("waveform-channel-0");
+    expect(amplitude.nextElementSibling).toBe(frequency);
+    expect(amplitude.style.height).toBe(canvas.style.height);
+    expect(frequency.style.height).toBe(canvas.style.height);
+    expect(amplitude.textContent).toContain("0.25");
+    expect(frequency.textContent).toContain("22.05 kHz");
+    expect(frequency.nextElementSibling?.getAttribute("style")).toContain("height: 24px");
+    const imageHeight = Number.parseFloat(canvas.style.height) * 2;
+    expect(s.getByTestId("waveform-selection").style.height).toBe(`${imageHeight}px`);
+    expect(s.getByTestId("selection-start-edge-0").style.height).toBe(`${imageHeight}px`);
+    expect(s.getByTestId("play-cursor-0").style.height).toBe(`${imageHeight}px`);
+    const frequencyText = frequency.textContent;
+    const beforePeaks = s.worker.peaks.length;
+    fireEvent.keyDown(amplitude, { key: "+" });
+    expect(s.getByTestId("waveform-view").dataset.verticalZoom).toBe("8");
+    expect(frequency.textContent).toBe(frequencyText);
+    expect(s.worker.peaks).toHaveLength(beforePeaks);
+    expect(s.worker.calls("selection.set")).toHaveLength(0);
   });
   it("seeks Home at the already selected origin and End at EOF after playback advances", async () => {
     const onSeek = vi.fn();

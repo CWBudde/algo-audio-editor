@@ -99,7 +99,8 @@ export function SpectralSelectionLayer({
       data-end-frame={mask?.end}
       data-low-hz={mask?.lowHz}
       data-high-hz={mask?.highHz}
-      className={`absolute inset-0 h-full w-full touch-none ${tool === "time" || disabled ? "pointer-events-none" : "cursor-crosshair"}`}
+      className={`absolute left-0 top-0 w-full touch-none ${tool === "time" || disabled ? "pointer-events-none" : "cursor-crosshair"}`}
+      style={{ height }}
       onPointerDown={(event) => {
         if (disabled || tool === "time" || event.button !== 0 || !event.isPrimary || drag.current)
           return;

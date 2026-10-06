@@ -1,8 +1,18 @@
 import type { AnalysisJobResult, DocumentInfoResult } from "@aae/protocol";
-import { type CanvasHTMLAttributes, useEffect, useRef, useState } from "react";
+import {
+  type CanvasHTMLAttributes,
+  type PointerEvent,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { analyse } from "@/kernel/analysis-queue";
 import type { KernelClient } from "@/kernel/client";
 import type { SpectralSettings } from "@/lib/analysis-settings";
+import { spectralPoint } from "@/lib/spectral-selection";
+import { SPECTROGRAM_FOOTER_HEIGHT } from "./waveform/lane-layout";
 
 const TILE_WIDTH = 128;
 const CACHE_BYTES = 8 * 1024 * 1024;
@@ -41,6 +51,7 @@ export function SpectrogramCanvas({
   minDB = -100,
   maxDB = 0,
   stateId,
+  children,
   ...events
 }: {
   client?: KernelClient;
@@ -57,6 +68,43 @@ export function SpectrogramCanvas({
   stateId?: string;
 } & CanvasHTMLAttributes<HTMLCanvasElement>) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const readoutHelp = useId();
+  const coordinates = useRef<HTMLTextAreaElement>(null);
+  const [pointer, setPointer] = useState<{ x: number; y: number }>();
+  useEffect(() => {
+    // A new document/session invalidates the previous pointer position.
+    void client;
+    void info.documentId;
+    void width;
+    void height;
+    setPointer(undefined);
+  }, [client, info.documentId, width, height]);
+  const readPointer = (event: PointerEvent<HTMLDivElement>) => {
+    const bounds = canvas.current?.getBoundingClientRect();
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+    const x = (event.clientX - bounds.left) / bounds.width;
+    const y = (event.clientY - bounds.top) / bounds.height;
+    if (Number.isFinite(x) && Number.isFinite(y)) setPointer({ x, y });
+  };
+  const point = pointer
+    ? spectralPoint(pointer.x, pointer.y, 1, 1, viewport, info.frames, info.sampleRate)
+    : undefined;
+  const rawFrame = pointer
+    ? viewport.start + Math.max(0, Math.min(1, pointer.x)) * (viewport.end - viewport.start)
+    : undefined;
+  const outsideAudio = rawFrame !== undefined && (rawFrame < 0 || rawFrame >= info.frames);
+  const readout = point
+    ? `${(point.frame / info.sampleRate).toFixed(6)} s · ${point.hz >= 1000 ? `${Number((point.hz / 1000).toFixed(3))} kHz` : `${Number(point.hz.toFixed(1))} Hz`}${outsideAudio ? " · Outside audio" : ""}`
+    : "— s · — Hz";
+  useLayoutEffect(() => {
+    // Let narrow readouts wrap without hiding frequency units or introducing a scrollbar.
+    void readout;
+    void width;
+    const element = coordinates.current;
+    if (!element) return;
+    element.style.height = "16px";
+    element.style.height = `${Math.max(16, element.scrollHeight)}px`;
+  }, [readout, width]);
   const [status, setStatus] = useState<{
     completed: number;
     total: number;
@@ -69,9 +117,14 @@ export function SpectrogramCanvas({
   });
   useEffect(() => {
     const context = canvas.current?.getContext("2d");
-    if (!context || paused) return;
+    if (!context) return;
+    if (!client || !info.frames) {
+      context.clearRect(0, 0, width, height);
+      setStatus({ completed: 0, total: 0, painted: 0 });
+      return;
+    }
+    if (paused) return;
     context.clearRect(0, 0, width, height);
-    if (!client || !info.frames) return;
     const controller = new AbortController();
     let active = true;
     const actualWidth = Math.max(1, Math.floor(width)),
@@ -188,37 +241,88 @@ export function SpectrogramCanvas({
     maxDB,
     stateId,
   ]);
+  const blankViewport =
+    viewport.end <= viewport.start || viewport.end <= 0 || viewport.start >= info.frames;
+  const stateLabel = !info.frames
+    ? "No audio"
+    : !client
+      ? "Spectrogram unavailable"
+      : paused
+        ? "Analysis paused"
+        : status.error
+          ? "Analysis failed"
+          : blankViewport
+            ? "Outside audio"
+            : status.total === 0
+              ? "Waiting for analysis"
+              : status.completed < status.total
+                ? `Rendering ${status.completed}/${status.total} tiles`
+                : `Ready · ${status.completed}/${status.total} tiles`;
+  const description = `${stateLabel} · ${info.sampleRate / 2} Hz–0 Hz · ${minDB} to ${maxDB} dBFS`;
   return (
-    <div className="relative" style={{ height }}>
-      <canvas
-        {...events}
-        ref={canvas}
-        width={Math.max(1, Math.floor(width))}
-        height={Math.min(512, Math.max(1, Math.floor(height)))}
-        role="img"
-        aria-label={`Channel ${channel + 1} spectrogram`}
-        data-testid={`spectrogram-canvas-${channel}`}
-        data-completed-tiles={status.completed}
-        data-total-tiles={status.total}
-        data-painted-columns={status.painted ?? 0}
-        data-start-frame={viewport.start}
-        data-end-frame={viewport.end}
-        data-history-state={stateId}
-        className="block h-full w-full touch-none"
-      />
-      {status.error ? (
-        <p role="alert" className="absolute inset-x-2 bottom-1 text-xs">
-          {status.error}
-        </p>
-      ) : (
-        <span
-          role="status"
-          className="pointer-events-none absolute bottom-1 right-2 rounded bg-background/80 px-1 text-[10px]"
-        >
-          {paused ? "Analysis paused" : `Spectrogram ${status.completed}/${status.total} tiles`} ·{" "}
-          {info.sampleRate / 2} Hz–0 Hz · {minDB} to {maxDB} dBFS
+    <div className="min-w-0" style={{ minHeight: height + SPECTROGRAM_FOOTER_HEIGHT }}>
+      <div
+        className="relative"
+        style={{ height }}
+        onPointerMoveCapture={readPointer}
+        onPointerLeave={() => setPointer(undefined)}
+      >
+        <canvas
+          {...events}
+          ref={canvas}
+          width={Math.max(1, Math.floor(width))}
+          height={Math.min(512, Math.max(1, Math.floor(height)))}
+          role="img"
+          aria-label={`Channel ${channel + 1} spectrogram`}
+          data-testid={`spectrogram-canvas-${channel}`}
+          data-completed-tiles={status.completed}
+          data-total-tiles={status.total}
+          data-painted-columns={status.painted ?? 0}
+          data-start-frame={viewport.start}
+          data-end-frame={viewport.end}
+          data-history-state={stateId}
+          className="block h-full w-full touch-none"
+        />
+        {children}
+      </div>
+      <div
+        data-testid={`spectrogram-footer-${channel}`}
+        className="flex min-w-0 flex-wrap items-center gap-x-3 border-t border-border/60 bg-card px-2 text-[10px] leading-4 text-muted-foreground"
+        style={{ minHeight: SPECTROGRAM_FOOTER_HEIGHT }}
+      >
+        <span role="status" className="flex min-w-0 flex-1 flex-wrap gap-x-2" title={description}>
+          <span>{stateLabel}</span>
+          <span>{info.sampleRate / 2} Hz–0 Hz</span>
+          <span>
+            {minDB} to {maxDB} dBFS
+          </span>
         </span>
-      )}
+        <textarea
+          ref={coordinates}
+          rows={1}
+          readOnly
+          value={readout}
+          style={{ width: `${readout.length}ch` }}
+          title={readout}
+          data-testid={`spectrogram-readout-${channel}`}
+          aria-label={`Channel ${channel + 1} spectrogram coordinates`}
+          aria-describedby={readoutHelp}
+          aria-live="off"
+          className="min-w-0 max-w-full shrink-0 resize-none overflow-hidden border-0 bg-transparent p-0 font-mono tabular-nums text-playhead focus-visible:outline-2 focus-visible:outline-ring"
+        />
+        <span id={readoutHelp} className="sr-only">
+          Pointer time in seconds and frequency in Hz or kHz. Position is clamped to the audio
+          boundaries.
+        </span>
+        {status.error && (
+          <p
+            role="alert"
+            className="min-w-0 basis-full py-1 text-destructive [overflow-wrap:anywhere]"
+          >
+            {status.error}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

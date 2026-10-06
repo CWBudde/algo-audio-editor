@@ -4,7 +4,16 @@ import { waveformLaneHeight } from "./lane-layout";
 it("fills mono and stereo workspaces and shares each split channel between two panels", () => {
   expect(waveformLaneHeight(720, 1, false)).toBe(695);
   expect(waveformLaneHeight(720, 2, false)).toBe(335);
-  expect(waveformLaneHeight(720, 2, true)).toBe(167);
+  expect(waveformLaneHeight(720, 2, true)).toBe(155);
+});
+
+it("reserves only the spectral readout footer and keeps waveform-only image geometry unchanged", () => {
+  expect(waveformLaneHeight(720, 2, false, true)).toBe(311);
+  expect(waveformLaneHeight(720, 2, false, false)).toBe(335);
+  expect(waveformLaneHeight(720, 2, true, true)).toBe(155);
+  expect(waveformLaneHeight(720, 2, true, false)).toBe(167);
+  expect(waveformLaneHeight(120, 2, true, true)).toBe(96);
+  expect(waveformLaneHeight(0, 2, false, true)).toBe(160);
 });
 
 it("keeps dense and small workspaces legible, bounds large canvases and tolerates initial measurement", () => {

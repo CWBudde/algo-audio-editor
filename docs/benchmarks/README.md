@@ -20,6 +20,7 @@ was implemented. Historical temporary logs are not durable raw artifacts.
 | [Visual design, 2026-10-06](visual-design-2026-10-06.md) | Icon-inspired palette, adaptive waveform workspace, dialog review, retained screenshots and browser/Linux Electron checks | Phase 24 user feedback, exhaustive state review and installed platform/scale acceptance remain open |
 | [Visual density, 2026-10-06](visual-density-2026-10-06.md) | Responsive analysis dock, spectrum scales/legends, annotations and actual dense/split/short-screen browser checks | Representative layouts pass; exhaustive state and installed platform/scale acceptance remain open |
 | [Visual palette, 2026-10-06](visual-palette-2026-10-06.md) | Closer icon colors, shared plot/control roles, representative rendered contrast and vertical waveform magnification | Local view regressions; user feedback and installed platform/scale acceptance remain open |
+| [Spectrogram scales/readouts, 2026-10-06](spectrogram-readout-2026-10-06.md) | Actual Nyquist/DC frequency gutters, pointer coordinates, below-image status and bounded selection geometry | Local browser/Linux Electron checks; hardware timing and broader Phase 24 acceptance remain separate |
 
 R.5 additionally retains [analysis tool-output transcription](r5-analysis-2026-10-05.txt)
 and [production browser JSON](r5-browser-2026-10-05.json). Earlier reports are

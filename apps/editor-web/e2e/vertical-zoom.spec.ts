@@ -71,8 +71,8 @@ test("split-view zoom preserves spectral pixels and frequency rulers do not zoom
   );
   expect(await sourceState(page)).toEqual(before);
   await runCommand(page, "view.spectrogram", "View");
-  const ruler = page.getByTestId("waveform-amplitude-ruler-0");
-  await expect(ruler.getByText("24000 Hz", { exact: true })).toBeVisible();
+  const ruler = page.getByTestId("spectrogram-frequency-ruler-0");
+  await expect(ruler.locator('[data-frequency-hz="24000"]')).toBeVisible();
   const bounds = await ruler.boundingBox();
   if (!bounds) throw new Error("frequency ruler missing");
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
