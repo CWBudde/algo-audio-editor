@@ -1,0 +1,215 @@
+{
+  "metrics": {
+    "analysis-full-hd": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "lanes": {
+        "x": 13,
+        "y": 185,
+        "width": 1894,
+        "height": 423,
+        "clientWidth": 1879,
+        "scrollWidth": 1879,
+        "clientHeight": 423,
+        "scrollHeight": 423,
+        "scrollTop": 0
+      },
+      "dock": {
+        "x": 0,
+        "y": 678,
+        "width": 1920,
+        "height": 369,
+        "clientWidth": 1920,
+        "scrollWidth": 1920,
+        "clientHeight": 368,
+        "scrollHeight": 368,
+        "scrollTop": 0
+      },
+      "spectrum": {
+        "x": 8,
+        "y": 687,
+        "width": 948,
+        "height": 352,
+        "clientWidth": 946,
+        "scrollWidth": 946,
+        "clientHeight": 350,
+        "scrollHeight": 350,
+        "scrollTop": 0
+      },
+      "meters": {
+        "x": 964,
+        "y": 687,
+        "width": 948,
+        "height": 352,
+        "clientWidth": 946,
+        "scrollWidth": 946,
+        "clientHeight": 350,
+        "scrollHeight": 350,
+        "scrollTop": 0
+      },
+      "footer": {
+        "x": 0,
+        "y": 1047,
+        "width": 1920,
+        "height": 33,
+        "clientWidth": 1920,
+        "scrollWidth": 1920,
+        "clientHeight": 32,
+        "scrollHeight": 32,
+        "scrollTop": 0
+      }
+    },
+    "analysis-narrow": {
+      "width": 640,
+      "height": 720,
+      "scrollWidth": 640,
+      "lanes": {
+        "x": 13,
+        "y": 245,
+        "width": 614,
+        "height": 136,
+        "clientWidth": 599,
+        "scrollWidth": 599,
+        "clientHeight": 136,
+        "scrollHeight": 242,
+        "scrollTop": 0
+      },
+      "dock": {
+        "x": 0,
+        "y": 427.8125,
+        "width": 640,
+        "height": 259.1875,
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "clientHeight": 258,
+        "scrollHeight": 792,
+        "scrollTop": 266
+      },
+      "spectrum": {
+        "x": 8,
+        "y": 170.8125,
+        "width": 624,
+        "height": 352,
+        "clientWidth": 622,
+        "scrollWidth": 622,
+        "clientHeight": 350,
+        "scrollHeight": 350,
+        "scrollTop": 0
+      },
+      "meters": {
+        "x": 8,
+        "y": 530.8125,
+        "width": 624,
+        "height": 416.46875,
+        "clientWidth": 622,
+        "scrollWidth": 622,
+        "clientHeight": 414,
+        "scrollHeight": 414,
+        "scrollTop": 0
+      },
+      "footer": {
+        "x": 0,
+        "y": 687,
+        "width": 640,
+        "height": 33,
+        "clientWidth": 640,
+        "scrollWidth": 640,
+        "clientHeight": 32,
+        "scrollHeight": 32,
+        "scrollTop": 0
+      }
+    },
+    "split-workspace": {
+      "width": 1280,
+      "height": 900,
+      "scrollWidth": 1280,
+      "lanes": {
+        "x": 13,
+        "y": 300,
+        "width": 1254,
+        "height": 497,
+        "clientWidth": 1239,
+        "scrollWidth": 1239,
+        "clientHeight": 497,
+        "scrollHeight": 497,
+        "scrollTop": 0
+      },
+      "dock": null,
+      "spectrum": null,
+      "meters": null,
+      "footer": {
+        "x": 0,
+        "y": 867,
+        "width": 1280,
+        "height": 33,
+        "clientWidth": 1280,
+        "scrollWidth": 1280,
+        "clientHeight": 32,
+        "scrollHeight": 32,
+        "scrollTop": 0
+      }
+    },
+    "dense-workspace": {
+      "width": 1280,
+      "height": 720,
+      "scrollWidth": 1280,
+      "lanes": {
+        "x": 13,
+        "y": 185,
+        "width": 1254,
+        "height": 432,
+        "clientWidth": 1239,
+        "scrollWidth": 1239,
+        "clientHeight": 432,
+        "scrollHeight": 968,
+        "scrollTop": 536
+      },
+      "dock": null,
+      "spectrum": null,
+      "meters": null,
+      "footer": {
+        "x": 0,
+        "y": 687,
+        "width": 1280,
+        "height": 33,
+        "clientWidth": 1280,
+        "scrollWidth": 1280,
+        "clientHeight": 32,
+        "scrollHeight": 32,
+        "scrollTop": 0
+      }
+    },
+    "annotation-narrow": {
+      "width": 480,
+      "height": 600,
+      "scrollWidth": 480,
+      "lanes": {
+        "x": 9,
+        "y": 243,
+        "width": 462,
+        "height": 246.5,
+        "clientWidth": 447,
+        "scrollWidth": 447,
+        "clientHeight": 247,
+        "scrollHeight": 247,
+        "scrollTop": 0
+      },
+      "dock": null,
+      "spectrum": null,
+      "meters": null,
+      "footer": {
+        "x": 0,
+        "y": 555.5,
+        "width": 480,
+        "height": 44.5,
+        "clientWidth": 480,
+        "scrollWidth": 480,
+        "clientHeight": 44,
+        "scrollHeight": 44,
+        "scrollTop": 0
+      }
+    }
+  },
+  "errors": []
+}

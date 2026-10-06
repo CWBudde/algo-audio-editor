@@ -1,4 +1,4 @@
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { PlaybackMeters } from "./playback-meters";
 
@@ -34,7 +34,12 @@ it("labels output units, true peak and provisional LRA without claiming heard au
       onReset={() => {}}
     />,
   );
-  expect(ui.getByText(/True peak 0.8 dBTP/)).toBeTruthy();
+  const firstChannel = within(ui.getByRole("group", { name: "Channel 1 levels" }));
+  expect(firstChannel.getByText("True peak")).toBeTruthy();
+  expect(firstChannel.getByText("0.8 dBTP")).toBeTruthy();
+  expect(firstChannel.getByText("-6.0 dBFS")).toBeTruthy();
+  const secondChannel = within(ui.getByRole("group", { name: "Channel 2 levels" }));
+  expect(secondChannel.getByText("-10.5 dBTP")).toBeTruthy();
   expect(ui.getByText(/provisional, first 60 s/)).toBeTruthy();
   expect(ui.getByText(/Rendered ahead/)).toBeTruthy();
   expect(ui.getByRole("meter", { name: "Channel 1 peak" }).getAttribute("aria-valuenow")).toBe(

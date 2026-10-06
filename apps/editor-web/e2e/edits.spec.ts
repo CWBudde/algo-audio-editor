@@ -86,7 +86,8 @@ test("channel-only edits keep other channel positions and pad only at EOF; crop 
 
 test("channel conversion requires confirmation and cancellation leaves document and clipboard intact", async ({
   page,
-}) => {
+}, testInfo) => {
+  await page.setViewportSize({ width: 480, height: 600 });
   await load(page);
   await select(page, 1, 3);
   await (
@@ -105,6 +106,17 @@ test("channel conversion requires confirmation and cancellation leaves document 
   await page.getByRole("button", { name: "Paste", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Convert clipboard", exact: true });
   await expect(dialog).toBeVisible();
+  const bounds = await dialog.boundingBox();
+  if (!bounds) throw new Error("Paste conversion bounds missing");
+  expect(bounds.x).toBeGreaterThanOrEqual(15);
+  expect(bounds.y).toBeGreaterThanOrEqual(15);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(465);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(585);
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(
+    dialog.getByRole("button", { name: "Convert and paste", exact: true }),
+  ).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("paste-conversion-narrow.png") });
   await expect(page.getByRole("button", { name: "Cut", exact: true })).toBeDisabled();
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toHaveCount(0);

@@ -115,7 +115,7 @@ export function ProcessDialog({
       </p>
       {view && (
         <>
-          <p className="studio-section mt-3 border px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+          <p className="studio-section mt-3 break-words border px-3 py-2 text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
             {view.info.name} · frames {view.selection.start}–{view.selection.end} · channel mask{" "}
             {view.selection.channelMask}
           </p>

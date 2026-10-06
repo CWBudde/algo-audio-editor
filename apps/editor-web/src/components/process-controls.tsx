@@ -8,14 +8,14 @@ interface Props {
   onSettingsChange(value: Partial<ProcessSettings>): void;
 }
 
-const fieldClass = "mt-1 w-full rounded border bg-background px-3 py-2";
+const fieldClass = "studio-field mt-1 w-full min-w-0 rounded border px-2 py-1.5 font-mono text-xs";
 const channelChoices = [0, 1, 2, 3, 4, 5, 6, 7] as const;
 
 export function ProcessControls({ view, disabled, onOperationChange, onSettingsChange }: Props) {
   const settings = view.settings ?? defaultProcessSettings(view.info);
   const operation = view.operation;
   const input = (label: string, value: string, field: keyof ProcessSettings, locked = false) => (
-    <label className="mt-3 block text-sm">
+    <label className="mt-2 block text-xs text-muted-foreground">
       {label}
       <input
         aria-label={label}
@@ -33,7 +33,7 @@ export function ProcessControls({ view, disabled, onOperationChange, onSettingsC
   return (
     <>
       {operation.startsWith("spectral-") && (
-        <p className="mt-3 text-sm">
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
           {settings.spectralMask
             ? `${settings.spectralMask.lowHz.toFixed(1)}–${settings.spectralMask.highHz.toFixed(1)} Hz · ${settings.spectralMask.points?.length ? "lasso" : "rectangle"}`
             : "Draw a spectral selection first."}
@@ -45,7 +45,7 @@ export function ProcessControls({ view, disabled, onOperationChange, onSettingsC
         settings.spectralMask &&
         !settings.spectralMask.points?.length &&
         (["lowHz", "highHz"] as const).map((field) => (
-          <label key={field} className="mt-3 block text-sm">
+          <label key={field} className="mt-2 block text-xs text-muted-foreground">
             {field === "lowHz" ? "Lower frequency (Hz)" : "Upper frequency (Hz)"}
             <input
               type="number"
@@ -73,12 +73,12 @@ export function ProcessControls({ view, disabled, onOperationChange, onSettingsC
         ))}
       {operation === "noise-reduce" && (
         <>
-          <p className="mt-3 text-sm">
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
             Noise profile: frames {settings.noiseProfile?.start}–{settings.noiseProfile?.end}.
             Capture a noise-only selection before processing.
           </p>
           {input("Maximum reduction (dB)", settings.reductionText, "reductionText")}
-          <label className="mt-3 block text-sm">
+          <label className="mt-2 block text-xs text-muted-foreground">
             Method
             <select
               aria-label="Noise reduction method"
@@ -122,7 +122,7 @@ export function ProcessControls({ view, disabled, onOperationChange, onSettingsC
       )}
       {operation === "remove-hum" && (
         <>
-          <label className="mt-3 block text-sm">
+          <label className="mt-2 block text-xs text-muted-foreground">
             Mains frequency
             <select
               aria-label="Mains frequency"
@@ -144,7 +144,7 @@ export function ProcessControls({ view, disabled, onOperationChange, onSettingsC
       {fade && (
         <>
           {operation !== "crossfade" && (
-            <label className="mt-3 block text-sm">
+            <label className="mt-2 block text-xs text-muted-foreground">
               Direction
               <select
                 aria-label="Direction"
@@ -160,7 +160,7 @@ export function ProcessControls({ view, disabled, onOperationChange, onSettingsC
               </select>
             </label>
           )}
-          <label className="mt-3 block text-sm">
+          <label className="mt-2 block text-xs text-muted-foreground">
             Curve
             <select
               aria-label="Curve"
@@ -190,9 +190,13 @@ export function ProcessControls({ view, disabled, onOperationChange, onSettingsC
       )}
       {(operation === "mono-to-stereo" ||
         operation === "stereo-to-mono" ||
-        operation === "resample") && <p className="mt-3 text-sm">Processes the whole document.</p>}
+        operation === "resample") && (
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          Processes the whole document.
+        </p>
+      )}
       {operation === "stereo-to-mono" && (
-        <label className="mt-3 block text-sm">
+        <label className="mt-2 block text-xs text-muted-foreground">
           Mono source
           <select
             aria-label="Mono source"
@@ -214,7 +218,7 @@ export function ProcessControls({ view, disabled, onOperationChange, onSettingsC
       {operation === "resample" && (
         <>
           {input("Sample rate (Hz)", settings.sampleRateText, "sampleRateText")}
-          <label className="mt-3 block text-sm">
+          <label className="mt-2 block text-xs text-muted-foreground">
             Quality
             <select
               aria-label="Quality"
@@ -234,7 +238,7 @@ export function ProcessControls({ view, disabled, onOperationChange, onSettingsC
       )}
       {operation === "extract-channel" && (
         <>
-          <label className="mt-3 block text-sm">
+          <label className="mt-2 block text-xs text-muted-foreground">
             Channel
             <select
               aria-label="Channel"
@@ -257,7 +261,7 @@ export function ProcessControls({ view, disabled, onOperationChange, onSettingsC
       )}
       {operation === "generate" && (
         <>
-          <label className="mt-3 block text-sm">
+          <label className="mt-2 block text-xs text-muted-foreground">
             Generator
             <select
               aria-label="Generator"

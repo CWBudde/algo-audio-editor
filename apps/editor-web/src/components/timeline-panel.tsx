@@ -145,9 +145,9 @@ export function TimelinePanel({
       {open && (
         <div
           data-disclosure-panel
-          className="absolute right-0 top-full z-40 max-h-80 w-[32rem] max-w-[calc(100vw-2rem)] overflow-auto rounded border bg-popover p-3 shadow-lg"
+          className="studio-dialog absolute right-0 top-full z-40 mt-1 max-h-[min(20rem,calc(100dvh-1rem))] w-[32rem] max-w-[calc(100vw-2rem)] overflow-y-auto border p-3 text-popover-foreground"
         >
-          <div className="mb-2 flex gap-2">
+          <div className="mb-2 flex flex-wrap gap-2 border-b border-border/60 pb-2">
             <Button
               size="xs"
               variant="outline"
@@ -166,109 +166,121 @@ export function TimelinePanel({
             </Button>
           </div>
           {timeline.markers.length === 0 && timeline.regions.length === 0 && (
-            <p>No markers or regions.</p>
+            <p className="py-2 text-muted-foreground">No markers or regions.</p>
           )}
           <ul className="space-y-1">
             {timeline.markers.map((marker) => (
               <li
                 key={`marker-${marker.id}`}
-                className="flex flex-wrap items-center gap-2"
+                className="grid min-w-0 grid-cols-[0.75rem_minmax(0,1fr)] items-start gap-x-2 gap-y-1 rounded-md border border-border/60 px-2 py-2 min-[560px]:grid-cols-[0.75rem_minmax(0,1fr)_auto]"
                 data-testid={`marker-row-${marker.id}`}
               >
                 <span
                   role="img"
-                  className="h-3 w-3 rounded"
+                  className="mt-1 size-3 shrink-0 rounded-sm"
                   style={{ backgroundColor: marker.color }}
                   aria-label={`Color ${marker.color}`}
                 />
-                <span>{marker.name}</span>
-                <span className="tabular-nums">
-                  {formatSelectionTime(marker.frame, info.sampleRate, timeFormat)}
-                </span>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={busy}
-                  aria-label={`Jump to marker ${marker.name}`}
-                  onClick={() =>
-                    !busy && onJump({ ...selection, start: marker.frame, end: marker.frame })
-                  }
-                >
-                  Jump
-                </Button>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={busy}
-                  aria-label={`Edit marker ${marker.name}`}
-                  onClick={() => edit("marker", marker)}
-                >
-                  Edit
-                </Button>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={busy}
-                  aria-label={`Delete marker ${marker.name}`}
-                  onClick={() => !busy && onRemoveMarker(marker.id)}
-                >
-                  Delete
-                </Button>
+                <div className="min-w-0">
+                  <span className="block break-words font-medium [overflow-wrap:anywhere]">
+                    {marker.name}
+                  </span>
+                  <span className="block break-words text-[11px] tabular-nums text-muted-foreground [overflow-wrap:anywhere]">
+                    {formatSelectionTime(marker.frame, info.sampleRate, timeFormat)}
+                  </span>
+                </div>
+                <div className="col-start-2 flex flex-wrap gap-1 min-[560px]:col-start-3 min-[560px]:row-start-1">
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`Jump to marker ${marker.name}`}
+                    onClick={() =>
+                      !busy && onJump({ ...selection, start: marker.frame, end: marker.frame })
+                    }
+                  >
+                    Jump
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`Edit marker ${marker.name}`}
+                    onClick={() => edit("marker", marker)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`Delete marker ${marker.name}`}
+                    onClick={() => !busy && onRemoveMarker(marker.id)}
+                  >
+                    Delete
+                  </Button>
+                </div>
               </li>
             ))}
             {timeline.regions.map((region) => (
               <li
                 key={`region-${region.id}`}
-                className="flex flex-wrap items-center gap-2"
+                className="grid min-w-0 grid-cols-[0.75rem_minmax(0,1fr)] items-start gap-x-2 gap-y-1 rounded-md border border-border/60 px-2 py-2 min-[560px]:grid-cols-[0.75rem_minmax(0,1fr)_auto]"
                 data-testid={`region-row-${region.id}`}
               >
                 <span
                   role="img"
-                  className="h-3 w-3 rounded"
+                  className="mt-1 size-3 shrink-0 rounded-sm"
                   style={{ backgroundColor: region.color }}
                   aria-label={`Color ${region.color}`}
                 />
-                <span>{region.name}</span>
-                <span className="tabular-nums">
-                  {formatSelectionTime(region.start, info.sampleRate, timeFormat)} –{" "}
-                  {formatSelectionTime(region.end, info.sampleRate, timeFormat)}
-                </span>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={busy}
-                  aria-label={`Jump to region ${region.name}`}
-                  onClick={() =>
-                    !busy && onJump({ ...selection, start: region.start, end: region.end })
-                  }
-                >
-                  Jump
-                </Button>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={busy}
-                  aria-label={`Edit region ${region.name}`}
-                  onClick={() => edit("region", region)}
-                >
-                  Edit
-                </Button>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={busy}
-                  aria-label={`Delete region ${region.name}`}
-                  onClick={() => !busy && onRemoveRegion(region.id)}
-                >
-                  Delete
-                </Button>
+                <div className="min-w-0">
+                  <span className="block break-words font-medium [overflow-wrap:anywhere]">
+                    {region.name}
+                  </span>
+                  <span className="block break-words text-[11px] tabular-nums text-muted-foreground [overflow-wrap:anywhere]">
+                    {formatSelectionTime(region.start, info.sampleRate, timeFormat)} –{" "}
+                    {formatSelectionTime(region.end, info.sampleRate, timeFormat)}
+                  </span>
+                </div>
+                <div className="col-start-2 flex flex-wrap gap-1 min-[560px]:col-start-3 min-[560px]:row-start-1">
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`Jump to region ${region.name}`}
+                    onClick={() =>
+                      !busy && onJump({ ...selection, start: region.start, end: region.end })
+                    }
+                  >
+                    Jump
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`Edit region ${region.name}`}
+                    onClick={() => edit("region", region)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`Delete region ${region.name}`}
+                    onClick={() => !busy && onRemoveRegion(region.id)}
+                  >
+                    Delete
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
           {currentDraft && (
             <form
               aria-label={`Edit ${currentDraft.kind}`}
-              className="mt-2 flex flex-wrap items-end gap-2"
+              className="studio-section mt-3 grid min-w-0 grid-cols-[minmax(0,1fr)_4rem] items-end gap-x-3 gap-y-2 border p-3"
               onSubmit={(event) => {
                 event.preventDefault();
                 save();
@@ -280,69 +292,85 @@ export function TimelinePanel({
                 }
               }}
             >
-              <span className="w-full text-muted-foreground">
+              <span className="col-span-2 text-[11px] text-muted-foreground">
                 Time format: {currentDraft.format}
               </span>
-              <label htmlFor={`${id}-name`}>
+              <label htmlFor={`${id}-name`} className="min-w-0 space-y-1 text-muted-foreground">
                 Name
                 <input
                   id={`${id}-name`}
                   aria-label="Timeline name"
                   aria-invalid={Boolean(currentDraft.error)}
                   aria-describedby={currentDraft.error ? `${id}-error` : undefined}
-                  className="block rounded border bg-background px-1"
+                  className="studio-field mt-1 block min-w-0 w-full border px-2 py-1.5 text-foreground"
                   value={currentDraft.name}
                   onChange={(event) => update({ name: event.target.value })}
                   disabled={busy}
                 />
               </label>
-              <label htmlFor={`${id}-color`}>
+              <label htmlFor={`${id}-color`} className="space-y-1 text-muted-foreground">
                 Color
                 <input
                   id={`${id}-color`}
                   aria-label="Timeline color"
                   type="color"
+                  className="studio-field mt-1 block h-8 w-full border p-1"
                   value={currentDraft.color}
                   onChange={(event) => update({ color: event.target.value })}
                   disabled={busy}
                 />
               </label>
-              <label htmlFor={`${id}-start`}>
-                {currentDraft.kind === "marker" ? "Position" : "Start"}
-                <input
-                  id={`${id}-start`}
-                  aria-label={currentDraft.kind === "marker" ? "Marker position" : "Region start"}
-                  className="block rounded border bg-background px-1 tabular-nums"
-                  value={currentDraft.start}
-                  onChange={(event) => update({ start: event.target.value })}
-                  aria-invalid={Boolean(currentDraft.error)}
-                  aria-describedby={currentDraft.error ? `${id}-error` : undefined}
-                  disabled={busy}
-                />
-              </label>
-              {currentDraft.kind === "region" && (
-                <label htmlFor={`${id}-end`}>
-                  End
+              <div
+                className={`col-span-2 grid min-w-0 gap-3 ${currentDraft.kind === "region" ? "grid-cols-2" : "grid-cols-1"}`}
+              >
+                <label htmlFor={`${id}-start`} className="min-w-0 space-y-1 text-muted-foreground">
+                  {currentDraft.kind === "marker" ? "Position" : "Start"}
                   <input
-                    id={`${id}-end`}
-                    aria-label="Region end"
-                    className="block rounded border bg-background px-1 tabular-nums"
-                    value={currentDraft.end}
-                    onChange={(event) => update({ end: event.target.value })}
+                    id={`${id}-start`}
+                    aria-label={currentDraft.kind === "marker" ? "Marker position" : "Region start"}
+                    className="studio-field mt-1 block min-w-0 w-full border px-2 py-1.5 tabular-nums text-foreground"
+                    value={currentDraft.start}
+                    onChange={(event) => update({ start: event.target.value })}
                     aria-invalid={Boolean(currentDraft.error)}
                     aria-describedby={currentDraft.error ? `${id}-error` : undefined}
                     disabled={busy}
                   />
                 </label>
-              )}
-              <Button size="xs" type="submit" disabled={busy}>
-                Save {currentDraft.kind}
-              </Button>
-              <Button size="xs" variant="outline" type="button" onClick={() => setDraft(undefined)}>
-                Cancel
-              </Button>
+                {currentDraft.kind === "region" && (
+                  <label htmlFor={`${id}-end`} className="min-w-0 space-y-1 text-muted-foreground">
+                    End
+                    <input
+                      id={`${id}-end`}
+                      aria-label="Region end"
+                      className="studio-field mt-1 block min-w-0 w-full border px-2 py-1.5 tabular-nums text-foreground"
+                      value={currentDraft.end}
+                      onChange={(event) => update({ end: event.target.value })}
+                      aria-invalid={Boolean(currentDraft.error)}
+                      aria-describedby={currentDraft.error ? `${id}-error` : undefined}
+                      disabled={busy}
+                    />
+                  </label>
+                )}
+              </div>
+              <div className="studio-dialog-actions col-span-2 flex flex-wrap justify-end gap-2 border-t pt-2">
+                <Button size="xs" type="submit" disabled={busy}>
+                  Save {currentDraft.kind}
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  type="button"
+                  onClick={() => setDraft(undefined)}
+                >
+                  Cancel
+                </Button>
+              </div>
               {currentDraft.error && (
-                <p id={`${id}-error`} role="alert" className="w-full text-destructive">
+                <p
+                  id={`${id}-error`}
+                  role="alert"
+                  className="col-span-2 break-words text-destructive"
+                >
                   {currentDraft.error}
                 </p>
               )}

@@ -60,5 +60,12 @@ export function ControlDisclosure(props: ComponentProps<"details">) {
       node.removeEventListener("toggle", align);
     };
   }, []);
-  return <details {...props} ref={details} name="editor-controls" />;
+  return (
+    <details
+      {...props}
+      className={`editor-disclosure ${props.className ?? ""}`}
+      ref={details}
+      name="editor-controls"
+    />
+  );
 }

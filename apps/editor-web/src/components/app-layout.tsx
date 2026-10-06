@@ -250,7 +250,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
           }}
         >
           {doc.info && spectralView !== "waveform" && (
-            <div className="mb-2 shrink-0 rounded-lg border p-2">
+            <div className="studio-section mb-2 shrink-0 rounded-lg border p-2">
               <AnalysisControls
                 showAveraging={false}
                 settings={spectralSettings}
@@ -300,28 +300,36 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
             />
           )}
         </main>
-        {doc.info && client && spectrumOpen && selection && (
-          <SpectrumPanel
-            client={client}
-            info={doc.info}
-            selection={selection}
-            settings={spectralSettings}
-            onSettings={changeSpectralSettings}
-            playing={playing}
-            paused={Boolean(
-              analysis.view || effects.view || processing.view || exporting.view || busy,
+        {doc.info && (spectrumOpen || metersOpen) && (
+          <div
+            className="analysis-dock"
+            data-testid="analysis-dock"
+            data-dual={Boolean(client && spectrumOpen && selection && metersOpen)}
+          >
+            {client && spectrumOpen && selection && (
+              <SpectrumPanel
+                client={client}
+                info={doc.info}
+                selection={selection}
+                settings={spectralSettings}
+                onSettings={changeSpectralSettings}
+                playing={playing}
+                paused={Boolean(
+                  analysis.view || effects.view || processing.view || exporting.view || busy,
+                )}
+                onClose={closeSpectrum}
+                stateId={history.history?.currentStateId}
+              />
             )}
-            onClose={closeSpectrum}
-            stateId={history.history?.currentStateId}
-          />
-        )}
-        {doc.info && metersOpen && (
-          <LivePlaybackMeters
-            client={client}
-            info={doc.info}
-            onReset={resetMeters}
-            onClose={closeMeters}
-          />
+            {metersOpen && (
+              <LivePlaybackMeters
+                client={client}
+                info={doc.info}
+                onReset={resetMeters}
+                onClose={closeMeters}
+              />
+            )}
+          </div>
         )}
         <StatusBar
           info={doc.info}

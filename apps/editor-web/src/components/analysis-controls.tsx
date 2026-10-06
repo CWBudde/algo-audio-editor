@@ -19,13 +19,15 @@ export function AnalysisControls({
 }) {
   const id = useId();
   return (
-    <fieldset disabled={disabled} className="flex flex-wrap items-end gap-3 text-xs">
+    <fieldset disabled={disabled} className="flex min-w-0 flex-wrap items-end gap-2 text-[11px]">
       <legend className="sr-only">Spectral analysis settings</legend>
-      <div>
-        <label htmlFor={`${id}-fft`}>FFT size</label>
+      <div className="flex min-w-0 flex-col gap-1">
+        <label className="text-[10px] text-muted-foreground" htmlFor={`${id}-fft`}>
+          FFT size
+        </label>
         <select
           id={`${id}-fft`}
-          className="ml-2 rounded border bg-background p-1"
+          className="studio-field h-7 min-w-0 max-w-full border px-2 py-1"
           value={settings.fftSize}
           onChange={(e) => onChange({ fftSize: Number(e.target.value) })}
         >
@@ -36,11 +38,13 @@ export function AnalysisControls({
           ))}
         </select>
       </div>
-      <div>
-        <label htmlFor={`${id}-window`}>Window</label>
+      <div className="flex min-w-0 flex-col gap-1">
+        <label className="text-[10px] text-muted-foreground" htmlFor={`${id}-window`}>
+          Window
+        </label>
         <select
           id={`${id}-window`}
-          className="ml-2 rounded border bg-background p-1"
+          className="studio-field h-7 min-w-0 max-w-full border px-2 py-1"
           value={settings.window}
           onChange={(e) => onChange({ window: e.target.value })}
         >
@@ -52,11 +56,13 @@ export function AnalysisControls({
         </select>
       </div>
       {showAveraging && (
-        <div>
-          <label htmlFor={`${id}-average`}>Averaging</label>
+        <div className="flex min-w-0 flex-col gap-1">
+          <label className="text-[10px] text-muted-foreground" htmlFor={`${id}-average`}>
+            Averaging
+          </label>
           <select
             id={`${id}-average`}
-            className="ml-2 rounded border bg-background p-1"
+            className="studio-field h-7 min-w-0 max-w-full border px-2 py-1"
             value={settings.averaging}
             onChange={(e) => onChange({ averaging: Number(e.target.value) })}
           >
@@ -68,11 +74,13 @@ export function AnalysisControls({
           </select>
         </div>
       )}
-      <div>
-        <label htmlFor={`${id}-smooth`}>Octave smoothing</label>
+      <div className="flex min-w-0 flex-col gap-1">
+        <label className="text-[10px] text-muted-foreground" htmlFor={`${id}-smooth`}>
+          Octave smoothing
+        </label>
         <select
           id={`${id}-smooth`}
-          className="ml-2 rounded border bg-background p-1"
+          className="studio-field h-7 min-w-0 max-w-full border px-2 py-1"
           value={settings.smoothing}
           onChange={(e) => onChange({ smoothing: Number(e.target.value) })}
         >

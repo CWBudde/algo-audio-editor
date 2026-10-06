@@ -82,7 +82,7 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
             if (!working && valid) onExport();
           }}
         >
-          <p className="studio-section mt-3 border px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+          <p className="studio-section mt-3 break-words border px-3 py-2 text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
             {view.info.name} · {view.info.sampleRate} Hz · {view.info.channels} channels
           </p>
           <label

@@ -47,8 +47,12 @@ export function AppMenubar({ commands, onExecute }: AppMenubarProps) {
         }
       }}
     >
-      {command.label}
-      {command.shortcutLabel && <MenubarShortcut>{command.shortcutLabel}</MenubarShortcut>}
+      <span className="min-w-0 flex-1 break-words">{command.label}</span>
+      {command.shortcutLabel && (
+        <MenubarShortcut className="shrink-0 pl-5 font-mono text-[10px] tracking-normal">
+          {command.shortcutLabel}
+        </MenubarShortcut>
+      )}
     </MenubarItem>
   );
   return (
@@ -57,11 +61,11 @@ export function AppMenubar({ commands, onExecute }: AppMenubarProps) {
         <MenubarMenu key={menu.label}>
           <MenubarTrigger
             ref={menu.label === "Effects" ? effectsTrigger : undefined}
-            className="shrink-0"
+            className="shrink-0 px-2 text-xs focus-visible:outline-2 focus-visible:outline-ring"
           >
             {menu.label}
           </MenubarTrigger>
-          <MenubarContent>
+          <MenubarContent className="min-w-[min(18rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] border border-[var(--editor-border-strong)] bg-card shadow-xl ring-0">
             {menu.label === "Effects" ? (
               <>
                 {effectCommands.filter((command) => !command.submenu).map(renderCommand)}
@@ -69,7 +73,9 @@ export function AppMenubar({ commands, onExecute }: AppMenubarProps) {
                 {effectGroups.map((group) => (
                   <MenubarSub key={group.category}>
                     <MenubarSubTrigger>{group.category}</MenubarSubTrigger>
-                    <MenubarSubContent>{group.commands.map(renderCommand)}</MenubarSubContent>
+                    <MenubarSubContent className="min-w-[min(18rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] border border-[var(--editor-border-strong)] bg-card shadow-xl ring-0">
+                      {group.commands.map(renderCommand)}
+                    </MenubarSubContent>
                   </MenubarSub>
                 ))}
               </>

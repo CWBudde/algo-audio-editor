@@ -714,12 +714,17 @@ function WaveformContent({
         </span>
       </div>
       {spectralView !== "waveform" && (
-        <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1 text-xs">
-          <label>
-            Spectrogram selection{" "}
+        <fieldset
+          aria-label="Spectral editing"
+          className="waveform-toolbar flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-1.5 text-xs"
+        >
+          <label className="flex items-center gap-2">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Spectrogram selection
+            </span>
             <select
               aria-label="Spectrogram selection tool"
-              className="ml-2 rounded border bg-background px-2 py-1"
+              className="studio-field rounded border bg-background px-2 py-1 text-xs"
               disabled={disabled}
               value={spectralTool}
               onChange={(event) => {
@@ -733,7 +738,7 @@ function WaveformContent({
           </label>
           {spectralSelection?.documentId === info.documentId && (
             <>
-              <span role="status">
+              <span role="status" className="min-w-0 font-mono text-[10px] text-muted-foreground">
                 Spectral selection: frames {spectralSelection.mask.start}–
                 {spectralSelection.mask.end}, {spectralSelection.mask.lowHz.toFixed(0)}–
                 {spectralSelection.mask.highHz.toFixed(0)} Hz
@@ -741,6 +746,7 @@ function WaveformContent({
               <button
                 type="button"
                 disabled={disabled}
+                className="studio-button rounded border px-2 py-1 text-xs disabled:opacity-50"
                 onClick={() => changeSpectralSelection(undefined)}
               >
                 Clear spectral selection
@@ -750,6 +756,7 @@ function WaveformContent({
                   key={action}
                   type="button"
                   disabled={!commands?.find((c) => c.id === `process.spectral-${action}`)?.enabled}
+                  className="studio-button rounded border px-2 py-1 text-xs disabled:opacity-50"
                   onClick={() => onExecute?.(`process.spectral-${action}`)}
                 >
                   {action === "attenuate"
@@ -761,7 +768,7 @@ function WaveformContent({
               ))}
             </>
           )}
-        </div>
+        </fieldset>
       )}
       <SelectionBar
         key={info.documentId}
@@ -797,6 +804,7 @@ function WaveformContent({
       <div
         ref={lanes}
         id={lanesId}
+        data-testid="waveform-lanes"
         className="waveform-lanes min-h-0 flex-1 overflow-y-auto overscroll-contain"
         style={{ scrollbarGutter: "stable" }}
       >
@@ -816,11 +824,13 @@ function WaveformContent({
         ) : (
           channelIds.map((channel) => (
             <div key={channel} className="waveform-channel border-b">
-              <div className="waveform-channel-header flex h-6 items-center gap-2 border-b px-3 text-[10px] text-muted-foreground">
+              <div className="waveform-channel-header flex h-6 min-w-0 items-center gap-2 border-b px-3 text-[10px] text-muted-foreground">
                 <span className="w-8 font-mono tabular-nums">
                   {String(channel + 1).padStart(2, "0")}
                 </span>
-                <span className="font-medium uppercase tracking-widest">Channel {channel + 1}</span>
+                <span className="min-w-0 truncate font-medium uppercase tracking-widest">
+                  Channel {channel + 1}
+                </span>
                 <span className="ml-auto uppercase tracking-widest">
                   {info.channels === 1
                     ? "Mono"

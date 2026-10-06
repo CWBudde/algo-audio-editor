@@ -211,21 +211,25 @@ export function PasteConversionDialog({
       ref={dialog}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
-      className="m-auto max-w-md rounded border bg-background p-5 text-foreground backdrop:bg-black/50"
+      className="studio-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto border p-5 text-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]"
       onCancel={(event) => {
         event.preventDefault();
         onCancel();
       }}
     >
-      <h2 id={titleId} className="font-semibold">
+      <h2 id={titleId} className="studio-dialog-heading font-semibold tracking-tight">
         Convert clipboard
       </h2>
-      <p id={descriptionId} className="my-3 text-sm">
+      <p id={descriptionId} className="my-3 text-sm leading-relaxed">
         Convert {plan.sourceRate} Hz / {plan.sourceChannels} channels to {plan.targetRate} Hz /{" "}
         {plan.targetChannels} channels before pasting? The original clipboard is preserved.
-        {mapping && <span className="mt-2 block">{mapping}</span>}
+        {mapping && (
+          <span className="studio-section mt-3 block border p-2.5 text-xs leading-relaxed text-muted-foreground">
+            {mapping}
+          </span>
+        )}
       </p>
-      <div className="flex justify-end gap-2">
+      <div className="studio-dialog-actions flex flex-wrap justify-end gap-2 border-t pt-3">
         <Button variant="outline" onClick={onCancel}>
           Cancel
         </Button>

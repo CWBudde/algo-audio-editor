@@ -77,32 +77,33 @@ export function PlaybackMeters({
   return (
     <section
       aria-label="Playback output meters"
-      className="max-h-[30dvh] shrink-0 overflow-auto border-t bg-card p-3"
+      className="analysis-panel min-h-0 min-w-0 overflow-auto bg-card p-3"
     >
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <h2 className="mr-auto text-sm font-medium">Output meters</h2>
-        <span className="text-xs text-muted-foreground">Rendered ahead of the output device</span>
-        <Button size="sm" variant="outline" onClick={onReset}>
+      <div className="analysis-panel-header mb-2 flex flex-wrap items-center gap-2">
+        <h2 className="mr-auto text-xs font-semibold">Output meters</h2>
+        <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={onReset}>
           Reset holds and loudness
         </Button>
-        <Button size="sm" variant="ghost" onClick={onClose}>
+        <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={onClose}>
           Close meters
         </Button>
       </div>
+      <p className="mb-3 text-[10px] text-muted-foreground">Rendered ahead of the output device</p>
       {(error || failure) && (
         <p role="alert">{error ?? `Metering stopped: ${failure}. Reset to retry.`}</p>
       )}
-      <div className="flex flex-wrap gap-4">
-        <div className="min-w-48 flex-1 space-y-2">
+      <div className="analysis-meter-body min-w-0">
+        <div className="analysis-meter-channels min-w-0 space-y-3">
           {snapshot?.channels.map((channel) => (
-            <div key={`channel-${channel.channel + 1}`} className="text-xs">
-              <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 tabular-nums">
-                <span>Channel {channel.channel + 1}</span>
-                <span>
-                  Peak {meterNumber(amplitudeDB(channel.peak), "dBFS")} · RMS{" "}
-                  {meterNumber(amplitudeDB(channel.rms), "dBFS")} · Hold{" "}
-                  {meterNumber(amplitudeDB(channel.hold), "dBFS")} · True peak{" "}
-                  {meterNumber(amplitudeDB(channel.truePeak), "dBTP")}
+            <fieldset
+              key={`channel-${channel.channel + 1}`}
+              aria-label={`Channel ${channel.channel + 1} levels`}
+              className="text-xs"
+            >
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="font-medium">Channel {channel.channel + 1}</span>
+                <span aria-hidden="true" className="text-[10px] text-muted-foreground">
+                  −60 · −30 · 0 dBFS
                 </span>
               </div>
               <meter
@@ -121,7 +122,7 @@ export function PlaybackMeters({
               />
               <div
                 aria-hidden="true"
-                className="relative mt-1 h-3 overflow-hidden rounded bg-muted"
+                className="relative h-2.5 overflow-hidden rounded-sm bg-muted"
               >
                 <span
                   className={`absolute inset-y-0 left-0 ${channel.truePeak > 1 ? "bg-destructive" : "bg-primary"}`}
@@ -136,10 +137,27 @@ export function PlaybackMeters({
                   style={{ left: `${levelWidth(channel.hold)}%` }}
                 />
               </div>
-            </div>
+              <dl className="analysis-channel-levels mt-1 grid gap-x-2 gap-y-1">
+                {[
+                  { label: "Peak", amplitude: channel.peak, unit: "dBFS" },
+                  { label: "RMS", amplitude: channel.rms, unit: "dBFS" },
+                  { label: "Hold", amplitude: channel.hold, unit: "dBFS" },
+                  { label: "True peak", amplitude: channel.truePeak, unit: "dBTP" },
+                ].map(({ label, amplitude, unit }) => (
+                  <div key={label} className="min-w-0">
+                    <dt className="text-[10px] text-muted-foreground">{label}</dt>
+                    <dd
+                      className={`analysis-number whitespace-nowrap text-[11px] tabular-nums ${label === "True peak" && channel.truePeak > 1 ? "text-destructive" : "text-foreground"}`}
+                    >
+                      {meterNumber(amplitudeDB(amplitude), unit)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </fieldset>
           )) ?? <p className="text-xs text-muted-foreground">Play audio to read channel levels.</p>}
         </div>
-        <dl className="grid grid-cols-2 gap-x-4 text-xs tabular-nums">
+        <dl className="analysis-loudness-grid grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1.5 text-[11px] tabular-nums">
           <dt>Momentary</dt>
           <dd>{meterNumber(snapshot?.momentary, "LUFS")}</dd>
           <dt>Maximum momentary</dt>
@@ -164,8 +182,11 @@ export function PlaybackMeters({
               : "Stereo required"}
           </dd>
         </dl>
-        <Goniometer snapshot={snapshot} />
-        <p className="basis-full text-xs text-muted-foreground">
+        <div className="analysis-meter-image space-y-1">
+          <p className="text-[10px] text-muted-foreground">Stereo image · mid / side</p>
+          <Goniometer snapshot={snapshot} />
+        </div>
+        <p className="analysis-meter-footer text-[10px] text-muted-foreground">
           Loudness measurement:{" "}
           {((snapshot?.loudnessFrames ?? 0) / (snapshot?.sampleRate ?? 48000)).toFixed(1)} s ·{" "}
           {(snapshot?.availability ?? 0) & 4

@@ -54,6 +54,9 @@ All notable changes to this project are documented here. The format follows
 - App-icon colors guide the editor's midnight-blue surfaces, violet controls and
   cohesive amber waveform. The waveform workspace adapts lane heights to the
   window, with refined tool groups, selection readouts and dialog panels.
+  A responsive analysis dock adds full-width spectrum scales/channel legends
+  and labeled meter values; annotation and clipboard dialogs use compact,
+  bounded layouts with readable long names and narrow-screen actions.
 - System UI fonts replace the bundled Geist font; MIT Heroicons replace Lucide
   artwork while preserving accessible editor actions and generated UI components.
 - Go lint checks both native and WASM targets with restored revive defaults,
