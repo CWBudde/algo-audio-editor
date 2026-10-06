@@ -211,7 +211,10 @@ Add, remove or reorder effects, adjust their generated controls, or choose a
 factory preset. Numeric parameters use knobs with editable values and units.
 EQ curves and dynamics transfer curves are computed by the kernel; drag an EQ
 band to adjust frequency and gain, or right-click a band to choose its filter
-type. Keyboard controls provide the same adjustments.
+type. Keyboard controls provide the same adjustments. Graphic EQ uses vertical
+gain and order sliders with editable readouts, plus a full-width logarithmic
+frequency graph. Complementary transitions keep equal neighboring gains flat;
+the lowest and highest controls extend to DC and Nyquist respectively.
 
 Preview loops the selection with live parameter changes, rack/effect bypass,
 wet/dry balance and input/output peak/RMS meters. Apply renders the final rack

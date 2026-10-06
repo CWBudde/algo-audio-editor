@@ -25,8 +25,11 @@ All notable changes to this project are documented here. The format follows
   and extraction, quality-selectable resampling and signal generators.
 - Grouped effects catalogue and reorderable racks with live preview, bypass,
   wet/dry, factory and stored user presets, and convolution impulse responses.
-  Compact unit-labeled knobs, interactive EQ graphs with right-click filter-type
-  menus and dynamics input/output graphs provide dedicated controls.
+  Compact unit-labeled knobs, graphic EQ gain/order faders and full-width
+  logarithmic frequency graphs, parametric EQ right-click filter-type menus
+  and dynamics input/output graphs provide dedicated controls. Graphic EQ uses
+  complementary transitions from algo-dsp v0.11.0 to remove actual audio gain
+  spikes between overlapping bands.
 - Output peak/RMS/true-peak and loudness meters, loudness range, stereo correlation
   and goniometer; selection/live spectra, progressive spectrograms, statistics,
   pitch tracking and optional clipping markers.

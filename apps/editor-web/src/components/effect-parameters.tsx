@@ -2,6 +2,7 @@ import type { EffectDescriptor, EffectParameterDescriptor } from "@aae/protocol"
 import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import { DynamicsGraph } from "@/components/dynamics-graph";
 import { EffectKnob } from "@/components/effect-knob";
+import { GraphicEQGraph } from "@/components/graphic-eq-graph";
 import { EQ_BAND_COLORS, ParametricEQGraph } from "@/components/parametric-eq-graph";
 import type { KernelClient } from "@/kernel/client";
 import type { RackEffect } from "@/lib/effect-presets";
@@ -12,12 +13,14 @@ function NumericParameter({
   disabled,
   onChange,
   label = parameter.label,
+  vertical = false,
 }: {
   parameter: EffectParameterDescriptor;
   value: number;
   disabled: boolean;
   onChange(value: number): void;
   label?: string;
+  vertical?: boolean;
 }) {
   const id = useId();
   const [text, setText] = useState(String(value));
@@ -33,7 +36,70 @@ function NumericParameter({
       >
         {label}
       </label>
-      <EffectKnob {...{ parameter, value, disabled, onChange }} />
+      {vertical ? (
+        <div className="relative mx-auto flex h-36 w-8 justify-center">
+          {parameter.min < 0 && parameter.max > 0 && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-waveform-center"
+            />
+          )}
+          <input
+            type="range"
+            aria-label={`${parameter.label} slider`}
+            aria-orientation="vertical"
+            aria-valuetext={`${value}${parameter.unit ? ` ${parameter.unit}` : ""}`}
+            className="graphic-eq-fader relative h-full w-8 cursor-ns-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            min={parameter.min}
+            max={parameter.max}
+            step={parameter.step || "any"}
+            value={Number.isFinite(value) ? value : parameter.default}
+            disabled={disabled}
+            title="Drag to adjust. Double-click to reset."
+            onChange={(event) => onChange(Number(event.target.value))}
+            onDoubleClick={() => {
+              if (!disabled) onChange(parameter.default);
+            }}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (disabled) return;
+              const current = Number.isFinite(value) ? value : parameter.default;
+              const step = parameter.step || (event.shiftKey ? 0.1 : 0.5);
+              let next: number;
+              switch (event.key) {
+                case "ArrowUp":
+                case "ArrowRight":
+                  next = current + step;
+                  break;
+                case "ArrowDown":
+                case "ArrowLeft":
+                  next = current - step;
+                  break;
+                case "PageUp":
+                  next = current + step * 10;
+                  break;
+                case "PageDown":
+                  next = current - step * 10;
+                  break;
+                case "Home":
+                  next = parameter.min;
+                  break;
+                case "End":
+                  next = parameter.max;
+                  break;
+                default:
+                  return;
+              }
+              event.preventDefault();
+              onChange(
+                Math.max(parameter.min, Math.min(parameter.max, Number(next.toPrecision(7)))),
+              );
+            }}
+          />
+        </div>
+      ) : (
+        <EffectKnob {...{ parameter, value, disabled, onChange }} />
+      )}
       <div className="studio-field flex items-center border focus-within:ring-1 focus-within:ring-ring">
         <input
           id={id}
@@ -172,6 +238,17 @@ function EffectCurve({
         )}
       </div>
     );
+  if (descriptor.id === "eq-graphic")
+    return (
+      <div>
+        <GraphicEQGraph {...{ descriptor, node, points, sampleRate, disabled, onChange }} />
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
+      </div>
+    );
   if (descriptor.view === "dynamics")
     return (
       <div className="mx-auto max-w-[40rem]">
@@ -247,7 +324,11 @@ export function EffectParameters({
     descriptor.id === "filter-moog" ||
     (descriptor.id.startsWith("filter") && node.params.family === "moog");
   const parameters = descriptor.parameters.filter((parameter) => parameter.id !== "irIndex");
-  const control = (parameter: EffectParameterDescriptor, label = parameter.label) => {
+  const control = (
+    parameter: EffectParameterDescriptor,
+    label = parameter.label,
+    vertical = false,
+  ) => {
     const field = `${id}-${parameter.id}`;
     if (parameter.type === "enum")
       return (
@@ -291,7 +372,7 @@ export function EffectParameters({
     return (
       <NumericParameter
         key={parameter.id}
-        {...{ parameter, label, disabled }}
+        {...{ parameter, label, disabled, vertical }}
         value={Number(node.params[parameter.id])}
         onChange={(value) => onChange({ ...node.params, [parameter.id]: value })}
       />
@@ -363,6 +444,17 @@ export function EffectParameters({
               );
             },
           )}
+        </div>
+      ) : descriptor.id === "eq-graphic" ? (
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(3.5rem,1fr))] items-start gap-2">
+          {parameters
+            .filter((parameter) => parameter.id !== "order")
+            .map((parameter) => control(parameter, parameter.label.replace(/\s*gain$/i, ""), true))}
+          <div className="border-l border-border pl-2">
+            {parameters
+              .filter((parameter) => parameter.id === "order")
+              .map((parameter) => control(parameter, "Order", true))}
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,7rem))] items-start gap-3">

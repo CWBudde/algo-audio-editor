@@ -343,6 +343,42 @@
     border-color: var(--editor-focus);
     outline-color: var(--editor-focus);
   }
+  .graphic-eq-fader {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    appearance: none;
+    background: transparent;
+  }
+  .graphic-eq-fader::-webkit-slider-runnable-track {
+    width: 4px;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--editor-control-track);
+  }
+  .graphic-eq-fader::-webkit-slider-thumb {
+    appearance: none;
+    width: 24px;
+    height: 10px;
+    margin-left: -10px;
+    border: 1px solid var(--editor-primary);
+    border-radius: 2px;
+    background: var(--editor-surface-raised);
+    box-shadow: inset 0 -3px 0 var(--editor-primary);
+  }
+  .graphic-eq-fader::-moz-range-track {
+    width: 4px;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--editor-control-track);
+  }
+  .graphic-eq-fader::-moz-range-thumb {
+    width: 24px;
+    height: 10px;
+    border: 1px solid var(--editor-primary);
+    border-radius: 2px;
+    background: var(--editor-surface-raised);
+    box-shadow: inset 0 -3px 0 var(--editor-primary);
+  }
   .studio-button {
     background: var(--editor-surface-raised);
     border-color: var(--editor-border);

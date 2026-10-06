@@ -53,6 +53,13 @@ representative text, focus, fields, knobs and traces.
   cover it. Spectral selections, handles and playheads stay inside the image.
 - **Analysis dock:** spectrum and meters share a dock capped at 36% of viewport
   height, side by side from 1280 px wide and stacked (scrollable) below.
+- **Graphic EQ:** ten vertical gain faders and a separate vertical order fader
+  retain editable values and units below. The kernel response graph fills the
+  rack width, with logarithmic frequency grid subdivisions and a −24 to +24 dB
+  gain axis. Graph dragging adjusts the nearest fixed band; faders support
+  keyboard adjustment and double-click reset. Controls wrap on narrow screens.
+  Complementary DSP transitions keep equal neighboring gains flat, with the
+  first/last gains extending to DC/Nyquist rather than overlapping band peaks.
 
 ## Layout limits
 
