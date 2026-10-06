@@ -32,7 +32,7 @@ const bytesPerFloat32 = 4
 // Eight-channel sample/tag buffers stay below 7 MiB at this maximum.
 const maxRenderFrames = 65536
 
-// Keep byte lengths representable on wasm32. Phase 10 adds paged storage and
+// Keep byte lengths representable on wasm32. Phase 25 adds paged storage and
 // streaming file input instead of copying a whole multi-gigabyte source.
 const maxBinaryInputBytes = math.MaxInt32
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { AboutStatusDialog } from "@/components/about-status-dialog";
 import { AnalysisControls } from "@/components/analysis-controls";
 import { AppMenubar } from "@/components/app-menubar";
@@ -42,6 +42,7 @@ const CommandPalette = lazy(() =>
 );
 
 export function AppLayout({ controller }: { controller: ReturnType<typeof useAppController> }) {
+  const [controlsHost, setControlsHost] = useState<HTMLFieldSetElement | null>(null);
   const {
     analysis,
     timelineOptions,
@@ -155,7 +156,8 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
           </p>
         )}
         <fieldset
-          className="editor-toolbar flex min-h-9 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-1"
+          ref={setControlsHost}
+          className="editor-toolbar flex min-h-9 shrink-0 flex-wrap items-center gap-x-1 gap-y-1 border-b px-2 py-1"
           aria-label="Editor actions"
           data-testid="primary-controls"
         >
@@ -176,7 +178,10 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
             onLoopChange={setLoop}
             onFollowChange={setFollow}
           />
-          <fieldset aria-label="Undo and redo" className="flex items-center gap-1 border-l pl-2">
+          <fieldset
+            aria-label="Undo and redo"
+            className="editor-tool-band flex shrink-0 items-center gap-0.5 border-l pl-1"
+          >
             {(
               [
                 ["edit.undo", Undo2, "Undo"],
@@ -237,7 +242,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
           }}
         />
         <main
-          className="editor-workspace relative flex min-h-0 flex-1 flex-col overflow-auto p-2 sm:p-3"
+          className="editor-workspace relative flex min-h-0 flex-1 flex-col overflow-auto"
           data-testid="document-drop-zone"
           aria-busy={busy}
           onDragOver={(event) => {
@@ -250,7 +255,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
           }}
         >
           {doc.info && spectralView !== "waveform" && (
-            <div className="studio-section mb-2 shrink-0 rounded-lg border p-2">
+            <div className="studio-section shrink-0 border-b px-2 py-1">
               <AnalysisControls
                 showAveraging={false}
                 settings={spectralSettings}
@@ -269,6 +274,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
           )}
           {doc.info && client ? (
             <WaveformView
+              controlsHost={controlsHost}
               commands={commands}
               onExecute={execute}
               ref={waveformView}

@@ -5,7 +5,13 @@ import type { KernelClient } from "@/kernel/client";
 import type { PeakViews } from "@/kernel/peak-data";
 import { resolveEditorPalette } from "@/lib/editor-theme";
 import { drawSampleWaveform, drawWaveform, resizeCanvas } from "@/lib/waveform-drawing";
-import { clampVerticalZoom, type FrameRange } from "@/lib/waveform-geometry";
+import {
+  clampVerticalZoom,
+  type FrameRange,
+  generateTimeTicks,
+  generateTimeSubTicks,
+  type TimeFormat,
+} from "@/lib/waveform-geometry";
 import { type SampleDisplayMode, sampleViewportRange } from "@/lib/waveform-samples";
 
 interface PeakCanvasProps {
@@ -18,6 +24,7 @@ interface PeakCanvasProps {
   dpr: number;
   overview?: boolean;
   verticalZoom?: number;
+  timeFormat?: TimeFormat;
   peaks?: PeaksState;
   sampleMode?: SampleDisplayMode;
   onPointerDown?: (event: PointerEvent<HTMLCanvasElement>) => void;
@@ -38,6 +45,7 @@ export function PeakCanvas({
   dpr,
   overview = false,
   verticalZoom = 1,
+  timeFormat = "seconds",
   peaks,
   sampleMode = "linear",
   ...events
@@ -76,6 +84,7 @@ export function PeakCanvas({
     height: number;
     dpr: number;
     verticalZoom: number;
+    timeFormat: TimeFormat;
   }>();
 
   const lastPaint = useRef(paint);
@@ -89,6 +98,7 @@ export function PeakCanvas({
       previous.client === client &&
       previous.width === width &&
       previous.height === height &&
+      previous.timeFormat === timeFormat &&
       previous.verticalZoom === magnification &&
       previous.dpr === dpr
     )
@@ -106,6 +116,15 @@ export function PeakCanvas({
       sampleColor: palette.waveformSample,
       rmsColor: palette.waveformRms,
       gridColor: overview ? undefined : palette.waveformGrid,
+      timeGuides: overview
+        ? undefined
+        : [
+            ...generateTimeTicks(viewport, width, info.sampleRate, timeFormat).map((tick) => ({
+              x: tick.x,
+              kind: "major" as const,
+            })),
+            ...generateTimeSubTicks(viewport, width, info.sampleRate, timeFormat),
+          ],
       centerLineColor: overview ? undefined : palette.waveformCenter,
       showRMS: !overview,
       verticalZoom: magnification,
@@ -127,6 +146,7 @@ export function PeakCanvas({
         height,
         dpr,
         verticalZoom: magnification,
+        timeFormat,
       });
   }, [
     source,
@@ -142,6 +162,7 @@ export function PeakCanvas({
     info,
     client,
     magnification,
+    timeFormat,
   ]);
 
   const rendered = Boolean(
@@ -154,6 +175,7 @@ export function PeakCanvas({
       paint.width === width &&
       paint.height === height &&
       paint.verticalZoom === magnification &&
+      paint.timeFormat === timeFormat &&
       paint.dpr === dpr,
   );
 

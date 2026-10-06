@@ -50,7 +50,7 @@ Audio launch arguments, macOS open-file events, and second-instance arguments us
 the existing window. OS requests wait while a modal or document operation is
 active. Successfully imported native files are added to Windows/macOS recent documents
 through Electron's API. Linux has no equivalent Electron recent-document list;
-the application's own recent-file persistence remains Phase 17.
+the application's own recent-file persistence remains Phase 18.
 Opening a new file over dirty audio asks whether to discard or cancel.
 
 Normal window bounds and maximized state persist in `userData/window-state.json`.
@@ -60,7 +60,7 @@ acknowledgement; cancelled or failed saves keep the window open. Active document
 operations and previews must finish or cancel before closing. Extracted-channel
 windows get the same native services and independent close protection.
 
-Installers advertise WAV, FLAC, AIFF/AIFC and MP3 associations. `.aaep` associations wait for Phase 17 project support. Browser-dependent codec formats are available through Open without advertising installer associations. Projects and crash recovery remain Phase 17;
+Installers advertise WAV, FLAC, AIFF/AIFC and MP3 associations. `.aaep` associations wait for Phase 18 project support. Browser-dependent codec formats are available through Open without advertising installer associations. Projects and crash recovery remain Phase 18;
 the close guard does not provide autosave.
 
 ## App icons
@@ -152,7 +152,7 @@ notarization/stapling, Windows installation/signature verification, Linux packag
 signature policy, and an actual old-version-to-new-version update on each OS are
 still release acceptance work. No signed release or update installation was
 performed during Phase 9 implementation. These installed-platform checks remain
-Phase 19; dependency license approval and third-party notices remain Phase 23.
+Phase 19; dependency license policy compliance remains Phase 27.
 
 Primary references: [Electron IPC security](https://www.electronjs.org/docs/latest/tutorial/security),
 [permission handlers](https://www.electronjs.org/docs/latest/api/session),

@@ -30,7 +30,7 @@ its commit. Desktop releases require a tag's commit to be on `main` and have
 successful CI, then publish only after every platform build succeeds. A manual
 desktop workflow checks its commit's CI and creates artifacts without publishing.
 These workflow gates do not establish required checks for merging to `main`.
-Required branch checks remain an open R.10 repository-setting task; the branch
+Required branch checks remain an open repository-setting task (PLAN Phase 28); the branch
 protection API reported `Branch not protected` during the 2026-10-05 audit.
 
 External workflow actions are pinned to verified commits with release comments;
@@ -41,6 +41,17 @@ The shared setup caches Bun downloads and Playwright Chromium, while always
 running the frozen workspace install and requested browser/system install.
 Cache hits do not replace validation or installation.
 
+## Versioning and dependencies
+
+- SemVer `v0.x` until the waveform editor (Phases 1–6 plus the metadata and
+  project work in PLAN Phases 17–18) is complete. `CHANGELOG.md` follows Keep a
+  Changelog.
+- This is an application, not a library: `gorelease` API checks do not apply,
+  but the algo-* family's dependency rules do. `just check-deps` must be green
+  before a release; record any deliberately deferred sibling bump in `PLAN.md`.
+- Upstream DSP work flows up the dependency graph: implement in `algo-dsp`, tag
+  it there with `just tag-release`, then bump it here. Never pin a pseudo-version.
+
 ## First release
 
 No application release has been tagged. `just check-unreleased` reports this
@@ -49,11 +60,11 @@ against the configured threshold. Do not tag only to silence that report.
 
 Before selecting a release commit:
 
-- Complete or explicitly decide the first-release feature scope. Phase S ties
-  waveform-editor completeness to Phases 1–6 and the outstanding metadata/project
-  work in Phases 16–17. Keep unfinished performance, browser and host acceptance
+- Complete or explicitly decide the first-release feature scope. Waveform-editor
+  completeness covers Phases 1–6 plus the outstanding metadata/project work in
+  Phases 17–18. Keep unfinished performance, browser and host acceptance
   visible in the roadmap.
-- Complete Phase 23's Go/npm license audit and bundled third-party notices,
+- Complete Phase 27's license policy compliance for the bundled third-party code,
   including the documented FLAC Unlicense and archived AAC muxer decisions.
   The [current audit](licenses/README.md) supplies inventory/notices, but policy
   exceptions and missing upstream grants remain unresolved. After dependency or
@@ -69,7 +80,7 @@ Before selecting a release commit:
 - Obtain successful remote CI for that exact commit on `main`; an earlier green
   commit or a local run does not satisfy the publishing gate.
 - Move the intended changelog entries into a dated release section and agree the
-  version and release scope. The R.10 first-tag target is `v0.1.0`; using `v0.x`
+  version and release scope. The first-tag target is `v0.1.0`; using `v0.x`
   does not waive the release prerequisites.
 
 Tagging and pushing a release tag is a publishing action. The `v*` workflow builds

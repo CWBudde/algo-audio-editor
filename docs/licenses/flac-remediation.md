@@ -3,7 +3,7 @@
 This is local upstream implementation work against the verified MIT
 `github.com/tphakala/go-flac v1.1.0` archive. The editor still consumes its
 existing tagged codec. No upstream issue, pull request, grant change, tag or
-release has been published, and Phase 23 adoption remains open.
+release has been published, and adoption (Phase 27) remains open.
 
 The [initial evaluation](flac-evaluation.md) retains the original failures.
 The [patch bundle](../../scripts/license-probes/flac-remediation/README.md)

@@ -1,6 +1,6 @@
 # Go math reach diagnostics
 
-Phase 23 needs evidence of retained code before replacing math implementations.
+License policy compliance (Phase 27) needs evidence of retained code before replacing math implementations.
 `just evaluate-go-math-reach` cross-builds the native CLI and MCP server on Linux,
 macOS and Windows (amd64 and arm64), plus the js/wasm kernel. It works in temporary
 directories with the pinned kernel toolchain and `CGO_ENABLED=0`, and leaves

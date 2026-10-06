@@ -1,4 +1,6 @@
-const CHANNEL_HEADER_HEIGHT = 25;
+export const WAVEFORM_RULER_WIDTH = 56;
+export const SPECTROGRAM_RULER_WIDTH = 72;
+const CHANNEL_BORDER_HEIGHT = 1;
 const FALLBACK_LANE_HEIGHT = 160;
 const MIN_LANE_HEIGHT = 96;
 const MAX_LANE_HEIGHT = 1024;
@@ -19,7 +21,7 @@ export function waveformLaneHeight(
     MIN_LANE_HEIGHT,
     Math.min(
       MAX_LANE_HEIGHT,
-      Math.floor((availableHeight / count - CHANNEL_HEADER_HEIGHT - footerHeight) / panels),
+      Math.floor((availableHeight / count - CHANNEL_BORDER_HEIGHT - footerHeight) / panels),
     ),
   );
 }

@@ -12,6 +12,7 @@ interface SelectionBarProps {
   channels: number;
   timeFormat: TimeFormat;
   disabled?: boolean;
+  frameless?: boolean;
   onChange(selection: SelectionRange): void;
 }
 
@@ -36,6 +37,7 @@ function TimeField({ label, frame, rate, format, commit }: TimeFieldProps) {
   const [draft, setDraft] = useState<Draft>();
   const focused = useRef(false);
   const errorId = useId();
+  const unitId = `${errorId}-unit`;
   const formatted = formatSelectionTime(frame, rate, format);
   useEffect(() => {
     if (!focused.current)
@@ -64,8 +66,8 @@ function TimeField({ label, frame, rate, format, commit }: TimeFieldProps) {
     else setDraft(blur ? undefined : { ...draft, baseline: draft.text, error: undefined });
   };
   return (
-    <div className="min-w-0">
-      <label className="flex items-center gap-2 rounded-md border border-border/60 bg-background/60 px-2 text-xs focus-within:border-ring">
+    <div className="editor-tool-band shrink-0">
+      <label className="flex h-7 items-center gap-1.5 rounded border border-border/60 bg-background/60 px-1.5 text-xs focus-within:border-ring">
         <span
           aria-hidden="true"
           className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
@@ -77,7 +79,7 @@ function TimeField({ label, frame, rate, format, commit }: TimeFieldProps) {
           inputMode={format === "samples" ? "numeric" : "decimal"}
           aria-label={label}
           aria-invalid={Boolean(draft?.error)}
-          aria-describedby={draft?.error ? errorId : undefined}
+          aria-describedby={draft?.error ? errorId : unitId}
           className="w-24 min-w-0 bg-transparent py-1 font-mono text-xs tabular-nums focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
           value={draft?.text ?? formatted}
           onFocus={() => {
@@ -101,6 +103,13 @@ function TimeField({ label, frame, rate, format, commit }: TimeFieldProps) {
             }
           }}
         />
+        <span id={unitId} className="text-[10px] text-muted-foreground">
+          {(draft?.format ?? format) === "samples"
+            ? "samples"
+            : (draft?.format ?? format) === "seconds"
+              ? "s"
+              : "h:m:s"}
+        </span>
       </label>
       {draft?.error && (
         <p id={errorId} role="alert" className="text-xs text-destructive">
@@ -119,6 +128,7 @@ export function SelectionBar({
   channels,
   timeFormat,
   disabled = false,
+  frameless = false,
   onChange,
 }: SelectionBarProps) {
   const all = allChannelsMask(channels);
@@ -158,7 +168,11 @@ export function SelectionBar({
   return (
     <fieldset
       disabled={disabled}
-      className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/60 bg-card px-3 py-1"
+      className={
+        frameless
+          ? "contents"
+          : "flex shrink-0 flex-wrap items-center gap-x-1 gap-y-1 border-b border-border/60 bg-card px-2 py-1"
+      }
       data-testid="selection-bar"
     >
       <legend className="sr-only">Selection</legend>
@@ -183,12 +197,12 @@ export function SelectionBar({
         format={timeFormat}
         commit={(value) => commit("length", value)}
       />
-      <span className="py-1 text-xs text-muted-foreground">
-        {timeFormat === "samples" ? "samples" : timeFormat === "seconds" ? "seconds" : "h:mm:ss"}
-      </span>
-      <ControlDisclosure className="relative text-xs" data-testid="channel-settings">
+      <ControlDisclosure
+        className="editor-tool-band relative shrink-0 text-xs"
+        data-testid="channel-settings"
+      >
         <summary
-          className="cursor-pointer rounded px-2 py-1 focus-visible:outline-2 focus-visible:outline-ring"
+          className="flex h-7 cursor-pointer items-center whitespace-nowrap rounded px-1.5 focus-visible:outline-2 focus-visible:outline-ring"
           aria-label="Selected channels"
           title="Choose selected channels"
         >

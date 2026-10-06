@@ -1,16 +1,16 @@
 import type { DocumentInfoResult } from "@aae/protocol";
 import { type RefObject, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PlaybackFollow } from "@/components/transport-bar";
+import { WAVEFORM_RULER_WIDTH } from "@/components/waveform/lane-layout";
 import { clampViewport, type FrameRange } from "@/lib/waveform-geometry";
 
-const RULER_WIDTH = 56;
 interface ViewState {
   document: DocumentInfoResult;
   viewport: FrameRange;
 }
 
 /** CSS geometry and backing-store resolution are tracked independently. */
-function useViewSize(tracks: RefObject<HTMLDivElement | null>) {
+function useViewSize(tracks: RefObject<HTMLDivElement | null>, rulerWidth: number) {
   const host = useRef<HTMLElement>(null);
   const [width, setWidth] = useState(1);
   const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
@@ -37,7 +37,7 @@ function useViewSize(tracks: RefObject<HTMLDivElement | null>) {
     };
   }, [dpr, tracks]);
 
-  return { host, width: Math.max(1, width - RULER_WIDTH), dpr };
+  return { host, width: Math.max(1, width - rulerWidth), dpr };
 }
 
 export function useWaveformViewport(
@@ -45,6 +45,7 @@ export function useWaveformViewport(
   lanes: RefObject<HTMLDivElement | null>,
   playing: boolean,
   follow: PlaybackFollow,
+  rulerWidth = WAVEFORM_RULER_WIDTH,
 ) {
   const fullRange = useMemo(() => ({ start: 0, end: info.frames }), [info.frames]);
   const [state, setState] = useState<ViewState>({
@@ -53,7 +54,7 @@ export function useWaveformViewport(
   });
   const current = state.document === info ? state : { document: info, viewport: fullRange };
   const { viewport } = current;
-  const { host, width, dpr } = useViewSize(lanes);
+  const { host, width, dpr } = useViewSize(lanes, rulerWidth);
   const currentViewport = useRef(viewport);
   currentViewport.current = viewport;
   const lastFollow = useRef(-Infinity);

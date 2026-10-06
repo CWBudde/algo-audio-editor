@@ -2,25 +2,26 @@
 
 These reports preserve dated observations, commands and limits. They are not
 claims that the current build meets every hardware or platform acceptance gate.
-PLAN.md keeps unfinished requirements; source and commit history define what
+PLAN.md keeps unfinished requirements (open Phases 16–28; reports below may use
+original phase numbers, which PLAN notes per phase); source and commit history define what
 was implemented. Historical temporary logs are not durable raw artifacts.
 
 | Report | Scope | Status of related acceptance |
 | --- | --- | --- |
-| [Processing, 2026-10-03](processing-2026-10-03.md) | Full ten-minute processing sweeps, tagged optimizations, isolated gates and host load | Phase 15's complete <1 s matrix remains open |
-| [Spectrogram playback, 2026-10-04–05](spectrogram-playback-2026-10-04-05.md) | Phase 5 pass, Phase 8/baseline failures and later R.5 pass | Historical discrepancy profiling remains open in Phase 15 |
+| [Processing, 2026-10-03](processing-2026-10-03.md) | Full ten-minute processing sweeps, tagged optimizations, isolated gates and host load | Phase 16's complete <1 s matrix remains open (originally Phase 15) |
+| [Spectrogram playback, 2026-10-04–05](spectrogram-playback-2026-10-04-05.md) | Phase 5 pass, Phase 8/baseline failures and later R.5 pass | Historical discrepancy profiling remains open in Phase 16 |
 | [Implementation validation, 2026-10-04–05](implementation-validation-2026-10-04-05.md) | Dated WAV/restoration/desktop/batch/MCP and browser-CI follow-up results | Platform, listening, metadata, release and MCP host gates remain separate |
-| [R.5, 2026-10-05](r5-2026-10-05.md) | Native/V8/browser analysis, actual one-hour FLAC, history and playback | Local implementation evidence; broader Phase 15 acceptance remains open |
+| [R.5, 2026-10-05](r5-2026-10-05.md) | Native/V8/browser analysis, actual one-hour FLAC, history and playback | Local implementation evidence; broader Phase 16 acceptance remains open |
 | [R.1 CI/lint, 2026-10-05](r1-ci-2026-10-05.md) | Native/WASM lint, action pins/caches/timeouts and repeated allocation/EOF checks | Both historical flakes remain unconfirmed; hosted workflow execution is separate |
-| [Dependency notices, 2026-10-05](licenses-2026-10-05.md) | Pinned Go/npm/Electron source inventory, freshness/policy tests and actual browser/Pages/Linux package notices | Phase 23 runtime policy/evidence replacements remain open; no release approval |
+| [Dependency notices, 2026-10-05](licenses-2026-10-05.md) | Pinned Go/npm/Electron source inventory, freshness/policy tests and actual browser/Pages/Linux package notices | Phase 27 runtime policy/evidence replacements remain open; no release approval |
 | [Font/icon replacements, 2026-10-06](license-replacements-2026-10-06.md) | System typography, MIT icons, generated-component aliases, build exclusions and browser/Linux package checks | Font/icon findings cleared; remaining runtime policy/evidence and installed typography acceptance remain open |
 | [FLAC evaluation, 2026-10-06](../licenses/flac-evaluation.md) | Pinned candidate/grant digests, seven-target compilation, native/WASM malformed-input probes and independent codec comparisons | Candidate adoption blocked by validation/allocation/32-bit encoding defects; full provenance and editor acceptance remain open |
 | [FLAC remediation, 2026-10-06](flac-remediation-2026-10-06.md) | Verified local upstream patches, bounded decoder tests and independent reference comparisons | No upstream release/adoption; full provenance, corpus and editor acceptance remain open |
 | [Go math reach, 2026-10-06](go-math-reach-2026-10-06.md) | Thirteen pure-Go builds, selected source declarations/notices, retention paths and verified raw WASM names | Optimized WASM attribution and permitted upstream math/toolchain replacements remain open |
-| [Visual design, 2026-10-06](visual-design-2026-10-06.md) | Icon-inspired palette, adaptive waveform workspace, dialog review, retained screenshots and browser/Linux Electron checks | Phase 24 user feedback, exhaustive state review and installed platform/scale acceptance remain open |
+| [Visual design, 2026-10-06](visual-design-2026-10-06.md) | Icon-inspired palette, adaptive waveform workspace, dialog review, retained screenshots and browser/Linux Electron checks | Phase 23 user feedback, exhaustive state review and installed platform/scale acceptance remain open |
 | [Visual density, 2026-10-06](visual-density-2026-10-06.md) | Responsive analysis dock, spectrum scales/legends, annotations and actual dense/split/short-screen browser checks | Representative layouts pass; exhaustive state and installed platform/scale acceptance remain open |
 | [Visual palette, 2026-10-06](visual-palette-2026-10-06.md) | Closer icon colors, shared plot/control roles, representative rendered contrast and vertical waveform magnification | Local view regressions; user feedback and installed platform/scale acceptance remain open |
-| [Spectrogram scales/readouts, 2026-10-06](spectrogram-readout-2026-10-06.md) | Actual Nyquist/DC frequency gutters, pointer coordinates, below-image status and bounded selection geometry | Local browser/Linux Electron checks; hardware timing and broader Phase 24 acceptance remain separate |
+| [Spectrogram scales/readouts, 2026-10-06](spectrogram-readout-2026-10-06.md) | Actual Nyquist/DC frequency gutters, pointer coordinates, below-image status and bounded selection geometry | Local browser/Linux Electron checks; hardware timing and broader Phase 23 acceptance remain separate |
 
 R.5 additionally retains [analysis tool-output transcription](r5-analysis-2026-10-05.txt)
 and [production browser JSON](r5-browser-2026-10-05.json). Earlier reports are

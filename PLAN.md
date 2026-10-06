@@ -2,7 +2,7 @@
 
 > **Architecture Summary:**
 >
-> - **Kernel:** Go compiled to WebAssembly (`packages/kernel`). It owns everything that touches audio: the document model, edit history, DSP, codecs, peak data and playback rendering. Its DSP comes from the `github.com/cwbudde/algo-*` family (mainly `algo-dsp` and `wav`).
+> - **Kernel:** Go compiled to WebAssembly (`packages/kernel`). It owns everything that touches audio: the document model, edit history, DSP, codecs, peak data and playback rendering. Its DSP comes from the `github.com/cwbudde/algo-*` family (mainly `algo-dsp` and `wav`). The same engine is compiled natively for the `aae` CLI and the `aae-mcp` server.
 > - **Frontend:** Vite + React 19 + TypeScript, Tailwind CSS v4, shadcn (Base UI primitives). The UI is a view and a controller only.
 > - **Desktop:** Electron (`apps/desktop`) serves the *same* production build over a privileged `app://` scheme, so browser and desktop share one code path.
 > - **Rule:** No sample processing in JS. JS may copy samples (ring buffer, worklet, transfer) and draw what the kernel computed (peaks, spectra), but every audio computation happens in the kernel.
@@ -15,473 +15,156 @@
 >   ```
 >   The kernel never runs on the audio thread. Go's GC and runtime cannot meet real-time deadlines, so the worker renders ahead into the ring and the worklet only copies.
 > - **ABI:** `AAEKernel.call(method, json, data?) → json` for control and optional binary input, `AAEKernel.takeData()` for the preceding call's binary output, `AAEKernel.render(u8, frames, positions?)` for audio and optional int64 document-position tags, and `AAEKernel.copyMeters(u8)` for the reusable binary output-meter snapshot. The current ABI version is **18** on both sides. Methods and payloads are defined in `packages/kernel/internal/protocol` and mirrored by hand in `packages/protocol`. Bulk data (audio, peaks, files, spectra, pitch records, RGBA tiles) crosses as transferable `ArrayBuffer`s or through the SAB, never as JSON arrays.
-> - **Cross-origin isolation** (needed for SharedArrayBuffer) comes from:
->   - COOP/COEP headers in Vite dev/preview,
->   - `coi-serviceworker.js` on GitHub Pages,
->   - the `app://` protocol handler in Electron.
+> - **Cross-origin isolation** (needed for SharedArrayBuffer) comes from COOP/COEP headers in Vite dev/preview, `coi-serviceworker.js` on GitHub Pages and the `app://` protocol handler in Electron.
 
-**Product shape (decided 2026-10-02):** a waveform editor first, in the spirit of ocenaudio, Sound Forge or Audition's waveform view. Multitrack comes in Phase 11 and is built on the same block-based document model.
+**Product shape:** a waveform editor first, in the spirit of ocenaudio, Sound Forge or Audition's waveform view. Multitrack (Phase 26) builds on the same block-based document model.
 
----
-
-## Roadmap status (2026-10-06)
-
-Completed implementation is summarized below. Unfinished acceptance, platform and feature work has moved to explicit follow-up phases; **COMPLETE applies to the scope stated in each summary**, not to its follow-up. Open requirements and partial-progress evidence are retained. Detailed completed-phase history is available in [the historical roadmap](https://github.com/cwbudde/algo-audio-editor/blob/9de516f/PLAN.md); old test counts and dependency versions describe those historical runs, not the current build. [Benchmark and validation evidence](docs/benchmarks/README.md) records dates, implementation baselines and limits; its roadmap audit distinguishes local checks from hosted CI and unfinished acceptance.
-
-**Next review work:** R.1's two unconfirmed flakes and R.10's release/process follow-up, including Phase 23's replacements under the confirmed MIT/BSD/Apache-only policy. System fonts/MIT icons are implemented; isolated FLAC fixes await maintainer review/tagging, full provenance/corpus and editor adoption. Go math diagnostics now retain 13 cross-target builds and verified raw WASM names; final optimized attribution, complete source provenance and permitted upstream implementations remain open. Updater/Electron runtime work retains explicit compatibility and reachability gates. CI/lint hardening is implemented; hosted acceptance requires successful CI on the intended commit. Feature phases remain separately schedulable; R.9 has delivered the Electron permission prerequisite for recording.
-
-**Current visual work:** Phase 24 follows the user's request to reconsider the editor's appearance, starting with the waveform. The supplied app icon defines the palette; Edison is a reference for workspace density and waveform emphasis. Existing visual details may be revised while kernel data, commands, accessibility and editing behavior remain authoritative.
-
-| Previous location | Remaining work | New location |
-| --- | --- | --- |
-| Phase 3.2 | Full-editor processing performance acceptance | Phase 15 |
-| Phases 5 / 8 | Spectrogram playback timing reconciliation | Phase 15 |
-| Phase 6.3 | MP3/FLAC metadata mapping | Phase 16 |
-| Phase 6.4; Phase 9 project association | Projects, autosave, recent files, `.aaep` association | Phase 17 |
-| Phase 8 | Subjective restoration acceptance | Phase 18 |
-| Phase 9 | Signing, installed associations and real updates | Phase 19 |
-| Phase 13 | Strict hosting cache policy and browser acceptance | Phase 20 |
-| Phase 12 | Native Windows/macOS batch execution acceptance | Phase 21 |
-| Phase 14 | Remaining MCP surface, transport and host acceptance | Phase 22 |
-| Phase S | Dependency license audit and notices | Phase 23 |
-
-Phase IDs 0–14 and U remain as historical implementation references. Review IDs R.1–R.10 stay stable for the review document; completed review sections are summarized alongside the completed feature phases. No unfinished acceptance gate has been waived.
-
-## Completed implementation
-
-### Phase 0: Scaffolding & End-to-End Pipeline — COMPLETE (2026-10-02)
-
-- [x] Bun/Go monorepo, `just`, formatting/lint/hooks, mirrored protocol and platform-independent kernel; Worker → SAB → copy-only AudioWorklet playback in browser and sandboxed Electron. Kernel tone/render, RPC/ring and both shell smoke regressions cover isolation, ownership, failures and zero-allocation rendering.
-- [x] CI, Pages and dependency-drift workflows exist. Browser/Electron CI first actually ran after the 2026-10-04 R.1 fix; CI/release hardening still pending is listed under R.1.
-
-### Phase 1: Document Model, WAV I/O, Waveform & Playback — COMPLETE (2026-10-03)
-
-- [x] `internal/audiobuf` provides immutable 65,536-frame blocks, shared channel/document snapshots, deduplicated memory and cached peak pyramids. WAV I/O, waveform zoom/scroll and source-position-tagged transport have native/WASM ownership, long-offset, codec and render regressions.
-- [x] `use-document.ts` overlaps reading with playback shutdown; fitted lane/overview peaks are shared. `interleaved_test.go`, `bench-import-profile` and `import-benchmark.spec.ts` cover exact copy bits and full import-to-painted-waveform work. Isolated target-laptop ten-minute import and one-quantum cursor gates pass; host contention produced historical failures, so these are not worst-case guarantees.
-
-### Phase 2: Selection & Editing — COMPLETE (2026-10-03)
-
-- [x] Exact numeric/pointer/channel selection, marker/ruler/upstream zero-crossing snapping, cut/copy/delete/paste insert/replace/unclipped mix, crop, silence, duplicate, swap and mute. `internal/ops`, clipboard windows and conversion preserve shared source blocks; native/WASM goldens and actual exported browser PCM cover bits, masks, EOF and atomic failure.
-- [x] `internal/history` provides exact undo/redo/jump/branch and acknowledged save points; document-owned markers/regions transform with edits, round-trip WAV cue/adtl and export CSV/labels. Timeline/history and one-hour storage regressions cover sharing, annotations and bounded retention. Stronger at-capacity WASM edit benchmarks showed variance around 50 ms.
-- [x] Shared command registry, platform shortcuts and palette route menus/actions with modal/text-input fences. Browser/Electron regressions cover command routing, conversion confirmation, source/history preservation and successful-write-only Save acknowledgement.
-
-### Phase 3: Basic Processing & Export Quality — IMPLEMENTATION COMPLETE (2026-10-03)
-
-- [x] `internal/process`, engine jobs and worker runners provide bounded cancellable private candidates, Preview/Stop/Apply/Cancel, unsafe-output acknowledgement and one atomic undo entry. Goldens and lifecycle/browser/Electron tests cover gain, peak/LUFS normalization, four fade/crossfade curves, reverse, invert, DC removal, channel conversion/extraction, Fast/Balanced/Best resampling and seeded generators.
-- [x] LUFS normalization independently measures actual rounded candidate samples before commit; exact finite-peak proofs and bounded batches consume tagged upstream analyzers. Individual isolated LUFS/extraction gates pass; the complete ten-minute performance matrix remains Phase 15.
-- [x] `export.go`, `ExportDialog` and `useExport` provide selection/channel scope, PCM8/16/24/32 or float32/64 WAV, seeded dither and noise shaping without changing source/save state. Independent integer-code, clipping/feedback, bridge and real disk/download regressions cover export; required APIs were released upstream before tagged consumption. The historical short-file EOF cursor concern is retained in R.1.
-
-### Phase 4: Effects — COMPLETE (2026-10-03; UI refinements 2026-10-04)
-
-- [x] `internal/effects` exposes all 51 upstream default-registry effects, sample-rate-aware controls/presets, bounded racks, convolution IRs, latency compensation and atomic updates. Preview and offline Apply share prepared 128-frame DSP quanta; native/WASM tests compare exact samples, pairing, tails, reset, ownership and zero allocations. Catalogue browser acceptance exercises every effect and undo.
-- [x] Grouped menus, compact unit-labeled editable knobs, EQ responses with smaller handles/right-click type menus, dynamics I/O plots, bypass/wet-dry and persistent OPFS/Electron presets. Component/browser/Electron regressions cover graph interaction, focus, eight-band Full HD fit, narrow layouts and persisted IRs.
-- [x] Tagged upstream WSOLA, convolution partitioning and streaming updates meet the unchanged 50 ms parameter-change gate in consecutive isolated Chromium runs with zero underruns. Timing uses the muted browser output-clock estimate; external DAC/speaker latency was not measured.
-
-### Phase 5: Analysis & Metering — IMPLEMENTATION COMPLETE (2026-10-04)
-
-- [x] `meters.go` / binary meter snapshots and upstream loudness, true-peak and stereo analyzers provide allocation-free rendered-output meters, LRA, holds and goniometer data. Published EBU fixtures pass native/V8-WASM tolerances through upstream and editor paths; fixtures stay external under their usage terms.
-- [x] Bounded selection/live spectra, progressive cached spectrogram tiles, statistics, resumable YIN pitch tracking and clipping-marker transactions. Kernel/frontend and browser/Electron regressions cover physical channels, settings, cancellation, stale identities, unchanged audio and exact undo. The originally passing ten-minute spectrogram gate and later failures require reconciliation in Phase 15.
-
-### Phase 6: Codec I/O & WAV Metadata — IMPLEMENTATION COMPLETE (2026-10-04)
-
-- [x] `engine/codecs.go` imports tagged Go WAV/FLAC/AIFF/MP3; browser-native decoding handles supported Vorbis/Opus/AAC containers into binary planar PCM. Native WAV/FLAC/AIFF export and supported WebCodecs Opus/M4A copies preserve kernel-owned sample processing. Independent FFmpeg/reference-codec fixtures, native/WASM/fuzz and browser/Electron round trips cover format detection, checksums, PCM, cancellation and save-state behavior; limits are in `docs/codecs.md`.
-- [x] `wav_metadata.go`, `MetadataDialog` and `useMetadata` map/edit 16 WAV INFO fields, retain unknown INFO/BWF/opaque data and annotation supplements, and create metadata-only undo entries. Wire fixtures and disk/download/reopen tests verify bounded ownership, exact PCM and source state. BWF is retained rather than edited; opaque references are not recalculated after edits. FLAC/AIFF reject included metadata until mapping exists, and lossy exports omit annotations.
-- [x] MP3 mono/gapless behavior and PCM8 centering were corrected in R.3. Browser AAC availability/codec delay and platform limits remain explicit; missing metadata/persistence and platform acceptance are in Phases 16–17 and 19–20.
-
-### Phase U: Editor Clarity & Sample Detail — COMPLETE (2026-10-03)
-
-- [x] Responsive file footer, on-demand About diagnostics, compact icon bands/disclosures, selection/timeline controls and centralized purple/orange/yellow roles. Component and production shell regressions cover command routing, numeric drafts, modal fences, accessibility, focus and desktop/narrow layout.
-- [x] `waveform-samples.ts`, `drawSampleWaveform`, `PeakCanvas` and paged peak queries draw signed sample dots above one CSS pixel/sample with linear/hold connections. Actual pixel tests cover DPR thresholds, sign, seams/EOF, cached redraw and unchanged audio/history; overview envelopes stay intact. Sinc interpolation and the undecided zoomed-out redesign remain outside this completed scope.
-
-### Phase 8: Restoration & Advanced Editing — IMPLEMENTATION COMPLETE (2026-10-04)
-
-- [x] Rectangle/lasso spectral attenuation/removal/healing, captured-profile Wiener/subtraction/gate noise reduction, bounded click/pop repair and declipping, stereo-coherent WSOLA time stretch and hum notches consume tagged upstream restoration/stream APIs. `docs/restoration.md` records workflows and limits; goldens and kernel/browser tests cover numerical quality, source preservation, cancellation, geometry and undo.
-- [x] Reference fixtures measure 22.65 dB default stationary-noise reduction and click residual below −80 dBFS after float32 storage; musical-noise proxies pass. Subjective listening remains Phase 18, and unresolved spectrogram timing is Phase 15.
-
-### Phase 9: Native Desktop Integration — IMPLEMENTATION COMPLETE (2026-10-04)
-
-- [x] Native menus/dialogs, renderer-scoped file capabilities, atomic writes, audio file associations/open routing, single-instance behavior, OS recent-document acknowledgements, persisted window state and guarded Save/Discard/Cancel close. Electron regressions cover actual second-process opens, disk output, close/save failures and relaunch.
-- [x] `electron-builder.yml`, `updates.ts` and `desktop-release.yml` provide three-OS packaging, guarded updater flow and signing-gated release scaffolding. Linux AppImage/deb and packaged ASAR/isolation smoke pass; deterministic updater tests stub the feed/installer. Actual signing, installed associations and installed updates remain Phase 19; projects/recent persistence remain Phase 17.
-- [x] `assets/appicon.png` and `just icons` generate checked-in Windows/macOS/Linux/web icons. Size/reproducibility, Linux package icon bytes and native/renderer loading regressions pass; Windows/macOS installed icon acceptance remains Phase 19.
-
-### Phase 12: Batch & Automation — IMPLEMENTATION COMPLETE (2026-10-04)
-
-- [x] Strict version 1 operation chains, native `cmd/aae`, isolated per-file WASM UI batches, macro recording/import/export/replay and atomic authorized output publication. The production UI's 100-file normalize/fade/resample/FLAC batch is byte-identical to the compiled Linux CLI; cancellation, partial failures, clipboard/history isolation and native folder grants have regressions. Full implementation context and Windows/macOS acceptance remain in Phase 21.
-
-### Phase 13: Public Web Deployment — IMPLEMENTATION COMPLETE (2026-10-04)
-
-- [x] CI-gated `main` publishes at `https://cwbudde.github.io/algo-audio-editor/`; scoped isolation worker, matched hashed kernel/runtime assets, cold/warm/headerless subpath boot and live post-deploy/daily smoke cover import/playback/export. The `37f1cbd` CI/deploy and public smoke succeeded. Build stamps, CC0 demo, development label, icons/social metadata, screenshot and deployment/browser docs are delivered.
-- [x] `check-web-budget.mjs` gates production assets; R.7 adds optimized WASM and chunk limits. Strict CDN caching and untested browser/native AAC acceptance remain Phase 20; propagation/network failures stay visible in smoke traces/retries.
-
-### Phase 14: Native MCP Foundation — IMPLEMENTATION COMPLETE (2026-10-04)
-
-- [x] Official SDK stdio `cmd/aae-mcp`, isolated document sessions, 18 tools, generated schemas, summaries/waveform PNG/binary peak resources, prompts, private-candidate dry runs and write-root capabilities use the shared automation/kernel engine. SDK/native subprocess tests verify schema/PCM/resource identity, partial-chain errors and source/history safety; compiled MCP and CLI normalize/resample/FLAC outputs match exactly. Full context and unfinished tools/transports/host acceptance remain Phase 22.
-
-### R.2: Kernel robustness — COMPLETE (2026-10-04)
-
-- [x] RPC panic recovery, shared 3 GiB retained-storage/candidate budget with 1 GiB WASM headroom, pre-allocation bridge/codec checks, owner-sized history bounds and atomic rejection. `memory_test.go` covers import/export, clipboard/conversion, reservations, growth and overflow; actual one-hour FLAC import remains R.5.
-- [x] Tolerant interrupted RIFF/RF64 recovery retains complete frames while validating metadata; `wav_robustness_test.go` covers boundaries/export/reopen. Bounded `FuzzWAVOpen`, `FuzzCodecOpen` and `FuzzDocumentExport` run in `just ci`; native race, V8/WASM, lint/vet and fuzz smoke checks pass.
-
-### R.3: Kernel correctness — COMPLETE (2026-10-05)
-
-- [x] `mp3.go` preserves mono and bounded Xing/LAME gapless endpoints with the decoder offset; independent FFmpeg PCM, CRC/MPEG-2/VBR, seam and malformed-header regressions pass. Tagged `wav v0.1.4` fixes centered PCM8 with exhaustive byte round trips.
-- [x] Tagged `algo-dsp v0.10.1` owns BS.1770 channel weights and unpadded/reflected noise-capture framing. Surround normalization/statistics/meters/export-reopen and exact window-power regressions pass. Subset cursor generators insert synchronized unselected-channel silence with timeline/undo tests; codec short-read errors and missing-history analysis guards are covered.
-- [x] Native race, actual V8/WASM, lint/vet, fuzz, tagged-dependency and upstream release checks pass; ABI unchanged.
-
-### R.4: Move DSP upstream — COMPLETE (2026-10-05)
-
-- [x] Tagged `algo-dsp v0.10.2` supplies preflighted `resample.StreamPlan`/`Stream` for transport, clipboard and offline resampling. Adapter bit-parity, independent FIR/tails, extreme ratios, loop/seek, workspace and zero-allocation regressions cover the removal of local delay/flush/GCD copies; R.3 moved loudness weights/noise framing upstream.
-- [x] Upstream `signal.AddInto32` / `AverageInto32` remove wide mix/downmix scratch while preserving unclipped bits, signed zero, subnormals and overflow-safe averages. Native race/V8-WASM, lint/vet/tidy/dependency, production build/budgets and ten focused Chromium checks pass; ABI unchanged.
-
-### R.5: Kernel structure & performance — COMPLETE (2026-10-05)
-
-- [x] `subsystems.go` gives `Engine` explicit document, transport, history, jobs, analysis and effects ownership. `methods.go` replaces dispatch switches and both busy allow-lists with 56 registered decoders/handlers/policies; completeness, busy-matrix, panic and binary-ownership regressions preserve existing behavior.
-- [x] `protocol/names.go` and matching TypeScript unions provide typed operation/kind/state/phase names with unchanged ABI 18 values and payload shapes. Strict decoding rejects unknown/nested fields and trailing JSON while retaining empty/default payloads; method context and `%w` preserve upstream causes, verified by registry and error-wrapping tests.
-- [x] Offline analysis and live spectra use a 2 ms soft deadline with bounded statistics/FFT/encoding and resumable YIN units. Fake-clock and actual bridge tests verify exact results, progressive data, cancellation, cache and undo. One-hour JSON and production browser bridge-call measurements are recorded in [R.5 benchmarks](docs/benchmarks/r5-2026-10-05.md); runtime/GC overruns remain explicit.
-- [x] Cached per-state block inventories and a copy-on-write ownership ledger replace history recounts; engine storage queries merge only supplementary clipboard/candidate storage. Randomized oracle, pruning, clone and failed-transaction tests pass; at-capacity WASM history cut/paste improves from 47.52–49.84 ms to 3.86–5.95 ms.
-- [x] `TestFLACImportOneHour`, the bounded native fixture writer and opt-in production browser acceptance decode actual 172,800,000-frame stereo FLAC. Native/V8-WASM verify every sample; Chromium verifies waveform painting, PCM boundaries, clean history and exact retained storage. Existing R.2 memory and R.3 MP3/LUFS regressions remain passing.
-- [x] Full native race and actual WASM suites, lint/vet, tidy, frontend checks, production/native builds, 146 browser cases and nine focused Electron cases pass. Render/transport/resampling/meter benchmarks retain 0 B/op and 0 allocations; Phase 15's separate performance acceptance remains open.
-
-### R.6: Frontend correctness — COMPLETE (2026-10-04)
-
-- [x] Worklet retirement, allocation-safe split-word ring/cursor reads, serialized Play and shared ref-backed selection eliminate lifecycle/state races. Lost mutating replies recover authoritative `doc.info`; null/empty wire types, generated Go/TS schema parity and single main-thread peak decoding have focused regressions. Frontend/lint/type/build checks pass; the stale 512 MiB browser expectation is retained under R.1.
-
-### R.7: Frontend structure & performance — COMPLETE (2026-10-05)
-
-- [x] Shared kernel-session/job lifetime guards, extracted App/waveform modules, isolated stats/meters polling, bounded follow updates and stable command/layout callbacks. Completed peaks/pixels remain visible while replacements load; hook/component/production regressions cover stale sessions, render counts and delayed pan/zoom.
-- [x] Lazy dialogs/React chunk, hashed pinned Binaryen-optimized WASM and raw/gzip budgets gate every production build/CI. Typed `process-probe.ts` supports benchmark wire observation with unit tests. Frontend, lint/type/format/workflow and optimized build/budget checks, focused Chromium/Pages and Electron smoke pass; hardware timing gates and full CI were not run for this review section.
-
-### R.8: Accessibility — COMPLETE (2026-10-05)
-
-- [x] Focusable, labeled waveform groups in `waveform-view.tsx` expose Left/Right cursor movement, stable Shift selection anchors and Home/End jumps. `use-waveform-keyboard.ts` preserves channel masks, reveals the moving endpoint and fences modifiers, composition, busy states and pointer previews; geometry/component and production browser/Electron regressions cover crossings, bounds, shortcut ownership and unchanged audio/history.
-- [x] Selection edges are labeled horizontal sliders with exact frame/second values, allowed bounds, Shift acceleration and one-/ten-second Page steps. Handles retain focus at collapsed ranges; `use-keyboard-selection.ts` coalesces selection/seek writes for 80 ms and flushes on keyup/blur. Live selection/preview ownership guards prevent stale document, session, pointer and numeric updates; fake-timer/deferred-reply and actual shell tests pass. Controls are documented in README.
-- [x] Frontend unit checks, web/desktop lint and type checks, formatting, production size budgets, all 149 Chromium cases and eight focused Electron cases pass. Kernel ABI 18 is unchanged; full CI and hardware timing gates were not run for this frontend change.
-
-### R.9: Electron hardening — COMPLETE (2026-10-05)
-
-- [x] `harden-package.ts` applies and reads back all nine Electron V1 fuses in `afterPack` before signing: Node mode/environment/inspector disabled, ASAR-only loading and embedded integrity enabled. Hook regressions reject missing ASAR, disabled integrity, mismatched bits and new fuses; the actual Linux package starts with attempted Node injections ignored. Embedded integrity enforcement is macOS/Windows only; installed platform acceptance remains Phase 19.
-- [x] `security.ts` installs both deny-default permission handlers, allowing only audio-only microphone access from the configured app origin and live main frame. Exact external links/extraction routes and navigation/redirect guards, defensive `app-protocol.ts` decoding, `satisfies DesktopBridge` preload and packaged environment fences have unit and real Electron regressions. `security.spec.ts` verifies microphone/camera/notification behavior, malformed paths, blocked external navigation and an actual HTTP redirect.
-- [x] File capability, symlink/1 GiB, quota, shortcut and saved-window regressions run through `just test-desktop` and CI. Delayed open/save/launch grants expire across navigation/close; window JSON restores only approved geometry. Web/desktop unit checks, lint/type/format/workflow checks, production budgets, all 24 development Electron cases and the hardened Linux packaged smoke pass. Kernel ABI 18 is unchanged; full CI and installed macOS/Windows acceptance were not run.
+**How to read this plan:** Phases 0–15 are complete for their stated scope; their summaries describe what exists today. Every unfinished item lives in Phases 16–28. Feature guides live in [`docs/`](docs/); dated measurements and validation scope live in [`docs/benchmarks/`](docs/benchmarks/README.md). The [historical roadmap at `9de516f`](https://github.com/cwbudde/algo-audio-editor/blob/9de516f/PLAN.md) keeps the full implementation narrative. Testing strategy is in [docs/testing.md](docs/testing.md); release rules are in [docs/releasing.md](docs/releasing.md).
 
 ---
 
-## Phase 7: Recording
+## Completed
 
-**Goal:** Record from an input device into a new document or at the cursor.
-
-**Acceptance criterion:** A 30-minute recording at 48 kHz stereo has no dropped frames, and the recorded audio lines up with playback within the measured round-trip latency.
-
-- [ ] Capture worklet: input → SAB ring (the reverse of playback) → the kernel worker appends blocks
-- [ ] Input device selection (`getUserMedia` constraints: echo cancellation, noise suppression and AGC turned **off**)
-- [ ] Input meters, record-arm and monitoring toggle
-- [ ] Record modes: new file, insert at cursor, replace selection (punch-in with pre-roll)
-- [ ] Latency measurement (loopback ping) and compensation
-
----
-
-## Phase 10: Performance & Large Files
-
-**Goal:** Multi-hour files, long histories and heavy effects stay responsive within wasm32's memory limit.
-
-**Acceptance criterion:** A 3-hour 96 kHz stereo file (~4 GB as float32) opens, edits and plays, with less than 1 GB of WASM heap resident.
-
-- [ ] Block paging: cold blocks are evicted to OPFS (browser) or a temp file (desktop) and faulted back in on demand. The peak pyramid always stays resident.
-- [ ] Waveform rendering in an `OffscreenCanvas` inside a dedicated render worker that reads peaks directly
-- [ ] Profile the kernel render path in the browser; SIMD where algo-dsp provides it (`GOARCH=wasm` SIMD status permitting)
-- [ ] Benchmark suite with a regression guard, in the style of algo-dsp's `benchguard`
-- [ ] Evaluate TinyGo for kernel size and speed (it is not a goal if the trade-offs are bad)
+| Phase | What exists | Guide | Originally |
+| --- | --- | --- | --- |
+| 0 Scaffolding | Bun/Go monorepo driven by `just`; mirrored protocol; Worker → SAB → copy-only AudioWorklet playback in browser and sandboxed Electron; CI, Pages and dependency-drift workflows. | [README](README.md#architecture) | 0 |
+| 1 Document model & playback | Immutable 65,536-frame blocks shared across snapshots, cached peak pyramids, WAV I/O, waveform zoom/scroll, source-position-tagged transport. | [README](README.md) | 1 |
+| 2 Selection & editing | Exact numeric/pointer/channel selection with snapping; cut/copy/paste/mix, crop, silence, duplicate, swap, mute; exact undo/redo/branching with save points; markers/regions with WAV cue round trip and CSV/label export; shared command registry, shortcuts and palette. | [README](README.md#editing-audio) | 2 |
+| 3 Processing & export | Cancellable private-candidate jobs with Preview/Apply and one undo entry: gain, peak/LUFS normalization, fades/crossfades, reverse, invert, DC removal, channel conversion/extraction, three-quality resampling, generators. WAV export (PCM8–32, float32/64) with seeded dither and noise shaping. | [README](README.md#processing-audio) | 3 |
+| 4 Effects | All 51 upstream effects with presets, bounded racks, convolution IRs, latency compensation; shared 128-frame preview/offline path; knob/EQ/dynamics editors; persisted presets. | [README](README.md#effects) | 4 |
+| 5 Analysis & metering | Allocation-free output meters (loudness, LRA, true peak, stereo/goniometer); selection/live spectra; progressive spectrogram tiles; statistics; resumable YIN pitch; clipping markers. | [README](README.md#analysis-and-metering) | 5 |
+| 6 Codecs & WAV metadata | Go WAV/FLAC/AIFF/MP3 import (gapless MP3); browser Vorbis/Opus/AAC decode; WAV/FLAC/AIFF export plus WebCodecs Opus/M4A; editable WAV INFO with BWF/opaque data retained. | [codecs](docs/codecs.md) | 6 |
+| 7 Editor clarity | Compact responsive shell, About diagnostics, sample-level waveform drawing (dots with linear/hold connections). | — | U |
+| 8 Restoration | Spectral rectangle/lasso attenuate/remove/heal, profile-based noise reduction, click/pop repair, declipping, WSOLA time stretch, hum notches. | [restoration](docs/restoration.md) | 8 |
+| 9 Desktop integration | Native menus/dialogs, scoped file capabilities, atomic writes, audio file associations, single instance, recent documents, window state, guarded close; three-OS packaging, guarded updater flow, signing-gated release workflow; generated app icons. | [desktop](docs/desktop.md) | 9 |
+| 10 Batch & automation | Version 1 operation chains, macro recording/replay, isolated per-file UI batches, native `aae` CLI; UI and CLI batch output is byte-identical. | [automation & MCP](docs/mcp.md) | 12 |
+| 11 Web deployment | CI-gated GitHub Pages deployment with scoped isolation worker, hashed assets, size budgets, live post-deploy/daily smoke. | [web deployment](docs/web-deployment.md) | 13 |
+| 12 MCP foundation | Official-SDK stdio `aae-mcp` with 18 tools, isolated sessions, summary/waveform PNG/binary peak resources, prompts, dry runs and write-root permissions; output matches the CLI and UI. | [automation & MCP](docs/mcp.md) | 14 |
+| 13 Review remediation | From the [2026-10-04 review](docs/REVIEW-2026-10-04.md): truthful CI with pinned actions, timeouts and native + js/wasm lint (R.1); kernel robustness, 3 GiB storage budget, fuzzing (R.2); MP3/PCM8/BS.1770 correctness (R.3); resampling/mixing moved upstream (R.4); registered method dispatch, typed names, strict decoding, bounded analysis, incremental history accounting, one-hour FLAC (R.5); frontend lifecycle races (R.6); module split, lazy chunks, optimized WASM and budgets (R.7); keyboard-accessible waveform and selection (R.8); Electron fuses, permission handlers and navigation guards (R.9); roadmap/evidence audit and process docs (R.10). | [benchmarks](docs/benchmarks/README.md) | R.1–R.10 |
+| 14 License inventory & notices | Go/npm/Electron inventory collectors, reviewed `docs/licenses/dependencies.json`, generated bundled third-party notices shown in About, `just check-licenses` freshness gate and `just check-license-policy` release gate; system fonts and MIT Heroicons replace OFL/ISC assets; isolated MIT FLAC evaluation and local remediation patches; Go math reach diagnostics. | [licenses](docs/licenses/README.md) | 23 (part) |
+| 15 Visual design | App-icon palette shared by DOM and canvas, adaptive waveform lanes, vertical waveform zoom (1×–64×), frequency rulers and spectrogram readouts, analysis dock, restyled dialogs and panels. | [visual design](docs/visual-design.md) | 24 (part) |
 
 ---
 
-## Phase 11: Multitrack
+## Open phases
 
-**Goal:** Arrange several sources on a timeline and mix them down, reusing the block model.
+Original phase numbers are noted per phase; dated reports in `docs/benchmarks/` and older docs use them.
 
-**Acceptance criterion:** A session of 16 stereo tracks, each with an effect chain, plays without underruns on a mid-range laptop, and its mixdown matches offline rendering sample for sample.
+### Phase 16: Processing & Playback Performance Acceptance
 
-- [ ] Session model: tracks → clips (each references a document range, plus gain, fades and an offset). Clip edits are non-destructive.
-- [ ] Timeline view: tracks, clip drag/trim/split, snapping, grid (time / bars and beats)
-- [ ] Mixer: gain, pan, mute, solo, meters, sends to buses; a per-track `effectchain`
-- [ ] Automation lanes (gain, pan, effect parameters) with breakpoint editing
-- [ ] Mixdown/bounce to a new waveform document or to a file
-- [ ] Open a clip in the waveform editor (a destructive edit makes a new document version)
+*Originally Phase 15.* **Acceptance:** processing a ten-minute stereo file takes <1 s for every process; spectrogram rendering of a ten-minute file never blocks playback or drops samples.
 
----
+- [ ] Pass the unchanged <1 s gate in `process-benchmark.spec.ts` (32 serial ten-minute operations including Apply, output verification, commit and painted waveforms; extraction includes transfer/import/paint) without Preview/prepared candidates or reduced quality. Last full sweep: 17 pass / 15 timing failures. [Sweeps and reproduction](docs/benchmarks/processing-2026-10-03.md).
+- [ ] Profile and explain the historical `spectrogram-playback.spec.ts` underruns (Phase 8 and its baseline failed; Phase 5 and R.5 passed), then rerun without relaxing timing or underrun limits. [Runs](docs/benchmarks/spectrogram-playback-2026-10-04-05.md).
 
-## Phase 15: Processing & Playback Performance Acceptance — OPEN
+### Phase 17: MP3 & FLAC Metadata
 
-**Source:** unfinished Phase 3.2 acceptance and the Phase 5/8 spectrogram playback discrepancy.
+*Originally Phase 16.* **Acceptance:** import/preserve MP3 ID3 and round-trip mapped FLAC Vorbis comments with matching metadata fields and unchanged audio/save-state behavior.
 
-**Goal:** Complete the everyday destructive-processing performance requirement without reducing quality, widening limits or skipping actual output verification.
+- [ ] MP3 ID3 import/preservation and FLAC Vorbis comment import/export mapping, with matching metadata editor fields. Create dedicated upstream repositories only if the existing tagged codecs are insufficient. Current limits are in [codecs](docs/codecs.md#wav-metadata).
 
-**Acceptance criterion:** Every process has a Go golden test against a reference vector; processing a ten-minute stereo file takes <1 s; long jobs show progress and cancel without document corruption. Spectrogram rendering of a ten-minute file progresses without blocking playback or dropping samples.
+### Phase 18: Projects, Autosave & Recent Files
 
-### Processing matrix
+*Originally Phase 17.* **Acceptance:** after a crash (killed tab or Electron process), the last autosave restores within 5 s of the edit.
 
-- [ ] **Full-editor performance acceptance:** `process-benchmark.spec.ts` covers 32 serial ten-minute operations/shapes/profiles, including Apply, actual output verification, commit and painted waveforms; extraction includes transfer/import/paint. Complete the unchanged <1 s gate without Preview/prepared candidates or reduced quality/taps; the last full sweep had 17 passes / 15 timing failures despite passing correctness assertions.
-- [x] Tagged upstream envelope/generator/resampler optimizations and exact finite-peak-certified LUFS scans preserve sample arithmetic, ownership, unsafe-input preflight and actual rounded-output measurement; native/race/WASM goldens pass. [Preserved sweeps, optimization details, isolated passes, host load and reproduction](docs/benchmarks/processing-2026-10-03.md) retain every reported metric and limit.
+- [ ] `.aaep` project: a zip-like container of document blocks, optional history, markers and view state.
+- [ ] OPFS-backed incremental autosave of dirty documents (only new blocks written) and crash recovery on startup.
+- [ ] Application-owned recent files (browser: OPFS handles; desktop: native paths). OS recent-document acknowledgement already exists.
+- [ ] `.aaep` desktop file association.
 
-### Spectrogram playback gate
+### Phase 19: Desktop Release & Installed Platform Acceptance
 
-- [ ] Reconcile the initially passing Phase 5 measurement with the later Phase 8/baseline failures, profile the cause and rerun `spectrogram-playback.spec.ts` without relaxing timing or underrun limits.
+*Originally Phases 19 and 21.* **Acceptance:** signed installers for Linux (AppImage + deb), Windows (NSIS) and macOS (dmg) build in CI; file associations open documents and auto-update works on all three. Credentials and platform limits: [desktop](docs/desktop.md#updates-and-publishing).
 
-**Evidence:** Phase 5 passed locally, Phase 8 and its unchanged baseline dropped samples, and the later R.5 bounded-analysis run passed locally. [Dated runs and original gate](docs/benchmarks/spectrogram-playback-2026-10-04-05.md) preserve that variance; a later pass does not close discrepancy profiling or broader processing acceptance.
+- [ ] Configure signing credentials and the Linux package signature policy; verify signed/notarized installers in CI and installation/file associations on all target OSes.
+- [ ] Verify a real installed old-version → new-version GitHub update on Linux, Windows and macOS (current tests stub the feed/installer).
+- [ ] Verify Windows/macOS installer icons and installed audio associations (Linux already passes).
+- [ ] Verify installed Windows/macOS packaged notices (`resources/licenses`) and typography.
+- [ ] Run the native CLI/batch acceptance on Windows and macOS (Linux, UI 100-file parity and Electron folder processing pass).
 
----
+### Phase 20: Hosting Cache & Browser Acceptance
 
-## Phase 16: MP3 & FLAC Metadata — OPEN
+*Originally Phase 20.* **Acceptance:** the public editor loads from a cold cache, reports `crossOriginIsolated === true`, imports a WAV, plays without underruns and exports it again, verified by live Playwright CI. Limits: [web deployment](docs/web-deployment.md).
 
-**Source:** Phase 6.3; WAV metadata implementation is complete.
+- [ ] Strict hosting cache policy: GitHub Pages controls CDN headers (observed `max-age=600`), so never-cached HTML/worker and long-term immutable caching are not achieved; stale CDN HTML can still reference removed assets. Requires a host with header control or an equivalent mitigation.
+- [ ] Firefox/Safari acceptance and native AAC encode acceptance (Chromium is the tested reference; Linux Chromium/Electron report AAC encoding unavailable).
 
-**Goal:** Open what users actually have while retaining editable codec metadata.
+### Phase 21: Restoration Listening Acceptance
 
-**Acceptance criterion:** Import/preserve MP3 ID3 and round-trip mapped FLAC Vorbis comments, with matching metadata fields and unchanged audio/save-state behavior.
+*Originally Phase 18.* **Acceptance:** spectral click repair is inaudible on the reference fixtures; noise reduction achieves ≥15 dB on the stationary-noise fixture without audible musical noise at default settings. Numerical criteria pass (22.65 dB; click residual < −80 dBFS).
 
-- [ ] MP3 ID3 import/preservation and FLAC Vorbis comment import/export mapping, followed by matching metadata editor fields. Dedicated upstream repositories are needed only if existing tagged codecs are insufficient.
+- [ ] Audition the reference fixtures for click inaudibility and musical noise at default settings. [Validation and limits](docs/restoration.md#validation-and-limits).
 
-**Existing evidence:** Independent RIFF-wire metadata fixtures and download/disk/reopen regressions preserve PCM and save state; [dated validation](docs/benchmarks/implementation-validation-2026-10-04-05.md#wav-metadata) covers the completed WAV increment, not pending MP3/FLAC mapping.
+### Phase 22: MCP Completion
 
-**Current limits:** WAV INFO, unknown INFO, BWF/opaque payloads and cue supplements are preserved; BWF fields are not edited and opaque references are not recalculated after audio edits. FLAC/AIFF export rejects included annotations/metadata until mapping exists; lossy export explains omission. Metadata is bounded to 2 MiB and editable text to 64 KiB. Dedicated repositories are needed only if existing tagged codecs are insufficient; see `docs/codecs.md`.
+*Originally Phase 22.* **Acceptance:** Claude Code or Claude Desktop connects, opens a WAV, queries statistics, applies a chain and exports; output is sample-identical to the UI and `aae`, and every mutation is undoable. [Current surface](docs/mcp.md).
 
----
+- [ ] Streamable HTTP transport (legacy SSE deferred).
+- [ ] Read tools: offline true peak and silence detection (needs kernel/upstream work).
+- [ ] Edit tools: cross-document extraction.
+- [ ] Write tools: dedicated `render_region` and browser-only codec exports.
+- [ ] Convolution IR loading for `apply_effect`.
+- [ ] Dry runs for structural edits and whole chains, plus general output-LUFS prediction.
+- [ ] Sensible numeric rounding and pagination of other long control results.
+- [ ] Interactive acceptance with real Claude Code/Desktop hosts.
+- [ ] *Optional:* evaluate exposing the desktop app's live session over MCP (Electron main hosts the server and forwards to the kernel worker), so an agent edits the document the user sees.
+- [ ] *Optional, if taken:* a visible indicator and per-session consent while an agent is attached; mutations land in the user's undo stack.
 
-## Phase 17: Projects, Autosave & Recent Files — OPEN
+### Phase 23: Visual Design Follow-up
 
-**Source:** Phase 6.4 and the Phase 9 project-association follow-up.
+*Originally Phase 24 open item.*
 
-**Goal:** Save projects safely and never lose work.
+- [ ] Continue visual review with user feedback: remaining populated/error/loading dialogs, combined dense multichannel/spectral/analysis states, complete small-screen focus/scroll access and contrast review at OS scaling settings. Installed Windows/macOS typography/scale is covered in Phase 19.
+- [ ] Decide the zoomed-out waveform redesign and sinc interpolation for sample view (outside original Phase U's scope).
 
-**Acceptance criterion:** After a crash (killed tab or Electron process), the last autosave restores within 5 s of the edit.
+### Phase 24: Recording
 
-- [ ] `.aaep` project = a zip-like container of document blocks, history (optional), markers and view state
-- [ ] OPFS-backed autosave of dirty documents (incremental: only new blocks are written) and crash recovery on startup
-- [ ] Recent files (browser: OPFS handles; desktop: native paths)
-- [ ] Add `.aaep` association after Phase 6.4 project support. Browser/project recent-file persistence also remains Phase 6.
+*Originally Phase 7.* **Acceptance:** a 30-minute 48 kHz stereo recording has no dropped frames and lines up with playback within the measured round-trip latency. The Electron microphone permission is already in place.
 
-**Dependency mapping:** “Phase 6.4 project support” in the retained task above means this phase. Desktop OS recent-document acknowledgement already exists; application-owned browser/project persistence does not.
+- [ ] Capture worklet: input → SAB ring (the reverse of playback) → kernel worker appends blocks.
+- [ ] Input device selection (`getUserMedia` with echo cancellation, noise suppression and AGC **off**).
+- [ ] Input meters, record-arm and monitoring toggle.
+- [ ] Record modes: new file, insert at cursor, replace selection (punch-in with pre-roll).
+- [ ] Latency measurement (loopback ping) and compensation.
 
----
+### Phase 25: Performance & Large Files
 
-## Phase 18: Restoration Listening Acceptance — OPEN
+*Originally Phase 10.* **Acceptance:** a 3-hour 96 kHz stereo file (~4 GB as float32) opens, edits and plays with less than 1 GB of WASM heap resident.
 
-**Source:** Phase 8 perceptual acceptance; implementation and numerical proxies are complete.
+- [ ] Block paging: cold blocks evicted to OPFS (browser) or a temp file (desktop) and faulted back on demand; the peak pyramid stays resident.
+- [ ] Waveform rendering in an `OffscreenCanvas` render worker reading peaks directly.
+- [ ] Profile the kernel render path in the browser; SIMD where algo-dsp provides it (`GOARCH=wasm` SIMD permitting).
+- [ ] Benchmark suite with a regression guard in the style of algo-dsp's `benchguard`.
+- [ ] Evaluate TinyGo for kernel size and speed (not a goal if the trade-offs are bad).
 
-**Goal:** Confirm the reference repairs sound acceptable at default settings.
+### Phase 26: Multitrack
 
-**Acceptance criterion:** Spectral repair of a click is inaudible on the reference fixtures, and noise reduction achieves ≥15 dB on the stationary-noise fixture without audible musical noise at default settings.
+*Originally Phase 11.* **Acceptance:** 16 stereo tracks, each with an effect chain, play without underruns on a mid-range laptop, and the mixdown matches offline rendering sample for sample.
 
-- [ ] **Perceptual acceptance:** audition the reference fixtures for click inaudibility and musical noise at default settings. Numerical criteria and artifact proxies pass; subjective listening is not claimed by automated tests.
+- [ ] Session model: tracks → clips (document range, gain, fades, offset); non-destructive clip edits.
+- [ ] Timeline view: tracks, clip drag/trim/split, snapping, time and bars/beats grid.
+- [ ] Mixer: gain, pan, mute, solo, meters, bus sends, per-track `effectchain`.
+- [ ] Automation lanes (gain, pan, effect parameters) with breakpoint editing.
+- [ ] Mixdown/bounce to a new waveform document or file.
+- [ ] Open a clip in the waveform editor (a destructive edit creates a new document version).
 
-**Existing validation:** Native/WASM numerical proxies and browser/Electron workflow regressions pass; [dated results and concurrent-run limits](docs/benchmarks/implementation-validation-2026-10-04-05.md#restoration) do not claim subjective listening acceptance.
+### Phase 27: License Policy Compliance
 
-**Playback timing:** Separate historical passes/failures and the later R.5 pass are retained in [spectrogram evidence](docs/benchmarks/spectrogram-playback-2026-10-04-05.md); reconciliation remains Phase 15.
+*Originally Phase 23 open items.* Policy confirmed by the user on 2026-10-05: **bundled code must be MIT/BSD/Apache only.** The strict gate `just check-license-policy` fails until this phase is done. Plans: [Go replacements](docs/licenses/go-replacements.md), [npm replacements](docs/licenses/npm-replacements.md), [Electron audit](docs/licenses/electron-audit.md).
 
-**Existing evidence:** Kernel/browser fixtures measure 22.65 dB default stationary-noise reduction after float32 storage, unchanged noise-profile audio and click residual below −80 dBFS. Upstream tests bound residual-power variation/isolated lines and wanted-tone loss as proxies. Default Wiener filtering uses a 2048-point FFT and 24 dB maximum reduction; repair supports ≤256 samples with intact two-sided context and leaves longer/edge damage unchanged. Workflows, controls, lineage and limits are in `docs/restoration.md` and upstream restoration documentation. Spectrogram timing is tracked independently in Phase 15.
+- [ ] Replace or prove exclusion of: FLAC Unlicense, Go's retained SunPro/Cephes wording, remaining updater ISC, Python-2.0 and BlueOak-1.0.0. Resolve missing runtime grants in tagged `algo-vecmath`, FLAC's inherited BSD text and `lazy-val 1.0.5`. `algo-approx` and 38 development grants remain documented evidence gaps (informational while not redistributed). An SPDX label does not substitute for a missing runtime license. [Go evidence](docs/licenses/go-audit.md), [npm evidence](docs/licenses/npm-audit.md).
+- [ ] **Go math:** complete symbol/source provenance across all seven targets (inlined code, constants, assembly inheritance, final optimized WASM attribution). Define numerical/allocation/performance contracts, implement required permitted transcendental functions upstream and replace callers through tagged releases. Recheck codec/standard-library reach and binary budgets; if SunPro/Cephes bodies remain, evaluate reproducible maintained toolchain replacements. [Requirements](docs/licenses/go-replacements.md#go-math-positive-linked-evidence-then-scoped-replacements), [reach report](docs/licenses/go-math-reach.md).
+- [ ] **MIT FLAC (`tphakala/go-flac`) adoption:** obtain maintainer review and an audited upstream tag with the [local remediation](docs/licenses/flac-remediation.md) fixes (count/rate/channel/depth/sequence checks independent of MD5, bounded/skip metadata parsing, caller-controlled scratch ceilings, 32-bit residual encoding). Then complete per-file/contributor provenance, linked SIMD/math reach review, IETF corpus, bounded atomic import/writer regressions, one-hour memory/performance, native/WASM/browser parity and binary budgets. The current Unlicense dependency stays until adoption passes.
+- [ ] Resolve the Electron/Chromium component license selections and platform reach recorded by `licenses-electron.mjs`.
 
----
+### Phase 28: CI Stability & Release Process
 
-## Phase 19: Desktop Release & Installed Platform Acceptance — OPEN
+*Originally R.1 / R.10 follow-ups.*
 
-**Source:** Phase 9 external release/installation acceptance; native integration and Linux package smoke are complete.
-
-**Goal:** The desktop build feels native and installs like a normal application.
-
-**Acceptance criterion:** Signed installers for Linux (AppImage + deb), Windows (NSIS) and macOS (dmg) build in CI. File associations open documents, and auto-update works on all three.
-
-- [ ] Configure signing credentials and Linux package signature policy; verify signed/notarized installers in CI and installation/file associations on all target OSes. No release has been published during implementation.
-- [ ] Verify an actual installed old-version-to-new-version GitHub update on Linux, Windows and macOS. Deterministic restart-flow tests do not establish installer/signature acceptance.
-
-**Existing validation:** Linux AppImage/deb builds and packaged smoke pass locally; [dated integration results](docs/benchmarks/implementation-validation-2026-10-04-05.md#desktop-integration) retain load-sensitive reruns. Implementation is complete for the stated Phase 9 scope; project persistence and signing/installed update acceptance remain Phases 17 and 19.
-
-- [ ] Verify Windows/macOS installer icons and installed audio associations; Linux icon regeneration, AppImage/deb builds and installed deb icon bytes already pass. `.aaep` association depends on Phase 17.
-
-**Implemented context:** `desktop-release.yml` uses tag-triggered three-OS builds, version injection, signing-credential checks and forced Windows/macOS signing; only a complete platform set publishes. Manual runs produce artifacts without publishing. Installer/update manifests, blockmaps and macOS updater zip are included. Local packaging never publishes. `updates.spec.ts` stubs the update feed/installer and proves guarded save-before-restart, not real installation or signature acceptance. `docs/desktop.md` records credentials and platform limits. No release has been published during implementation.
-
----
-
-## Phase 20: Hosting Cache & Browser Acceptance — OPEN
-
-**Source:** Phase 13 delivery-quality follow-up and documented browser/codec platform limits.
-
-**Goal:** A cold visitor can use the public editor reliably, with explicit platform and cache limits.
-
-**Acceptance criterion:** `https://cwbudde.github.io/algo-audio-editor/` loads from a cold cache, reports `crossOriginIsolated === true`, imports a local WAV, plays without underruns and exports it again; live Playwright CI verifies the deployed build. Existing Chromium smoke passes, while strict caching and additional platform acceptance below remain open.
-
-- [ ] Strict hosting cache policy remains pending: hashed JS/CSS/kernel/runtime URLs, no application CacheStorage, controlled navigation `no-store` and uncached worker updates are implemented and tested. GitHub controls first-response/CDN headers (observed `max-age=600`), so never-cached HTML/worker and long-term immutable caching are not claimed. Stale CDN HTML can still reference removed assets; limits are documented in `docs/web-deployment.md`.
-
-- [ ] Complete documented Firefox/Safari and native AAC acceptance. Chromium is the tested reference; `docs/web-deployment.md` documents feature requirements, blocked-isolation guidance and runtime codec checks. Linux Chromium/Electron report AAC encoding unavailable. The encoder-substitution test verifies actual M4A muxing/browser decoding against independent FFmpeg AAC packets and ADTS PCM, without claiming native AAC encode. AAC delay/padding is retained; Opus export requires 48 kHz (other rates need the Go Resample command), because Chromium low-rate raw headers report pre-skip in native units. The archived pinned MIT `mp4-muxer 5.2.2` and remaining platform limits are documented in `docs/codecs.md`.
-
-**Existing delivery evidence:** Scoped isolation-worker boot, uncached worker updates, matched hashed assets, controlled navigation and no app CacheStorage are tested. Cold WAV import/playback/exact-PCM Save passed on a fresh live retry; an earlier cold load exceeded readiness, so propagation/network failures remain visible with traces/retries. The live `37f1cbd` post-deploy smoke and build stamps passed; this does not establish strict CDN headers.
-
----
-
-## Phase 21: Batch & Automation Platform Acceptance — OPEN
-
-**Source:** Phase 12. Full implementation and acceptance context is retained below.
-
-- [ ] Run the native CLI/batch acceptance on Windows and macOS; Linux native, production UI 100-file parity and Electron folder processing already pass.
-
-**Goal:** Apply the same processing to many files, from the UI or headless.
-
-**Acceptance criterion:** A batch job (normalize to −16 LUFS, fade the edges, convert to 44.1 kHz/16-bit FLAC) processes 100 files from the UI and gives an identical result through the native CLI.
-
-- [x] Version 1 JSON operation chains (`internal/automation.Chain` / `Operation`, mirrored as TypeScript `OperationChain` / `RecordedOperation`) record the existing UI `edit.apply`, `process.start` and `effects.apply` payloads. Strict decoding rejects unknown fields/methods; the runner follows kernel identity changes, resolves omitted range fields from the current selection and reports a completed prefix on failure. Maximum 64 operations; cross-document extraction remains excluded.
-- [x] `BatchDialog` / `useBatch` add File → Batch processing with a multi-file list, imported/current macro chains (or empty conversion), portable suffix names, duplicate-name preflight, WAV/FLAC/AIFF encoding and per-file progress/errors. `batch-runner.ts` boots a fresh isolated WASM worker for each sequential input, follows structural document identities and terminates it on success/failure/cancellation, preserving the open editor document, clipboard and history. Failed files are skipped; cancellation retains already published outputs and finishes a save in progress. Browser folder handles or downloads deliver binary exports; Electron's renderer-scoped folder grants publish synced temporary files atomically without overwriting existing files. Inputs are bounded to 128 MiB; output dither is disabled. Unit tests cover naming/formats, runner isolation/cleanup, cancellation and destination behavior; `e2e/batch.spec.ts` covers the real production-worker UI and native-CLI parity.
-- [x] Native CLI (`packages/kernel/cmd/aae`, built alongside MCP by `just native-build`) imports through the Go codecs, runs recorded chains and exports WAV/FLAC/AIFF through the same engine. Repeated `--input` plus `--output-dir` adds sequential batches, suffix naming, destination collision/authorization preflight, fresh per-file engines, JSON result lines, failure isolation and `--fail-fast`. Explicit `--allow-write`, atomic publication and no overwrite without `--overwrite`; no file is exported after its chain fails. `batch_test.go` processes **100 files** through −16 LUFS normalization, both edge fades and 44.1 kHz/16-bit FLAC, comparing every encoded file with an independent sequence of the UI's kernel methods. Native Windows/macOS execution remains pending.
-- [x] File-menu macro recording captures successful `edit.apply`, `process.start` and `effects.apply` requests at existing hook commit points; previews/cancelled/failed jobs are excluded. `AutomationDialog` imports/exports bounded version 1 JSON and replays through `chain-runner.ts`, the shared document lock, bounded kernel jobs and normal undo history, with progress, cancellation and completed-prefix errors. Optional operation-level `range: "document"` adapts to current file geometry on native/MCP/UI runners; scoped steps retain sample coordinates. Recorded paste resolves the current clipboard version, including after a recorded copy/cut. Noise profiles, extraction and loaded convolution IRs stop recording visibly; imported editor macros also reject these session-bound operations. Macro JSON must be exported for persistence; Undo/Redo, timeline and metadata actions are excluded. Replay also publishes authoritative clipboard metadata to the editor, enabling Paste immediately after a macro copy. Unit and production browser regressions cover exact gain/reverse playback-independent output, preview reuse without duplicate recording, JSON export, clipboard replay, structural identities, cancellation/commit races, invalid imports, caps and undoable failures. Electron verifies native recording menus, JSON disk export through scoped file grants, replay and undo.
-
-**Existing validation:** Native/WASM, production UI and Electron integration checks cover the Linux implementation; [dated shared batch/inspection run](docs/benchmarks/implementation-validation-2026-10-04-05.md#batch-and-inspection-shared-validation) records its exact scope. Native Windows/macOS execution remains open.
-
-**UI batch evidence:** `batch.spec.ts` processes 100 distinct files with byte-identical native CLI outputs and covers continuation/cancellation/document preservation; [dated parity evidence](docs/benchmarks/implementation-validation-2026-10-04-05.md#ui-batch-parity) also records Linux Electron folder tests. Native Windows/macOS acceptance remains open.
-
----
-
-## Phase 22: MCP Completion (drive the editor from an LLM) — OPEN
-
-**Source:** Phase 14. Full tool, transport, safety and verification context is retained below.
-
-**Goal:** Expose the kernel's operation model over the Model Context Protocol, so an LLM agent can inspect and edit audio with the same `Operation` values the UI uses — "normalize this to −16 LUFS, trim the silence at both ends and export 44.1 kHz/16-bit FLAC" as tool calls, not as DSP written by the model.
-
-**Acceptance criterion:** An MCP client (Claude Code or Claude Desktop) connects to the server, opens a WAV, queries its statistics, applies a chain of operations, exports the result, and the output is sample-for-sample identical to running the same chain through the UI and through `cmd/aae`. Every mutating tool is undoable via the kernel's history.
-
-**Depends on:** Phase 3 (processing infrastructure), Phase 5 (analysis), Phase 12's `Operation` serialization and native CLI — the MCP server is a third front-end over the same engine, next to the web UI and the CLI.
-
-**First increment (2026-10-04):** `cmd/aae-mcp` and `internal/mcpserver` use the official Go MCP SDK v1.8.0 over stdio. Seventeen tools, independent kernel sessions, shared CLI chains, summary resources and workflow prompts are implemented; `[ ]` rows below retain their unfinished parts. See [setup, tool reference and limits](docs/mcp.md). No live desktop connection or HTTP listener is exposed.
-
-**Inspection increment (2026-10-04):** `inspection.go` adds `select_seconds` (eighteen tools total), current waveform PNG and binary peak resources plus bounded query templates, using existing kernel selection/peak methods. SDK client regressions cover rounding/clamping, invalid ranges/masks, multi-channel/viewport peak geometry, live reads after edits, unchanged history and resource removal on close. ABI 18 is unchanged; silence detection needs kernel/upstream work and remains pending.
-
-### Server
-
-- [ ] `cmd/aae-mcp` now links `internal/engine` through the shared `internal/automation` runner, with official SDK stdio negotiation/cancellation and stderr-only diagnostics. Native stdio subprocess acceptance passes. HTTP transport remains pending; legacy SSE is deferred in favor of evaluating Streamable HTTP.
-- [x] Up to eight path-opened documents have stable MCP routing IDs, separate kernel instances, selections, clipboards and undo histories. The adapter follows changing kernel publication IDs; close removes the document and its summary resource. Isolation/resource regressions in `internal/mcpserver/server_test.go`.
-- [x] `internal/mcpserver` maps tool schemas and routing IDs to protocol payloads; `internal/automation` steps/commits/cancels kernel jobs. No DSP or sample storage in either adapter; binary import/export stays outside control JSON. Native-only files are excluded from JS builds; ABI 18 unchanged.
-- [x] SDK tool schemas derive from Go input types; `list_operations` generates edit/process/effect parameter schemas directly from `internal/protocol`. Tests snapshot all 18 advertised input schemas, check ABI/version fields and dispatch recognition, and exercise the actual edit/process/effect/analysis/history paths.
-
-### Tool surface
-
-- [ ] **Read:** open/info/list, peak/RMS/DC/crest/clipped-sample statistics with available integrated LUFS, read-only clipping-region counts and bounded waveform/binary peak resources are implemented. Offline true peak and silence detection remain pending.
-- [ ] **Edit:** sample-frame/channel-mask `select_range`, nearest-frame/clamped `select_seconds`, recorded UI `apply_operation` / `apply_chain`, undo/redo and history are implemented. Selection changes do not add history entries; each audio-changing step uses kernel history and structural/processing failures report the completed prefix. Cross-document extraction remains pending; chain payloads use existing operation names (`crop`, `mute`, `remove-dc`, etc.).
-- [x] **Effects:** `list_effects` supplies paginated descriptors, parameters and presets with optional document-rate context; `apply_effect` and recorded `effects.apply` use private kernel jobs and commit one undo entry. Actual ringmod apply/dry-run/undo regression; convolution IR loading remains a separate follow-up.
-- [ ] **Write:** export/save support native WAV/FLAC/AIFF, bit depth, float, selection scope, dither/noise shaping/seed and explicit overwrite. Rate conversion uses a preceding kernel `resample` operation. Save marks history clean only after successful publication; failed/read-only exports are tested. Dedicated `render_region` and browser-only codec exports remain pending.
-- [x] **Resources:** current JSON summaries at `aae://documents/<id>/summary`, waveform PNG at `/waveform.png` and binary peaks at `/peaks` are removed on close, including their query templates. `inspection.go` draws min/max/RMS from kernel binary peaks without reading samples; resources reflect subsequent edits without mutating selection/history. Strict queries select channel/frame viewport, width/height or desired bucket count; dimensions, 32,768 PNG source records and the adapter's 16 MiB binary peak limit bound output. AAEP v1's 48-byte header preserves rate/channel/count/geometry before the unchanged peak buffer; no bulk JSON arrays. SDK client tests decode PNGs/header/peak records and compare them against the independent kernel response. See `docs/mcp.md` for dimensions and binary layout.
-- [x] **Prompts:** `mastering_check`, `podcast_cleanup`, `batch_convert` guide schema discovery, inspection and explicit output choices. Client protocol tests discover/get prompts; prompts do not automatically execute work.
-
-### Safety & ergonomics
-
-- [x] Filesystem writes are disabled by default. Repeatable `--allow-write` opens existing roots through traversal-resistant `os.Root`; temporary/synced publication refuses existing files unless explicitly overwritten. Regression covers path escape, symlink escape, original preservation, explicit overwrite and temporary cleanup. Input paths use OS read permissions; in-memory edits remain enabled.
-- [ ] Processing/effect dry runs evaluate the real private candidate and cancel it, preserving history; return geometry/peak and available normalization loudness fields. Structural edits, whole-chain dry runs and general output-LUFS prediction remain pending.
-- [ ] Compact operation/chain results omit repeated annotation/history lists; documents are bounded to eight and effects paginate (default 10, maximum 20). Bulk audio/peaks never enter JSON arrays. Sensible numeric rounding and additional long-control-result pagination remain pending.
-- [x] Tool errors preserve wrapped kernel messages plus inspection/retry guidance; unknown identities/methods/fields and unauthorized writes provide specific corrections. Partial-chain errors carry failed index, completed count/results and undo guidance. SDK validation errors remain standard MCP tool errors.
-
-### Optional: the running editor as an MCP endpoint
-
-- [ ] Evaluate exposing the *desktop app's* live session over MCP (Electron main process hosting the stdio/HTTP server, forwarding to the kernel worker), so an agent can edit the document the user is looking at, with the UI updating live
-- [ ] If taken: a visible indicator and a per-session consent prompt while an agent is attached, and mutations land in the same undo stack as the user's
-
-### Tests & docs
-
-- [x] `internal/mcpserver/server_test.go` drives SDK client/server messages and a native stdio child: golden input schemas, open/statistics/gain+reverse/export, resources/prompts/descriptors, dry-run/effect/undo, session isolation, partial failures and save points. `internal/automation/files_test.go` covers file permissions, strict chains, bounds and cancellation/retry.
-- [x] A gain/reverse chain via MCP, the `cmd/aae` runner and an independently driven UI protocol sequence produces byte-identical float WAV output; binary PCM is checked against Phase 3.2's reviewed IEEE-754 half-gain vectors. Interactive browser/Claude-host acceptance remains pending; this test verifies the shared operation path.
-- [x] `docs/mcp.md` documents native build, official-source Claude Code/Desktop configuration examples, all tools, JSON chains/CLI, write permissions, cancellation/partial commits, resources/prompts and unfinished surface. README/AGENTS link the new native command. Actual interactive Claude configuration has not been tested.
-
-**First-increment evidence:** SDK/stdio/native parity and a compiled MCP→CLI normalization/resample/FLAC chain pass; [dated validation and exact output checksum](docs/benchmarks/implementation-validation-2026-10-04-05.md#mcp-first-increment) retain the distinction from interactive host acceptance.
-
-**Inspection evidence:** SDK client tests verify bounded/current PNG and binary resources, physical channels, seconds selection and 18 golden schemas; [dated validation](docs/benchmarks/implementation-validation-2026-10-04-05.md#mcp-inspection) leaves Claude hosts, HTTP/live transport and pending tool surface open.
-
----
-
-## Phase 23: Dependency Licenses & Third-Party Notices — PARTIAL (2026-10-06)
-
-**Source:** Phase S release prerequisite.
-
-- [x] `scripts/licenses-go.mjs` and `licenses-npm.mjs` audit the exact Go graph/toolchain and every external Bun lockfile identity: currently 742 entries, conservatively classified as 61 runtime and 681 development after font/icon replacement. `docs/licenses/dependencies.json` retains license/copyright texts, digests, scopes and inspected sources, including verified archives for uninstalled npm platform packages. Go collection covers pure-Go native CLI/MCP on six OS/architecture combinations plus js/wasm, without changing dependency inputs. `licenses-electron.mjs` separately records 779 installed Linux x64 Chromium notice sections with artifact/component digests; actual license selections/platform reach remain unresolved and block release. [Audit scope and findings](docs/licenses/README.md) retain missing grants, default-cgo and classification limits.
-- [x] `generate-licenses.mjs` produces the bundled `third-party-notices.txt`; About / Status loads it on demand with retry, cancellation and bounded text. Electron packages the same web asset and explicitly retains original Electron/Chromium notices under `resources/licenses`, including macOS where Electron Builder removes archive-root copies. Collector/policy, component, production browser/Pages and Linux packaged regressions cover identity/freshness, retained text, modal behavior, subpaths and actual resource bytes. Windows/macOS installed acceptance remains Phase 19.
-- [x] `just check-licenses`, the local check/CI recipes and web lint CI verify reviewed dependency/collector/policy input hashes, exact Bun identity completeness, declared Go requirements/toolchain, text digests and generated notice bytes. Tagged desktop builds additionally run `just check-license-policy` before version injection/packaging. The lightweight check does not rerun source collection or establish license approval; the strict gate rejects unresolved findings.
-- [x] Remove redistributed Geist/OFL font assets and Lucide/ISC artwork: `index.css` uses local system UI fonts, `src/lib/icons.ts` supplies exactly pinned MIT Heroicons 2.2.0, and TS/Vite/Vitest resolve unchanged generated shadcn imports through the seven-export `shadcn-icons.ts` facade. Icon regressions guard generated compatibility, dependency/source exclusions, currentColor sizing and refs; production builds reject resolved removed-package modules. Bun 1.4.2 removes both former dependencies without other version changes; regenerated notices retain Heroicons' full grant. `ui-clarity.spec.ts` covers system fonts without requests/font faces and Full HD/narrow controls; installed Windows/macOS typography remains open.
-- [x] Initial isolated MIT FLAC feasibility: `just evaluate-flac`, `scripts/flac-evaluation.mjs` and `license-probes/flac-probe.go` pin/verify `tphakala/go-flac v1.1.0` outside product modules, compile all seven targets and compare 17 malformed-input behaviors under native/Node WASM. Independent libFLAC comparisons pass 480/512; 32 advertised 32-bit encode cases fail, also confirmed by FFmpeg. Current 8/16/24-bit export shapes pass this limited matrix. [Report and retained JSON](docs/licenses/flac-evaluation.md) record root-grant hashes, selected graph and limits. No product codec dependency or upstream grant/tag was changed.
-- [x] Local upstream FLAC remediation: the hash-pinned `license-probes/flac-remediation` patch fixes independent count/MD5 and fixed-format/sequence/block validation, incremental bounded/skip metadata parsing, retained decoder scratch preflight and legal wide encoder predictor residuals. `just evaluate-flac-remediated` verifies the original archive and 13 resulting sources outside product modules, tests ten upstream packages under native/Node WASM, compares 19 probe outcomes and passes 512/512 independent PCM cases plus 128 extra native encoder cases. Native race, three fuzz smokes and 22 offline evaluator guards pass; [retained before/after evidence and limits](docs/benchmarks/flac-remediation-2026-10-06.md) include corpus/subprocess skips and allocation measurements. No upstream publication/tag or product adoption occurred.
-- [x] Go math reach diagnostics: `just evaluate-go-math-reach`, `go-math-reach-analysis.mjs` and the isolated AST/assembly source mapper build native CLI/MCP on six targets plus js/wasm with the pinned toolchain. Actual `go list` selections, source/module/input hashes and strict first-retention paths preserve file notices and unresolved mappings. All 13 builds, 37 offline regressions and five Go notice cases pass; `check-licenses` runs the offline suite. Raw WASM names match executable non-custom bytes; differing optimized companion bytes cause names to be withheld. [Retained report and validation](docs/benchmarks/go-math-reach-2026-10-06.md) establish positive reach, not license clearance; product code/dependencies are unchanged.
-- [ ] Complete Go math symbol/source provenance across all seven targets, including inlined code, constants, assembly inheritance and final optimized WASM attribution. Define exact numerical/allocation/performance contracts, implement required permitted transcendental functions upstream and replace actual callers through tagged releases. Recheck transitive codec/standard-library reach and binary budgets; if required SunPro/Cephes bodies remain, evaluate reproducible maintained toolchain replacements. First-retention parents are not a full call graph, and absent names/file notices do not prove exclusion. [The retained implementation requirements](docs/licenses/go-replacements.md#go-math-positive-linked-evidence-then-scoped-replacements) remain open; no compatible substitute or policy exception is established.
-- [ ] Before adopting the MIT FLAC candidate, obtain maintainer review and an audited upstream tag containing the retained stream/frame count/rate/channel/depth/sequence checks independently of MD5, bounded/skip metadata parsing, caller-controlled scratch ceilings and independently verified 32-bit residual encoding fixes. Complete per-file/contributor provenance and actual linked SIMD/math reach review, IETF corpus, bounded atomic import/writer regressions, one-hour memory/performance, native/WASM/browser parity and binary budgets; seven-target compilation and a small one-rate matrix do not satisfy these gates. The current Unlicense dependency stays until adoption passes.
-- [ ] Before the first public release, satisfy the retained **MIT/BSD/Apache-only bundled-code policy**, confirmed by the user on 2026-10-05: replace or prove exclusion of FLAC Unlicense, Go's retained SunPro/Cephes wording, remaining updater ISC, Python-2.0 and BlueOak-1.0.0. Resolve missing runtime grants in tagged `algo-vecmath`, FLAC's inherited BSD text and `lazy-val 1.0.5`. `algo-approx` and 38 development grants remain documented evidence gaps, informational while not redistributed. An SPDX label does not substitute for a missing runtime license. No upstream license was changed and no exception was approved. [Go evidence](docs/licenses/go-audit.md) and [npm evidence](docs/licenses/npm-audit.md) list exact versions and limits; the strict release gate remains failing until runtime replacements/evidence fixes are complete.
-- [x] [Go replacements](docs/licenses/go-replacements.md), [npm replacements](docs/licenses/npm-replacements.md) and [Electron binary remediation](docs/licenses/electron-audit.md) retain the confirmed policy and concrete implementation/verification work: evaluate tagged MIT `tphakala/go-flac v1.1.0`; repair verified algo-* grants upstream before new tags; map/replace linked SunPro/Cephes math; remove redistributed fonts, adopt MIT icons and replace/exclude the updater closure; prove Electron component choices/reach before any runtime/shell replacement. No drop-in codec/updater/toolchain compatibility or runtime policy compliance is claimed.
-
-**Validation:** [Initial audit checks](docs/benchmarks/licenses-2026-10-05.md) retain the original inventory/notices evidence. [Font/icon replacement checks](docs/benchmarks/license-replacements-2026-10-06.md) record 20 collector/policy tests, 1,122 web / 144 desktop tests, five isolated build-guard probes, 14 production browser cases and actual Linux packaged notices. The initial FLAC probe retains stock-candidate failures; [local remediation validation](docs/benchmarks/flac-remediation-2026-10-06.md) records 22 offline guards, seven builds, ten-package native/WASM suites with skips, native race/fuzz and 512/512 plus 128 native reference comparisons. Local patches do not establish an upstream release or adoption. [Go math validation](docs/benchmarks/go-math-reach-2026-10-06.md) records 13 builds, 37 offline tests and verified raw names while retaining the optimized attribution gap. The strict gate retains 12 runtime findings, including overlap and the unresolved Electron binary audit. Full CI, live deployment, signed/installed platforms and codec adoption compatibility were not established.
-
----
-
-## Phase 24: Visual Design & Waveform Workspace — PARTIAL (2026-10-06)
-
-**Source:** user-requested visual revision, beyond the previous roadmap. Use the supplied `assets/appicon.png` as the available color reference: midnight blue surfaces, violet/magenta accents and warm amber waveform highlights. The Ubuntu wallpaper has not been supplied. [Edison's workspace](https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/plugins/Edison.htm) informs compact tool grouping and emphasis on the sample editor; use original components and existing licensed assets.
-
-- [x] `index.css` and `editor-theme.ts` share navy surfaces, violet interactions, amber peaks/tonal RMS and a warm playhead across DOM/canvas. `waveform-drawing.ts` adds quiet amplitude guides and replaces the competing RMS contour with exact bucket fills. Theme contrast/drawing regressions and actual DPR 1/2 browser pixels retain signed sample geometry, bucket extents, missing data and source/history identity.
-- [x] `waveform/lane-layout.ts` and `WaveformView` divide measured available height between mono/stereo or split-view panels, with 96–1024 px bounds and dense-channel scrolling. `PeakCanvas` includes height in paint/resize guards. `ui-clarity.spec.ts` verifies Full HD lane space, footer/overview visibility, narrow width and height-only repaint without peak refetch; existing wheel/keyboard/selection/overview regressions pass.
-- [x] `AppLayout`, transport/status/selection bars, rulers/channel headers and the empty state provide an inset workspace, supplied icon, grouped compact controls, a monospaced playback clock and quiet labeled numeric fields. The existing 160 px ruler-position guard and long-name/narrow controls pass; command routes and disclosure focus remain unchanged.
-- [x] Effects, EQ/dynamics, processing, analysis and export components use shared studio surfaces, compact sections, numeric readouts and consistent actions. The eight-band EQ remains below the existing 1000 px Full HD height limit without scrolling; browser regressions retain right-click/keyboard types, draggable bands, editable unit knobs, Preview/Apply/Cancel and unchanged source until commit.
-- [x] Automation/batch, metadata, history, About/Status and command palette receive individual layout/field/action grouping and viewport bounds. Meter/spectrum panels wrap controls, bound scrolling and use semantic plot colors; the goniometer resolves the same palette at device pixel ratio. Component/browser tests cover loaded, empty and failure behavior; production screenshot review covers the workspace and seven dialogs. This is an initial design pass, not exhaustive visual acceptance of every state.
-- [x] [Retained screenshots and validation](docs/benchmarks/visual-design-2026-10-06.md) record 1126 web tests, 83 production browser cases and 10 Linux Electron cases, plus lint/typecheck, build/budget, formatting and inventory freshness. The README demo image now shows this design. No kernel/DSP, ABI, dependency, generated shadcn or policy changes occurred.
-- [x] `AppLayout` groups spectrum/meters in an analysis dock capped at 36% of viewport height: side by side from 1280 px, vertically scrollable below that. Container-sized meter grids provide labeled peak/RMS/hold/true-peak cells, loudness and stereo image; `SpectrumPanel` measures its SVG width for a full-width logarithmic frequency/dB plot with physical-channel color/dash legends. Resize preserves existing analysis results without restarting the job; component and production-browser guards verify scales, resize, real readings and source/history identity.
-- [x] `TimelinePanel`, clipboard conversion, processing fields, menu popups and disclosure states share the studio treatment. Annotation names wrap, editing fields/actions stay bounded, and document names wrap in processing/export. `visual-dialogs.spec.ts` checks actual long-name annotation edits, populated metadata, processed-output warnings and cancellation at 480/960×600; a 320 px check verifies unclipped menu labels and meter numbers. The existing clipboard regression now checks narrow dialog bounds and still verifies exact conversion/cancel output.
-- [x] `visual-workspace.spec.ts` covers 6/8-channel scrolling and last-channel keyboard access, split-view geometry/rectangle tools, plus desktop/narrow/short combined analysis settings/reset/close access. [The follow-up validation report](docs/benchmarks/visual-density-2026-10-06.md) retains actual production screenshots and records the local checks and their limits.
-- [x] User color feedback prompted a closer app-icon palette: ink/ultramarine surfaces, orchid interactions and bright gold peaks with tonal gold RMS. Central hover/control/trace/EQ-band roles align DOM, waveform, spectrum/pitch, meters, goniometer and effects. Native input accents and selected Loop/channel controls use the interaction role. Theme and production computed-style regressions cover representative text, focus, field, knob and trace contrast plus unchanged source/history; [the palette follow-up](docs/benchmarks/visual-palette-2026-10-06.md) retains production captures and validation limits.
-- [x] User-requested vertical waveform zoom: `WaveformView`, `AmplitudeRuler`, `PeakCanvas` and drawing/geometry helpers magnify around zero from 1× to 64× without fetching new summaries or altering audio. View settings, ruler wheel, +/−/arrows, Home/End and double-click provide accessible zoom/reset; channel headers show active magnification and linear/dB rulers retain actual source levels. New document/client resets the display. Unit and DPR 1/2 production pixel checks cover signed samples, peak/RMS extents, saturated edges, unchanged overview/spectral pixels and exact source/history/selection identity.
-- [x] `FrequencyRuler` adds adaptive linear Nyquist-to-DC scales to spectrogram-only and split views; split amplitude/frequency gutters share their actual image heights. `SpectrogramCanvas` shows pointer time/frequency coordinates and moves progress, paused/empty states, dBFS range and wrapping errors into a footer below the image. Lane allocation reserves footer space; spectral selection, time handles and playheads stay bounded to images. A minimum visible lane area and measured controls keep small-screen images/footers scrollable; active spectral controls retain enabled accessibility semantics. Component and actual DPR 1/2 browser regressions cover uncommon sample rates, horizontal zoom, narrow multichannel rectangles, footer access and unchanged spectral pixels/source/history/PCM; [retained checks and captures](docs/benchmarks/spectrogram-readout-2026-10-06.md) describe the local scope.
-- [ ] Continue visual review with user feedback and remaining populated/error/loading dialogs, combined dense multichannel/spectral/analysis states, and installed Windows/macOS typography/scale acceptance. Representative 6/8-channel, split stereo, combined analysis, spectral scales/readouts and short-dialog cases now pass; complete small-screen focus/scroll access and contrast review at OS scaling settings remains open. Local Linux/browser checks do not establish these broader acceptance gates.
-
----
-
-## Phase R: Review Remediation (2026-10-04)
-
-**Source:** the full-repo review in [docs/REVIEW-2026-10-04.md](docs/REVIEW-2026-10-04.md) (overall 5.5/10, CI/CD 2/10). Findings, severities and `file:line` evidence live there; each item here is one actionable line. Keep the review IDs stable. R.1 established working CI, but its remaining lint/flake tasks stay open; R.10 documentation is audited below; release/process follow-up remains open. Completed R.2–R.9 are summarized above.
-
-### R.1 Make CI truthful (critical) — PARTIAL
-
-- [x] Playwright install/real browser+Electron+packaged CI, green-main gates for Pages/releases, full-depth tag checks, actual V8/WASM CI, opt-in hardware timing, format/lint/type hooks and fail-closed dependency guards are implemented. PR #1 / `b1531cf` established the first green real CI run; reusable timed workflows followed in PR #2. Pitch bridge batching and MP3 panic recovery have regressions.
-- [x] Electron relaunch-bounds regression now waits for applied geometry and the app's own persistence flush; 30/30 loaded Xvfb repeats pass.
-
-- [x] `.golangci.yml` restores revive's default rules and enables errorlint/gosec. `just lint-go`, staged-Go hooks and `test-lint.yml` lint both native and `GOOS=js GOARCH=wasm` packages, including `cmd/kernel`. Exported API documentation, wrapped-EOF handling and explicit codec/metadata conversion bounds satisfy the checks; exceptions identify validated wire/PCM widths, required FLAC MD5 and seeded audio/test RNGs. The protocol shape remains ABI 18.
-- [x] All 31 external action references in workflows/shared setup use verified commit SHAs with release comments; golangci-lint's binary is pinned to `v2.12.2`. All 16 runnable jobs have timeouts, including release builds/publication and dependency drift. Shared setup caches Bun downloads and version-keyed Playwright Chromium while always running frozen installation and Chromium/system dependency installation. Release/Pages publication gates remain in force. [R.1 validation](docs/benchmarks/r1-ci-2026-10-05.md) distinguishes local verification from hosted execution. Historical PR #2's split into nine parallel jobs measured 6m52s versus 9m11s; no cache speedup is claimed for these new changes.
-
-- [ ] Pre-existing flake: `internal/effects/stream_test.go` (`AllocsPerRun`, "prepared auto-wah render+reset allocate 1") failed in 1 of 6 local `-race` runs. Find the stray allocation or make the measurement robust before it reddens CI. On 2026-10-05, 30 isolated auto-wah and 20 full 51-effect catalogue race repetitions passed unchanged; process-global allocation counters are a possible source of interference, not a confirmed cause. [Reproduction evidence](docs/benchmarks/r1-ci-2026-10-05.md#allocation-flake) retains this as open.
-
-- [x] Browser CI run `37239688144` regressions (2026-10-05): `edits.spec.ts` now constructs shared silence exceeding the unified 3 GiB storage budget and checks the engine's memory-budget error; `export.spec.ts` checks centered PCM8 bytes from `wav v0.1.4`. `useProcess.open` captures the launcher before the document lock disables it and the lazy dialog loads; `finish` releases that lock before closing, and `ProcessDialog` restores focus after React's unmount commit. Preview stays in the processing phase until playback startup settles, preventing an enabled Apply click from being discarded while a preview is still pending. Unit regressions cover delayed playback, delayed lock release and conditional-unmount focus. [Dated local follow-up validation](docs/benchmarks/implementation-validation-2026-10-04-05.md#browser-ci-regression-follow-up) records the actual scope and counts.
-
-- [ ] Investigate the historical short-file EOF/device-clock snapshot concern from Phase 3.3: one parallel run reported frame 13 instead of 31, while the initial parallel/final serial 101-case sweeps passed. [Preserved diagnostics](docs/benchmarks/implementation-validation-2026-10-04-05.md#short-file-eof-snapshot) retain the unconfirmed cause and cleaned trace. On 2026-10-05, 30 unchanged and 30 instrumented six-worker repetitions passed; `transport.spec.ts` now attaches passive DOM/output-clock/shared-counter diagnostics with consumer-snapshot coherence. The exact 31-frame, zero-underrun and replay assertions and product cursor behavior are unchanged. [Current reproduction evidence](docs/benchmarks/r1-ci-2026-10-05.md#short-file-eof-flake) leaves the cause open.
-
----
-
-### R.10 Docs and process — PARTIAL (2026-10-05)
-
-- [x] Audited PLAN claims against source/history: first real browser/Electron CI followed `b1531cf`, current Go/TypeScript ABI is 18, U.5's v10 is historical, and implementation summaries do not waive follow-up acceptance. [Evidence audit](docs/benchmarks/README.md#roadmap-claim-audit) distinguishes local checks, CI, dated counts and the still-open spectrogram discrepancy.
-- [x] Moved full processing sweeps, spectrogram pass/fail narratives and dated validation reports into [docs/benchmarks](docs/benchmarks/README.md), retaining metrics, baselines, host load and unchanged acceptance limits. PLAN now links outcomes and regression coverage; every unfinished feature/acceptance requirement remains explicit.
-- [x] Updated AGENTS.md's kernel/web/native/docs layout and current command/architecture guidance; CHANGELOG.md's Unreleased section now covers implemented editor, codec, automation and R.2–R.9 changes with platform/security limits.
-- [x] README already includes the CI badge and editor screenshot; `pages.yml` and `desktop-release.yml` gate publication on successful CI for the chosen commit. The [release/process guide](docs/releasing.md) records reviewable conventional commits with bodies and the user-authorized direct-main exception.
-- [ ] Configure required successful CI checks for contributions where applicable, preserving the authorized direct-main workflow; the 2026-10-05 branch protection API reported `Branch not protected`. Agree the `v0.1.0` development-release scope with unfinished metadata/persistence (Phases 16–17) explicit; complete the [signing/platform and license prerequisites](docs/releasing.md#first-release) (Phases 19 and 23), dependency checks and CI for the release commit before tagging. The first tag also establishes a baseline for `check-unreleased`.
-
----
-
-## Phase S: Quality, Testing, Build & Deployment (cross-cutting)
-
-### Testing strategy
-
-- **Kernel (Go):** table-driven unit tests; golden vectors for every process and effect (generated once, reviewed, checked in); property tests for the block model; fuzzing for every decoder (`go test -fuzz` smoke job in CI, as Agogo-Web does for PSD)
-- **Coverage targets:** ≥ 90 % for `internal/audiobuf` and the processing packages; ≥ 80 % for the kernel overall
-- **Frontend:** Vitest for logic (ring buffer, RPC, command registry, coordinate mapping); React Testing Library for complex components
-- **End-to-end:** Playwright for browser and Electron. Audio-correctness e2e: render through an `OfflineAudioContext`-driven harness and compare with the kernel's offline render.
-- **Performance:** kernel benchmarks with tracked allocs/op; e2e timing budgets for open, edit and peak requests
-
-### Build & release
-
-- Versioning: SemVer `v0.x` until the waveform editor (Phases 1–6 plus remaining metadata/persistence in Phases 16–17) is complete; the CHANGELOG uses the Keep a Changelog format
-- An application, not a library: `gorelease` API checks do not apply, but the family's dependency rules do. `just check-deps` must be green before a release, and a deliberately deferred sibling bump is recorded here.
-- Upstream algo-dsp work flows up the dependency graph: implement in algo-dsp → tag via `just tag-release` there → bump here. Never pin a pseudo-version.
-
-### Deployment & security headers
-
-- GitHub Pages via `pages.yml` with `VITE_BASE=/<repo>/`; COOP/COEP via `coi-serviceworker.js` (publishing and its verification: Phase 13)
-- Electron: COOP/COEP/CSP from the `app://` handler; `contextIsolation`, `sandbox`, no `nodeIntegration`; navigation locked to the app
-
-**License audit:** first-public-release prerequisite moved intact to Phase 23.
+- [ ] **Allocation flake:** `internal/effects/stream_test.go` (`AllocsPerRun`, "prepared auto-wah render+reset allocate 1") failed in 1 of 6 local `-race` runs. Find the stray allocation or make the measurement robust before it reddens CI. Later isolated and full-catalogue repetitions passed; process-global allocation counters are a suspected, unconfirmed source. [Evidence](docs/benchmarks/r1-ci-2026-10-05.md#allocation-flake).
+- [ ] **Short-file EOF snapshot flake:** one parallel `transport.spec.ts` run reported frame 13 instead of 31. Repetitions with passive DOM/output-clock/shared-counter diagnostics pass; the cause is open. Keep the exact 31-frame, zero-underrun and replay assertions. [Evidence](docs/benchmarks/r1-ci-2026-10-05.md#short-file-eof-flake).
+- [ ] Configure required successful CI checks for contributions where applicable, preserving the authorized direct-main workflow (the branch protection API currently reports `Branch not protected`).
+- [ ] Agree the `v0.1.0` development-release scope with unfinished metadata/persistence (Phases 17–18) explicit; complete the [first-release prerequisites](docs/releasing.md#first-release) (Phases 19 and 27), dependency checks and CI for the release commit before tagging. The first tag also establishes the `check-unreleased` baseline.
 
 ---
 

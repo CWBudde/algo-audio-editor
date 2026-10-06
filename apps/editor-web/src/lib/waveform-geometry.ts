@@ -112,13 +112,12 @@ function niceInterval(target: number): number {
   return (fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10) * power;
 }
 
-/** Tick positions use frame coordinates throughout, including very long files. */
-export function generateTimeTicks(
+function timeTickStep(
   range: FrameRange,
   width: number,
   sampleRate: number,
-  format: TimeFormat = "seconds",
-): TimeTick[] {
+  format: TimeFormat,
+): number {
   if (
     !Number.isFinite(range.start) ||
     !Number.isFinite(range.end) ||
@@ -126,7 +125,7 @@ export function generateTimeTicks(
     !Number.isFinite(width) ||
     width <= 0
   ) {
-    return [];
+    return 0;
   }
   const rate = Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : 1;
   const desired = Math.min(200, Math.max(1, Math.floor(width / (format === "hms" ? 130 : 90))));
@@ -143,12 +142,55 @@ export function generateTimeTicks(
     }
     step = Math.max(1, Math.round(seconds * rate));
   }
+  return step;
+}
+
+/** Tick positions use frame coordinates throughout, including very long files. */
+export function generateTimeTicks(
+  range: FrameRange,
+  width: number,
+  sampleRate: number,
+  format: TimeFormat = "seconds",
+): TimeTick[] {
+  const step = timeTickStep(range, width, sampleRate, format);
+  if (!step) return [];
+  const rate = Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : 1;
   const first = Math.ceil(range.start / step) * step;
   const ticks: TimeTick[] = [];
   for (let index = 0; index <= 200; index++) {
     const frame = first + index * step;
     if (frame > range.end) break;
     ticks.push({ frame, x: frameToX(frame, range, width), label: formatTime(frame, rate, format) });
+  }
+  return ticks;
+}
+
+/** Unlabeled ruler subdivisions; the labeled grid remains the snapping grid. */
+export function generateTimeSubTicks(
+  range: FrameRange,
+  width: number,
+  sampleRate: number,
+  format: TimeFormat = "seconds",
+): { frame: number; x: number; kind: "minor" | "medium" }[] {
+  const majorStep = timeTickStep(range, width, sampleRate, format);
+  if (!majorStep) return [];
+  const majorPixels = (majorStep / (range.end - range.start)) * width;
+  // Keep marks at least eight CSS pixels apart and on whole sample boundaries.
+  const divisions = [10, 5, 2].find((count) => majorStep % count === 0 && majorPixels / count >= 8);
+  if (!divisions) return [];
+  const step = majorStep / divisions;
+  const first = Math.ceil(range.start / step);
+  const ticks: ReturnType<typeof generateTimeSubTicks> = [];
+  for (let index = 0; index <= 2_000; index++) {
+    const ordinal = first + index;
+    const frame = ordinal * step;
+    if (frame > range.end) break;
+    if (ordinal % divisions === 0) continue;
+    ticks.push({
+      frame,
+      x: frameToX(frame, range, width),
+      kind: divisions % 2 === 0 && ordinal % divisions === divisions / 2 ? "medium" : "minor",
+    });
   }
   return ticks;
 }

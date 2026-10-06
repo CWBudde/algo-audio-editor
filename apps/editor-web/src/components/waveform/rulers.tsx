@@ -1,22 +1,54 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
 import {
   clampVerticalZoom,
+  type FrameRange,
   type generateAmplitudeTicks,
+  generateTimeSubTicks,
   type generateTimeTicks,
+  type TimeFormat,
 } from "@/lib/waveform-geometry";
 
-export function TimeRuler({ ticks: timeTicks }: { ticks: ReturnType<typeof generateTimeTicks> }) {
+export function TimeRuler({
+  ticks: timeTicks,
+  range,
+  width,
+  sampleRate,
+  format,
+}: {
+  ticks: ReturnType<typeof generateTimeTicks>;
+  range: FrameRange;
+  width: number;
+  sampleRate: number;
+  format: TimeFormat;
+}) {
+  const subTicks = generateTimeSubTicks(range, width, sampleRate, format);
   return (
     <>
+      {subTicks.map((tick) => (
+        <span
+          key={tick.frame}
+          aria-hidden="true"
+          data-time-tick={tick.kind}
+          className={`absolute bottom-0 border-l border-muted-foreground/60 ${tick.kind === "medium" ? "h-2" : "h-1"}`}
+          style={{ left: tick.x }}
+        />
+      ))}
       {timeTicks.map((tick) => (
         <span
           key={tick.frame}
-          className="waveform-time-tick absolute top-0 h-full border-l border-border"
+          data-time-tick="major"
+          className="waveform-time-tick absolute inset-y-0"
           style={{ left: tick.x }}
         >
-          <span className="absolute left-1.5 top-1 whitespace-nowrap font-mono text-[10px] tabular-nums text-muted-foreground">
-            {tick.label}
-          </span>
+          <span
+            aria-hidden="true"
+            className="absolute bottom-0 left-0 h-2.5 border-l border-muted-foreground/70"
+          />
+          {tick.x + tick.label.length * 3.3 <= width && (
+            <span className="absolute left-0 top-0 -translate-x-1/2 whitespace-nowrap font-mono text-[11px] tabular-nums text-muted-foreground">
+              {tick.label}
+            </span>
+          )}
         </span>
       ))}
     </>

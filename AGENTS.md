@@ -40,7 +40,7 @@ to `apps/editor-web/`.
 | `src/audio` | SAB ring buffer, playback worklet and AudioEngine |
 | `src/components/ui` | shadcn-generated components; leave as generated, add via `just --command bunx shadcn add` |
 | `apps/desktop` | Electron main/preload, `app://` resource handling, native capabilities and packaging hardening |
-| `docs/` | Codec, desktop, deployment, restoration and MCP guides; benchmark reports in `docs/benchmarks/` |
+| `docs/` | Codec, desktop, deployment, restoration, MCP, testing, visual-design and release guides; benchmark reports in `docs/benchmarks/` |
 | `.github/workflows`, `scripts/` | CI/release/deployment jobs, portable builders and dependency/release guards |
 
 ## Commands
@@ -122,8 +122,10 @@ are separate opt-in checks; a successful local gate does not claim those passed.
   from `__dirname` in `apps/desktop`; the bundler inlines it as the source
   directory. Use `app.getAppPath()`.
 - Conventional commits; technical writing in English.
-- Mark finished PLAN.md items `[x]` and rewrite them to say what was actually
-  done (files, functions, regression test).
+- PLAN.md holds current state and open work only. When a phase is finished,
+  collapse it into one line of its Completed table; move lasting guidance to
+  `docs/` and dated evidence to `docs/benchmarks/`. Unfinished items move to an
+  open phase rather than leaving a completed phase partial.
 
 ## Changes and verification
 

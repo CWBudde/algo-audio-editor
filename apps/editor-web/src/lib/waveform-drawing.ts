@@ -8,13 +8,14 @@ export interface WaveformColors {
   rmsColor?: string;
   sampleColor?: string;
   gridColor?: string;
+  timeGuides?: readonly { x: number; kind: "major" | "medium" | "minor" }[];
   centerLineColor?: string;
   showRMS?: boolean;
   verticalZoom?: number;
 }
 
-/** Amplitude guides are display geometry, independent of the kernel summaries. */
-function drawAmplitudeGuides(
+/** Ruler guides are display geometry, independent of the kernel summaries. */
+function drawGridGuides(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
@@ -29,6 +30,25 @@ function drawAmplitudeGuides(
       ctx.lineTo(width, height * position);
     }
     ctx.stroke();
+    if (colors.timeGuides) {
+      ctx.save();
+      for (const [kind, opacity] of [
+        ["minor", 0.3],
+        ["medium", 0.6],
+        ["major", 1],
+      ] as const) {
+        ctx.globalAlpha = opacity;
+        ctx.beginPath();
+        for (const tick of colors.timeGuides) {
+          if (tick.kind !== kind) continue;
+          const x = Math.round(tick.x) + 0.5;
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, height);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
   if (colors.centerLineColor) {
     ctx.strokeStyle = colors.centerLineColor;
@@ -69,7 +89,7 @@ export function drawSampleWaveform(
   ctx.beginPath();
   ctx.rect(0, 0, width, height);
   ctx.clip();
-  drawAmplitudeGuides(ctx, width, height, colors);
+  drawGridGuides(ctx, width, height, colors);
   ctx.strokeStyle = colors.peakColor ?? "#ffd45a";
   ctx.fillStyle = colors.peakColor ?? "#ffd45a";
   ctx.lineWidth = 1;
@@ -170,7 +190,7 @@ export function drawWaveform(
   ctx.beginPath();
   ctx.rect(0, 0, width, height);
   ctx.clip();
-  drawAmplitudeGuides(ctx, width, height, colors);
+  drawGridGuides(ctx, width, height, colors);
   ctx.fillStyle = colors.peakColor ?? "#ffd45a";
   for (let index = 0; index < peaks.frameCounts.length; index++) {
     const start = peaks.startFrames[index];

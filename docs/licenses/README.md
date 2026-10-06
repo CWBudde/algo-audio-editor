@@ -1,6 +1,6 @@
 # Dependency licenses and third-party notices
 
-Phase 23's inventory and notice distribution are implemented. **Release approval
+The inventory and notice distribution are implemented. **Release approval
 remains open**: the current dependencies exceed the roadmap's MIT/BSD/Apache
 policy, and several pinned sources omit license grants. The user confirmed on
 2026-10-05 that this policy stays in force and affected dependencies should be
@@ -135,6 +135,6 @@ runtime replacements remain open; no license exception or runtime architecture
 change was approved.
 
 Complete the evidence fixes in tagged upstream releases or replace affected
-dependencies under the confirmed policy before clearing Phase 23. The strict
+dependencies under the confirmed policy before clearing Phase 27. The strict
 command currently fails as intended. This audit does not
 grant rights absent from upstream sources or approve a public release.

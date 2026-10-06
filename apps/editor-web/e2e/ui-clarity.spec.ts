@@ -38,6 +38,25 @@ test("uses system fonts without downloads and keeps desktop and narrow editor co
   await expect(page.getByLabel("Marker or region name", { exact: true })).not.toBeVisible();
   const ruler = await page.getByTestId("waveform-time-ruler").boundingBox();
   expect(ruler?.y).toBeLessThanOrEqual(160);
+  const toolbar = page.getByTestId("primary-controls");
+  expect((await toolbar.boundingBox())?.height).toBeLessThanOrEqual(40);
+  for (const label of ["Selection start", "Selection end", "Selection length"]) {
+    await expect(toolbar.getByLabel(label, { exact: true })).toBeVisible();
+    await expect(
+      toolbar.getByLabel(label, { exact: true }).locator("..").locator("span").last(),
+    ).toHaveText("s");
+  }
+  for (const group of ["Zoom", "Display and snapping", "Annotations"])
+    await expect(toolbar.getByRole("group", { name: group, exact: true })).toBeVisible();
+  await expect(toolbar.getByTestId("channel-settings").locator("summary")).toBeVisible();
+  const main = await page.locator("main").boundingBox();
+  const workspace = await page.getByTestId("waveform-view").boundingBox();
+  const toolbarBox = await toolbar.boundingBox();
+  if (!main || !workspace || !toolbarBox) throw new Error("Editor geometry missing");
+  expect(workspace).toEqual(main);
+  expect(workspace.x).toBe(0);
+  expect(workspace.width).toBe(1920);
+  expect(workspace.y).toBe(toolbarBox.y + toolbarBox.height);
   for (const action of [
     "Cut",
     "Copy",
@@ -57,9 +76,38 @@ test("uses system fonts without downloads and keeps desktop and narrow editor co
   await expect(page.getByTestId("waveform-channel-0")).toHaveAttribute("data-rendered", "true");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(640);
   await expect(footer.getByTestId("document-name")).toBeVisible();
-  // A long name must truncate into the remaining toolbar space, not steal
-  // another row from the waveform at the narrow desktop breakpoint.
-  expect((await page.getByTestId("view-controls").boundingBox())?.height).toBeLessThanOrEqual(40);
+  // Bands share the transport toolbar; each group wraps as a unit instead of
+  // breaking its icons or field label/value/unit across rows.
+  for (const width of [1280, 960, 640, 480, 320]) {
+    await page.setViewportSize({ width, height: 720 });
+    await expect(page.locator("footer")).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    );
+    const bands = await toolbar.locator(".editor-tool-band").evaluateAll((elements) =>
+      elements.map((element) => {
+        const bounds = element.getBoundingClientRect();
+        const children = Array.from(element.children).filter((child) => child.checkVisibility());
+        return {
+          left: bounds.left,
+          right: bounds.right,
+          height: bounds.height,
+          centers: children.map((child) => {
+            const box = child.getBoundingClientRect();
+            return box.y + box.height / 2;
+          }),
+        };
+      }),
+    );
+    for (const band of bands) {
+      expect(band.left).toBeGreaterThanOrEqual(0);
+      expect(band.right).toBeLessThanOrEqual(width);
+      expect(band.height).toBeLessThanOrEqual(32);
+      if (band.centers.length > 1)
+        expect(Math.max(...band.centers) - Math.min(...band.centers)).toBeLessThanOrEqual(4);
+    }
+  }
+  await page.setViewportSize({ width: 640, height: 720 });
   for (const action of ["Cut", "Copy", "Zoom in", "Zoom out", "Zoom to fit"]) {
     await expect(page.getByRole("button", { name: action, exact: true })).toBeInViewport();
   }

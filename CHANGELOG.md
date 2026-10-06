@@ -51,6 +51,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The waveform fills the workspace without an inset card. Transport, editing,
+  zoom, snap, markers, selection start/end/length with units and Channels share
+  a compact toolbar; complete tool groups and numeric fields wrap onto new rows.
 - App-icon colors guide the editor's ink-blue surfaces, orchid controls and
   bright golden waveform with a tonal RMS core. Selected controls and native
   input accents share the palette; audio plots and meters use gold signal colors,

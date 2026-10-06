@@ -66,7 +66,7 @@ just desktop-package  # local installers, no publishing
 
 Desktop menus, file dialogs, close protection and packaging are described in
 [docs/desktop.md](docs/desktop.md). WAV, FLAC, AIFF/AIFC and MP3 associations are
-enabled; editor projects and crash recovery remain [Phase 17 work](PLAN.md).
+enabled; editor projects and crash recovery remain [Phase 18 work](PLAN.md).
 
 `just native-build` builds the headless `aae` CLI and `aae-mcp` stdio server.
 They share the kernel's processing and undo history, with explicit output
@@ -145,7 +145,7 @@ rejects the open without changing the current document. File â†’ File metadataâ€
 edits standard INFO tags through undoable history. Whole-document WAV Save/Export
 also retains broadcast and opaque chunks plus surviving cue notes/locale fields.
 See [codec metadata limits](docs/codecs.md#wav-metadata); MP3/FLAC tag mapping remains
-Phase 16 work.
+Phase 17 work.
 
 Export CSV includes IDs, names, colors, exact frames and seconds. Export labels
 writes Audacity-style start/end seconds and names; names containing tabs or
@@ -292,7 +292,7 @@ can observe only handoff to the browser, not disk completion or cancellation.
 Opening another file resets history. Electron protects dirty documents with
 Save, Discard or Cancel when closing and asks before replacing them on Open;
 cancelled or failed saves keep the window open. Browser tabs do not yet have
-that native close flow. Projects, autosave and crash recovery remain Phase 17.
+that native close flow. Projects, autosave and crash recovery remain Phase 18.
 
 ## Commands and shortcuts
 

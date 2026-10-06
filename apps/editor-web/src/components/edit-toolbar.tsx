@@ -115,7 +115,7 @@ export function EditToolbar({
     <fieldset
       className={
         frameless
-          ? "flex min-w-0 flex-wrap items-center gap-1 border-l pl-2"
+          ? "editor-tool-band flex shrink-0 items-center gap-0.5 border-l pl-1"
           : "flex min-w-0 flex-wrap items-center gap-1 border-b px-2 py-1"
       }
       aria-label="Audio edits"

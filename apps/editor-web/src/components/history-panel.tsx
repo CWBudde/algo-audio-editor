@@ -31,7 +31,9 @@ export function HistoryPanel({
   return (
     <aside
       aria-label="Edit history"
-      className={frameless ? "border-l pl-2 text-xs" : "border-b px-2 py-1 text-xs"}
+      className={
+        frameless ? "editor-tool-band shrink-0 border-l pl-1 text-xs" : "border-b px-2 py-1 text-xs"
+      }
     >
       <ControlDisclosure className="relative">
         <summary

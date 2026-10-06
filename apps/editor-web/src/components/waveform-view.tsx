@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { ControlDisclosure } from "@/components/control-disclosure";
 import { IconAction } from "@/components/icon-action";
 import { SelectionBar } from "@/components/selection-bar";
@@ -18,11 +19,17 @@ import { SpectrogramCanvas } from "@/components/spectrogram-canvas";
 import { TimelinePanel } from "@/components/timeline-panel";
 import type { PlaybackFollow } from "@/components/transport-bar";
 import { FrequencyRuler } from "@/components/waveform/frequency-ruler";
-import { SPECTROGRAM_FOOTER_HEIGHT, waveformLaneHeight } from "@/components/waveform/lane-layout";
+import {
+  SPECTROGRAM_FOOTER_HEIGHT,
+  SPECTROGRAM_RULER_WIDTH,
+  WAVEFORM_RULER_WIDTH,
+  waveformLaneHeight,
+} from "@/components/waveform/lane-layout";
 import { PeakCanvas } from "@/components/waveform/peak-canvas";
 import { AmplitudeRuler, TimeRuler } from "@/components/waveform/rulers";
 import { TimelineAnchors } from "@/components/waveform/timeline-anchors";
 import { useKeyboardSelection } from "@/components/waveform/use-keyboard-selection";
+import { useRulerNavigation } from "@/components/waveform/use-ruler-navigation";
 import { useWaveformKeyboard } from "@/components/waveform/use-waveform-keyboard";
 import { useWaveformPointer } from "@/components/waveform/use-waveform-pointer";
 import { useWaveformViewport } from "@/components/waveform/use-waveform-viewport";
@@ -58,7 +65,6 @@ import {
 } from "@/lib/waveform-geometry";
 import type { SampleDisplayMode } from "@/lib/waveform-samples";
 
-const RULER_WIDTH = 56;
 const OVERVIEW_HEIGHT = 40;
 const MAX_SCROLL_WIDTH = 1_000_000;
 const MIN_LANES_HEIGHT = 128;
@@ -78,6 +84,7 @@ export interface WaveformViewHandle {
 }
 
 interface WaveformViewProps {
+  controlsHost?: HTMLElement | null;
   selectionEditor?: ReturnType<typeof useSelection>;
   client: KernelClient | undefined;
   info: DocumentInfoResult;
@@ -119,6 +126,7 @@ function StandaloneWaveformView(props: WaveformViewProps) {
 }
 
 function WaveformContent({
+  controlsHost,
   client,
   info,
   ref,
@@ -141,6 +149,7 @@ function WaveformContent({
   analysisStateId,
   onSpectralSelectionChange,
 }: WaveformViewProps & { editor: ReturnType<typeof useSelection> }) {
+  const rulerWidth = spectralView === "waveform" ? WAVEFORM_RULER_WIDTH : SPECTROGRAM_RULER_WIDTH;
   const [spectralTool, setSpectralTool] = useState<SpectralTool>("time");
   const [spectralSelection, setSpectralSelection] = useState<SpectralSelection>();
   const changeSpectralSelection = (value: SpectralSelection | undefined) => {
@@ -178,7 +187,7 @@ function WaveformContent({
     width,
     dpr,
     resetViewport,
-  } = useWaveformViewport(info, lanes, playing, follow);
+  } = useWaveformViewport(info, lanes, playing, follow, rulerWidth);
   const [minimumWorkspaceHeight, setMinimumWorkspaceHeight] = useState(MIN_LANES_HEIGHT);
   useLayoutEffect(() => {
     const element = host.current;
@@ -315,6 +324,22 @@ function WaveformContent({
   );
   const interactionDisabled =
     disabled || Boolean(timelineOptions?.busy) || !client || editor.adding || info.frames === 0;
+  const manualRulerNavigation = useRef(false);
+  useLayoutEffect(() => {
+    manualRulerNavigation.current = false;
+  }, [client, info.documentId, playing, follow]);
+  const pauseFollowing = useCallback(() => {
+    manualRulerNavigation.current = true;
+  }, []);
+  const rulerNavigation = useRulerNavigation({
+    session: info,
+    disabled: interactionDisabled || editor.previewing,
+    viewport,
+    width,
+    totalFrames: info.frames,
+    onNavigate: pauseFollowing,
+    updateViewport,
+  });
   const keyboardDisabled =
     interactionDisabled || (spectralView !== "waveform" && spectralTool !== "time");
   const keyboardWrites = useKeyboardSelection({
@@ -413,9 +438,9 @@ function WaveformContent({
   const updatePlayback = useCallback(
     (frame: number) => {
       paintPlayback(frame);
-      followPlayback(frame);
+      if (!manualRulerNavigation.current && !rulerNavigation.active.current) followPlayback(frame);
     },
-    [paintPlayback, followPlayback],
+    [paintPlayback, followPlayback, rulerNavigation.active],
   );
   useImperativeHandle(
     ref,
@@ -468,8 +493,9 @@ function WaveformContent({
   );
 
   useEffect(() => {
-    followPlayback(readPosition?.() ?? position);
-  }, [position, followPlayback, readPosition]);
+    if (!manualRulerNavigation.current && !rulerNavigation.active.current)
+      followPlayback(readPosition?.() ?? position);
+  }, [position, followPlayback, readPosition, rulerNavigation.active]);
   useLayoutEffect(() => paintPlayback(readPosition?.() ?? position));
 
   useEffect(() => {
@@ -480,10 +506,7 @@ function WaveformContent({
       if (event.ctrlKey) {
         event.preventDefault();
         const bounds = element.getBoundingClientRect();
-        const anchor = Math.max(
-          0,
-          Math.min(1, (event.clientX - bounds.left - RULER_WIDTH) / width),
-        );
+        const anchor = Math.max(0, Math.min(1, (event.clientX - bounds.left - rulerWidth) / width));
         const factor = Math.max(0.125, Math.min(8, Math.exp(-event.deltaY * unit * 0.003)));
         updateViewport((range) => zoomViewport(range, info.frames, factor, anchor));
       } else if (event.shiftKey || event.deltaX !== 0) {
@@ -496,7 +519,7 @@ function WaveformContent({
     };
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [info.frames, updateViewport, width]);
+  }, [info.frames, updateViewport, width, rulerWidth]);
 
   const span = viewport.end - viewport.start;
   const maxStart = Math.max(0, info.frames - span);
@@ -519,8 +542,8 @@ function WaveformContent({
   const overviewLeft = info.frames > 0 ? (viewport.start / info.frames) * width : 0;
   const overviewWidth = info.frames > 0 ? (span / info.frames) * width : width;
   const sharedColumns = {
-    gridTemplateColumns: `${RULER_WIDTH}px minmax(0, 1fr)`,
-    width: RULER_WIDTH + width,
+    gridTemplateColumns: `${rulerWidth}px minmax(0, 1fr)`,
+    width: rulerWidth + width,
   };
   const channelIds = useMemo(
     () => Array.from({ length: info.channels }, (_, channel) => channel),
@@ -547,25 +570,20 @@ function WaveformContent({
   };
   const snapCount = Number(snapZero) + Number(snapMarkers) + Number(snapTicks);
 
-  return (
-    <section
-      ref={host}
-      className="waveform-workspace flex min-h-[20rem] min-w-0 flex-1 flex-col overflow-hidden rounded-lg border"
-      style={{ minHeight: `max(20rem, ${minimumWorkspaceHeight}px)` }}
-      data-testid="waveform-view"
-      data-document-id={info.documentId}
-      data-vertical-zoom={verticalZoom}
-      data-start-frame={viewport.start}
-      data-end-frame={viewport.end}
-      data-selection-start={selection.start}
-      data-selection-end={selection.end}
-      data-channel-mask={selection.channelMask}
-    >
+  const viewControls = (
+    <>
       <div
-        className="waveform-toolbar flex min-h-9 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-2 py-1"
+        className={
+          controlsHost
+            ? "contents"
+            : "waveform-toolbar flex min-h-9 shrink-0 flex-wrap items-center gap-x-1 gap-y-1 border-b px-2 py-1"
+        }
         data-testid="view-controls"
       >
-        <fieldset aria-label="Zoom" className="flex items-center gap-1">
+        <fieldset
+          aria-label="Zoom"
+          className="editor-tool-band flex shrink-0 items-center gap-0.5 border-l pl-1"
+        >
           {action("view.zoom-in", ZoomIn, "Zoom in", zoomIn, info.frames === 0 || span <= 1)}
           {action("view.zoom-out", ZoomOut, "Zoom out", zoomOut, span >= info.frames)}
           {action("view.zoom-fit", Maximize2, "Zoom to fit", zoomFit, info.frames === 0)}
@@ -579,7 +597,7 @@ function WaveformContent({
         </fieldset>
         <fieldset
           aria-label="Display and snapping"
-          className="flex items-center gap-1 border-l pl-2"
+          className="editor-tool-band flex shrink-0 items-center gap-0.5 border-l pl-1"
         >
           <ControlDisclosure className="relative" data-testid="view-settings">
             <summary
@@ -712,7 +730,10 @@ function WaveformContent({
             </div>
           </ControlDisclosure>
         </fieldset>
-        <fieldset aria-label="Annotations" className="flex items-center gap-1 border-l pl-2">
+        <fieldset
+          aria-label="Annotations"
+          className="editor-tool-band flex shrink-0 items-center gap-0.5 border-l pl-1"
+        >
           {action("timeline.add-marker", Flag, "Add marker", addMarker, commandsBlocked)}
           {action(
             "timeline.add-region",
@@ -787,13 +808,44 @@ function WaveformContent({
             }
           />
         </fieldset>
-        <span
-          className="hidden min-w-0 flex-1 basis-0 truncate px-2 text-right text-xs font-medium text-muted-foreground sm:block"
-          title={info.name}
-        >
-          {info.name}
-        </span>
+        {!controlsHost && (
+          <span
+            className="hidden min-w-0 flex-1 basis-0 truncate px-2 text-right text-xs font-medium text-muted-foreground sm:block"
+            title={info.name}
+          >
+            {info.name}
+          </span>
+        )}
       </div>
+      <SelectionBar
+        key={info.documentId}
+        frameless={Boolean(controlsHost)}
+        selection={selection}
+        frames={info.frames}
+        sampleRate={info.sampleRate}
+        channels={info.channels}
+        timeFormat={timeFormat}
+        disabled={disabled}
+        onChange={setSelection}
+      />
+    </>
+  );
+
+  return (
+    <section
+      ref={host}
+      className="waveform-workspace flex min-h-[20rem] min-w-0 flex-1 flex-col overflow-hidden"
+      style={{ minHeight: `max(20rem, ${minimumWorkspaceHeight}px)` }}
+      data-testid="waveform-view"
+      data-document-id={info.documentId}
+      data-vertical-zoom={verticalZoom}
+      data-start-frame={viewport.start}
+      data-end-frame={viewport.end}
+      data-selection-start={selection.start}
+      data-selection-end={selection.end}
+      data-channel-mask={selection.channelMask}
+    >
+      {controlsHost ? createPortal(viewControls, controlsHost) : viewControls}
       {spectralView !== "waveform" && (
         <fieldset
           aria-label="Spectral editing"
@@ -851,26 +903,28 @@ function WaveformContent({
           )}
         </fieldset>
       )}
-      <SelectionBar
-        key={info.documentId}
-        selection={selection}
-        frames={info.frames}
-        sampleRate={info.sampleRate}
-        channels={info.channels}
-        timeFormat={timeFormat}
-        disabled={disabled}
-        onChange={setSelection}
-      />
       {editor.error && (
         <p role="alert" className="px-3 text-xs text-destructive">
           {editor.error}
         </p>
       )}
       <div className="waveform-ruler grid shrink-0 border-b" style={sharedColumns}>
-        <span className="flex items-center justify-center text-[10px] text-muted-foreground">
-          Time
-        </span>
-        <div className="relative h-6 overflow-hidden" data-testid="waveform-time-ruler">
+        <span />
+        <div
+          ref={rulerNavigation.ref}
+          className={`relative h-6 touch-none select-none ${interactionDisabled ? "" : rulerNavigation.dragging ? "cursor-grabbing" : span >= info.frames ? "cursor-zoom-in" : "cursor-grab"}`}
+          data-testid="waveform-time-ruler"
+          title={
+            span >= info.frames
+              ? "Scroll to zoom around the pointer; drag right to zoom around the clicked time"
+              : "Scroll to zoom around the pointer; drag to pan the waveform"
+          }
+          onPointerDown={rulerNavigation.onPointerDown}
+          onPointerMove={rulerNavigation.onPointerMove}
+          onPointerUp={rulerNavigation.onPointerUp}
+          onPointerCancel={rulerNavigation.onPointerCancel}
+          onLostPointerCapture={rulerNavigation.onLostPointerCapture}
+        >
           <TimelineAnchors
             timeline={timeline}
             viewport={viewport}
@@ -879,7 +933,13 @@ function WaveformContent({
             selection={selection}
             onSelect={setSelection}
           />
-          <TimeRuler ticks={timeTicks} />
+          <TimeRuler
+            ticks={timeTicks}
+            range={viewport}
+            width={width}
+            sampleRate={info.sampleRate}
+            format={timeFormat}
+          />
         </div>
       </div>
       <div
@@ -905,59 +965,67 @@ function WaveformContent({
         ) : (
           channelIds.map((channel) => (
             <div key={channel} className="waveform-channel border-b">
-              <div className="waveform-channel-header flex h-6 min-w-0 items-center gap-2 border-b px-3 text-[10px] text-muted-foreground">
-                <span className="w-8 font-mono tabular-nums">
-                  {String(channel + 1).padStart(2, "0")}
-                </span>
-                <span className="min-w-0 truncate font-medium uppercase tracking-widest">
-                  Channel {channel + 1}
-                </span>
-                {verticalZoom > 1 && spectralView !== "spectrogram" && (
-                  <span
-                    className="shrink-0 font-mono tabular-nums text-primary"
-                    title="Display-only vertical magnification"
-                  >
-                    {verticalZoom}× vertical
-                  </span>
-                )}
-                <span className="ml-auto uppercase tracking-widest">
-                  {info.channels === 1
-                    ? "Mono"
-                    : info.channels === 2
-                      ? channel === 0
-                        ? "Left"
-                        : "Right"
-                      : "Audio"}
-                </span>
-              </div>
               <div
                 className="grid"
-                style={{ gridTemplateColumns: `${RULER_WIDTH}px minmax(0, 1fr)` }}
+                style={{ gridTemplateColumns: `${rulerWidth}px minmax(0, 1fr)` }}
               >
-                <div>
-                  {spectralView !== "spectrogram" && (
-                    <AmplitudeRuler
-                      channel={channel}
-                      height={laneHeight}
-                      verticalZoom={verticalZoom}
-                      onZoomChange={changeVerticalZoom}
-                      ticks={amplitudeTicks}
-                    />
-                  )}
-                  {spectralView !== "waveform" && (
-                    <>
-                      <FrequencyRuler
+                <div
+                  className="grid min-w-0"
+                  style={{ gridTemplateColumns: "20px minmax(0, 1fr)" }}
+                >
+                  <div className="relative min-w-0">
+                    <span
+                      className="waveform-channel-label absolute left-1/2 whitespace-nowrap text-[13px] font-medium tracking-wider text-muted-foreground"
+                      style={{
+                        top: laneHeight / 2,
+                        transform: "translate(-50%, -50%) rotate(-90deg)",
+                        fontVariantCaps: "all-small-caps",
+                        fontSize: laneHeight < 128 ? "10px" : undefined,
+                      }}
+                    >
+                      Channel {channel + 1}
+                      {info.channels === 1
+                        ? " / Mono"
+                        : info.channels === 2
+                          ? channel === 0
+                            ? " / Left"
+                            : " / Right"
+                          : ""}
+                    </span>
+                    {verticalZoom > 1 && spectralView !== "spectrogram" && (
+                      <span
+                        className="absolute left-0 top-1 w-5 text-center font-mono text-[9px] text-primary"
+                        title="Display-only vertical magnification"
+                      >
+                        {verticalZoom}×
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    {spectralView !== "spectrogram" && (
+                      <AmplitudeRuler
                         channel={channel}
                         height={laneHeight}
-                        sampleRate={info.sampleRate}
+                        verticalZoom={verticalZoom}
+                        onZoomChange={changeVerticalZoom}
+                        ticks={amplitudeTicks}
                       />
-                      <div
-                        aria-hidden="true"
-                        className="border-r"
-                        style={{ height: SPECTROGRAM_FOOTER_HEIGHT }}
-                      />
-                    </>
-                  )}
+                    )}
+                    {spectralView !== "waveform" && (
+                      <>
+                        <FrequencyRuler
+                          channel={channel}
+                          height={laneHeight}
+                          sampleRate={info.sampleRate}
+                        />
+                        <div
+                          aria-hidden="true"
+                          className="border-r"
+                          style={{ height: SPECTROGRAM_FOOTER_HEIGHT }}
+                        />
+                      </>
+                    )}
+                  </div>
                 </div>
                 <fieldset
                   className="waveform-track-surface relative min-w-0 overflow-hidden focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
@@ -980,6 +1048,7 @@ function WaveformContent({
                       height={laneHeight}
                       dpr={dpr}
                       sampleMode={sampleMode}
+                      timeFormat={timeFormat}
                       verticalZoom={verticalZoom}
                       peaks={
                         channel === 0 && viewport.start === 0 && viewport.end === info.frames
