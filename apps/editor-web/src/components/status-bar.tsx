@@ -19,7 +19,7 @@ export function StatusBar({
 }: StatusBarProps) {
   return (
     <footer
-      className="flex min-h-9 shrink-0 items-center gap-3 border-t px-3 py-1 text-xs"
+      className="editor-status flex min-h-8 shrink-0 items-center gap-3 border-t px-3 py-1 text-[11px]"
       data-testid="document-info"
       data-document-id={info?.documentId}
     >
@@ -33,10 +33,21 @@ export function StatusBar({
             >
               {info.name}
             </span>
-            <span className="text-muted-foreground" data-testid="document-save-status">
+            <span
+              className="editor-save-status flex shrink-0 items-center gap-1.5 text-muted-foreground"
+              data-dirty={dirty}
+              data-testid="document-save-status"
+            >
+              <span
+                aria-hidden="true"
+                className="editor-save-dot size-1.5 rounded-full bg-current"
+              />
               {dirty === undefined ? "Save status pending" : dirty ? "Unsaved changes" : "Saved"}
             </span>
-            <span className="text-muted-foreground tabular-nums" data-testid="document-details">
+            <span
+              className="min-w-0 truncate font-mono text-[10px] text-muted-foreground tabular-nums"
+              data-testid="document-details"
+            >
               {info.sampleRate} Hz · {info.channels} {info.channels === 1 ? "channel" : "channels"}{" "}
               · {info.frames} frames · {(info.frames / info.sampleRate).toFixed(3)} s ·{" "}
               {info.bitDepth}-bit {info.float ? "float" : "PCM"}

@@ -15,7 +15,7 @@ interface Props {
   onExport(): void;
   onCancel(): void;
 }
-const fieldClass = "mt-1 w-full rounded border bg-background px-3 py-2";
+const fieldClass = "studio-field mt-1 w-full border px-3 py-2 text-sm";
 
 export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Props) {
   const id = useId();
@@ -60,16 +60,19 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-help`}
       aria-modal="true"
-      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl backdrop:bg-black/50"
+      className="studio-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(32rem,calc(100vw-2rem))] overflow-y-auto border p-5 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]"
       onCancel={(event) => {
         event.preventDefault();
         if (!working || view?.canCancel) onCancel();
       }}
     >
-      <h2 id={`${id}-title`} className="text-lg font-medium">
+      <h2 id={`${id}-title`} className="studio-dialog-heading text-lg font-semibold tracking-tight">
         Export audio
       </h2>
-      <p id={`${id}-help`} className="mt-1 text-sm text-muted-foreground">
+      <p
+        id={`${id}-help`}
+        className="studio-dialog-help mt-1 max-w-[72ch] text-sm leading-relaxed text-muted-foreground"
+      >
         Choose the range and encoding for the exported copy.
       </p>
       {view && settings && (
@@ -79,10 +82,13 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
             if (!working && valid) onExport();
           }}
         >
-          <p className="mt-3 text-sm">
+          <p className="studio-section mt-3 border px-3 py-2 text-xs leading-relaxed text-muted-foreground">
             {view.info.name} · {view.info.sampleRate} Hz · {view.info.channels} channels
           </p>
-          <label className="mt-3 block text-sm" htmlFor={`${id}-scope`}>
+          <label
+            className="mt-3 block text-xs font-medium text-muted-foreground"
+            htmlFor={`${id}-scope`}
+          >
             Range
           </label>
           <select
@@ -110,7 +116,10 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
                 .join(", ")}
             </p>
           )}
-          <label className="mt-3 block text-sm" htmlFor={`${id}-format`}>
+          <label
+            className="mt-3 block text-xs font-medium text-muted-foreground"
+            htmlFor={`${id}-format`}
+          >
             Format
           </label>
           <select
@@ -163,7 +172,10 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
                 Lossy export creates a compressed copy without file metadata, markers or regions.
                 Keep a lossless file for further editing.
               </p>
-              <label className="mt-3 block text-sm" htmlFor={`${id}-bitrate`}>
+              <label
+                className="mt-3 block text-xs font-medium text-muted-foreground"
+                htmlFor={`${id}-bitrate`}
+              >
                 Bitrate
               </label>
               <select
@@ -182,7 +194,10 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
             </>
           ) : (
             <>
-              <label className="mt-3 block text-sm" htmlFor={`${id}-depth`}>
+              <label
+                className="mt-3 block text-xs font-medium text-muted-foreground"
+                htmlFor={`${id}-depth`}
+              >
                 Bit depth
               </label>
               <select
@@ -202,7 +217,10 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
           )}
           {!lossy && settings.encoding === "pcm" && (
             <>
-              <label className="mt-3 block text-sm" htmlFor={`${id}-dither`}>
+              <label
+                className="mt-3 block text-xs font-medium text-muted-foreground"
+                htmlFor={`${id}-dither`}
+              >
                 Dither
               </label>
               <select
@@ -220,7 +238,10 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
                 <option value="gaussian">Gaussian</option>
                 <option value="fast-gaussian">Fast Gaussian</option>
               </select>
-              <label className="mt-3 block text-sm" htmlFor={`${id}-shaping`}>
+              <label
+                className="mt-3 block text-xs font-medium text-muted-foreground"
+                htmlFor={`${id}-shaping`}
+              >
                 Noise shaping
               </label>
               <select
@@ -248,17 +269,17 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
               {view.error}
             </p>
           )}
-          <p role="status" aria-live="polite" className="mt-4 text-sm">
+          <p role="status" aria-live="polite" className="mt-4 text-xs text-muted-foreground">
             {view.phase === "exporting"
               ? "Exporting…"
               : view.phase === "cancelling"
                 ? "Cancelling…"
                 : "Ready to export"}
           </p>
-          <div className="mt-5 flex justify-end gap-2">
+          <div className="studio-dialog-actions mt-4 flex justify-end gap-2 border-t border-border pt-3">
             <button
               type="button"
-              className="rounded border px-3 py-2 text-sm disabled:opacity-50"
+              className="studio-button border px-3 py-2 text-sm disabled:opacity-50"
               disabled={working && !view.canCancel}
               onClick={onCancel}
             >
@@ -266,7 +287,7 @@ export function ExportDialog({ view, onSettingsChange, onExport, onCancel }: Pro
             </button>
             <button
               type="submit"
-              className="rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
+              className="studio-button studio-button-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
               disabled={working || !valid}
             >
               Export

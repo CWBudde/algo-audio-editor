@@ -24,7 +24,7 @@ function Item({ label, value, testId }: { label: string; value: string; testId?:
   return (
     <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="break-all text-right tabular-nums" data-testid={testId}>
+      <dd className="min-w-0 break-all text-right tabular-nums" data-testid={testId}>
         {value}
       </dd>
     </div>
@@ -94,7 +94,7 @@ export function AboutStatusDialog({
       aria-describedby={`${id}-description`}
       aria-modal="true"
       data-testid="about-status-dialog"
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl backdrop:bg-black/50"
+      className="studio-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] overflow-y-auto border p-5 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]"
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -103,10 +103,13 @@ export function AboutStatusDialog({
         if (!dialog.current?.open) onClose();
       }}
     >
-      <h2 id={`${id}-title`} className="text-lg font-medium">
+      <h2 id={`${id}-title`} className="studio-dialog-heading text-lg font-semibold tracking-tight">
         About / Status
       </h2>
-      <p id={`${id}-description`} className="mt-1 text-sm text-muted-foreground">
+      <p
+        id={`${id}-description`}
+        className="studio-dialog-help mt-1 text-xs leading-relaxed text-muted-foreground"
+      >
         algo-audio-editor · Live diagnostics. Playback continues while this dialog is open.
       </p>
       <Badge
@@ -118,7 +121,7 @@ export function AboutStatusDialog({
         kernel {kernel.status}
       </Badge>
       {kernel.status === "error" && <p className="mt-2 text-sm text-destructive">{kernel.error}</p>}
-      <dl className="mt-4 space-y-2 text-sm">
+      <dl className="studio-section mt-3 divide-y divide-border/50 border px-3 text-xs [&>div]:py-2">
         <Item
           label="Kernel"
           value={hello ? `${hello.kernelVersion} (${hello.goVersion})` : "–"}
@@ -153,7 +156,7 @@ export function AboutStatusDialog({
         />
       </dl>
       {open && <ThirdPartyNotices />}
-      <div className="mt-5 flex justify-end">
+      <div className="studio-dialog-actions mt-4 flex justify-end border-t pt-3">
         <Button ref={closeButton} onClick={onClose} aria-label="Close information">
           Close
         </Button>

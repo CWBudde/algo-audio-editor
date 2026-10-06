@@ -53,13 +53,13 @@ export function MetadataDialog({
       ref={dialog}
       aria-labelledby={`${id}-title`}
       aria-modal="true"
-      className="m-auto max-h-[85vh] w-[min(42rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl backdrop:bg-black/50"
+      className="studio-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(42rem,calc(100vw-2rem))] overflow-y-auto border p-5 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]"
       onCancel={(event) => {
         event.preventDefault();
         if (!view?.committing) onCancel();
       }}
     >
-      <h2 id={`${id}-title`} className="text-lg font-medium">
+      <h2 id={`${id}-title`} className="studio-dialog-heading text-lg font-semibold tracking-tight">
         File metadata
       </h2>
       {view && (
@@ -69,23 +69,34 @@ export function MetadataDialog({
             if (metadata && !view.working) onCommit(tags);
           }}
         >
-          <p className="my-2 break-words text-sm text-muted-foreground">{view.name}</p>
-          <p className="my-2 text-sm text-muted-foreground">
+          <p className="studio-section my-3 break-words border px-3 py-2 text-xs text-muted-foreground">
+            {view.name}
+          </p>
+          <p className="studio-dialog-help my-2 max-w-[72ch] text-xs leading-relaxed text-muted-foreground">
             Tags are saved in WAV files. Use WAV export to keep these tags when converting from
             another format. Changes are undoable.
           </p>
-          {view.error && <p role="alert">{view.error}</p>}
+          {view.error && (
+            <p role="alert" className="text-sm text-destructive">
+              {view.error}
+            </p>
+          )}
           {view.working && (
-            <p role="status">{view.committing ? "Applying metadata…" : "Reading metadata…"}</p>
+            <p role="status" className="my-2 text-xs text-muted-foreground">
+              {view.committing ? "Applying metadata…" : "Reading metadata…"}
+            </p>
           )}
           {metadata && (
             <>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {METADATA_FIELDS.map(([key, label]) => (
-                  <label key={key} className="flex flex-col gap-1 text-sm">
+                  <label
+                    key={key}
+                    className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground"
+                  >
                     {label}
                     <input
-                      className="min-w-0 rounded border bg-background px-2 py-1"
+                      className="studio-field min-w-0 border px-2 py-1.5 text-sm font-normal text-foreground"
                       value={tags[key] ?? ""}
                       disabled={view.working}
                       maxLength={65536}
@@ -106,10 +117,10 @@ export function MetadataDialog({
               )}
             </>
           )}
-          <div className="mt-4 flex justify-end gap-2">
+          <div className="studio-dialog-actions mt-4 flex justify-end gap-2 border-t pt-3">
             <button
               type="button"
-              className="rounded border px-3 py-2"
+              className="studio-button border px-3 py-2 text-sm disabled:opacity-50"
               disabled={view.committing}
               onClick={onCancel}
             >
@@ -117,7 +128,7 @@ export function MetadataDialog({
             </button>
             <button
               type="submit"
-              className="rounded bg-primary px-3 py-2 text-primary-foreground"
+              className="studio-button studio-button-primary border px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
               disabled={!metadata || view.working}
             >
               Apply metadata

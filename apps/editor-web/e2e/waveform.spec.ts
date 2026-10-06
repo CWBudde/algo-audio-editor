@@ -70,11 +70,22 @@ test.describe("high-DPI waveform rendering", () => {
         const rect = canvas.getBoundingClientRect();
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("canvas context missing");
+        const swatch = document.createElement("canvas").getContext("2d");
+        if (!swatch) throw new Error("palette context missing");
+        swatch.fillStyle = getComputedStyle(canvas)
+          .getPropertyValue("--editor-waveform-peak")
+          .trim();
+        swatch.fillRect(0, 0, 1, 1);
+        const expected = swatch.getImageData(0, 0, 1, 1).data;
         const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
         let waveformPixels = 0;
         for (let offset = 0; offset < pixels.length; offset += 4) {
-          const [r, g, b] = pixels.subarray(offset, offset + 3);
-          if (r > 170 && g > 65 && r > g * 1.2 && b < g * 0.8) waveformPixels++;
+          if (
+            [0, 1, 2].every(
+              (channel) => Math.abs(pixels[offset + channel] - expected[channel]) <= 2,
+            )
+          )
+            waveformPixels++;
         }
         return {
           width: canvas.width,

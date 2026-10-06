@@ -26,11 +26,15 @@ function NumericParameter({
   }, [value]);
   return (
     <div className="min-w-0 space-y-1 text-center">
-      <label htmlFor={id} className="block truncate text-xs" title={parameter.label}>
+      <label
+        htmlFor={id}
+        className="block truncate text-[11px] font-medium text-muted-foreground"
+        title={parameter.label}
+      >
         {label}
       </label>
       <EffectKnob {...{ parameter, value, disabled, onChange }} />
-      <div className="flex items-center rounded border focus-within:ring-1 focus-within:ring-ring">
+      <div className="studio-field flex items-center border focus-within:ring-1 focus-within:ring-ring">
         <input
           id={id}
           aria-label={`${parameter.label}${parameter.unit ? ` (${parameter.unit})` : ""}`}
@@ -184,7 +188,7 @@ function EffectCurve({
       <svg
         ref={svg}
         viewBox="0 0 400 160"
-        className="w-full rounded border bg-muted/30"
+        className="effect-graph w-full border"
         role="img"
         aria-label={`${descriptor.name} response curve`}
         onPointerDown={(event) => {
@@ -199,10 +203,13 @@ function EffectCurve({
         <path d="M0 80H400" stroke="currentColor" opacity="0.25" />
         <path
           data-testid="effect-response-path"
+          className="text-primary"
           d={path}
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
       </svg>
       <p className="text-xs text-muted-foreground">
@@ -254,7 +261,7 @@ export function EffectParameters({
           <select
             id={field}
             aria-label={parameter.label}
-            className="w-full min-w-0 rounded border px-1 py-1 text-xs"
+            className="studio-field w-full min-w-0 border px-1.5 py-1 text-xs"
             value={String(node.params[parameter.id])}
             disabled={disabled}
             onChange={(event) => onChange({ ...node.params, [parameter.id]: event.target.value })}
@@ -291,7 +298,7 @@ export function EffectParameters({
     );
   };
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       {descriptor.view !== "generic" && !nonlinearMoog && (
         <div
           className={
@@ -302,7 +309,7 @@ export function EffectParameters({
         >
           <EffectCurve {...{ descriptor, node, disabled, client, sampleRate, onChange }} />
           {descriptor.id === "eq-parametric" && (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {parameters
                 .filter((parameter) => !/^band\d/.test(parameter.id))
                 .map((parameter) => control(parameter))}
@@ -325,9 +332,12 @@ export function EffectParameters({
                 parameter.id.startsWith(`band${band}`),
               );
               return (
-                <fieldset key={band} className="min-w-0 rounded border px-2 pb-2">
+                <fieldset
+                  key={band}
+                  className="min-w-0 rounded-lg border border-border/70 bg-background/40 px-2 pb-2"
+                >
                   <legend
-                    className="px-1 text-xs font-medium"
+                    className="px-1 text-[11px] font-semibold"
                     style={{ color: EQ_BAND_COLORS[index] }}
                   >
                     Band {band}
@@ -335,7 +345,7 @@ export function EffectParameters({
                   {fields
                     .filter((parameter) => parameter.type === "enum")
                     .map((parameter) => control(parameter, "Type"))}
-                  <div className="mt-2 grid grid-cols-3 gap-2">
+                  <div className="mt-1.5 grid grid-cols-3 gap-2">
                     {fields
                       .filter((parameter) => parameter.type !== "enum")
                       .map((parameter) =>

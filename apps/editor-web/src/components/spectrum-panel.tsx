@@ -115,22 +115,29 @@ export function SpectrumPanel({
     }
   }
   return (
-    <section aria-label="Spectrum analyzer" className="border-t p-3">
-      <div className="mb-2 flex items-center gap-3">
+    <section
+      aria-label="Spectrum analyzer"
+      className="max-h-[35dvh] shrink-0 overflow-auto border-t bg-card p-3"
+    >
+      <div className="mb-2 flex flex-wrap items-center gap-3">
         <h2 className="mr-auto text-sm font-medium">Spectrum analyzer</h2>
-        <div className="text-xs">
+        <div className="min-w-0 text-xs">
           <label htmlFor={`${id}-source`}>Source</label>
           <select
             id={`${id}-source`}
             value={source}
             onChange={(e) => setSource(e.target.value as "selection" | "playback")}
-            className="ml-2 rounded border bg-background p-1"
+            className="studio-field ml-2 max-w-full rounded border p-1"
           >
             <option value="selection">Selection / whole document at cursor</option>
             <option value="playback">Live output</option>
           </select>
         </div>
-        <button type="button" onClick={onClose}>
+        <button
+          type="button"
+          onClick={onClose}
+          className="studio-button rounded border px-2 py-1 text-xs"
+        >
           Close spectrum
         </button>
       </div>
@@ -157,7 +164,7 @@ export function SpectrumPanel({
         role="img"
         aria-label="Frequency spectrum"
         viewBox="0 0 600 180"
-        className="mt-2 h-40 w-full rounded border"
+        className="effect-graph mt-2 h-40 w-full rounded border"
       >
         <text x="5" y="12" fontSize="10" fill="currentColor">
           0 dBFS
@@ -177,7 +184,8 @@ export function SpectrumPanel({
             data-testid="spectrum-path"
             d={path}
             fill="none"
-            stroke={channel % 2 ? "#f59e0b" : "#22c55e"}
+            stroke="currentColor"
+            className={channel % 2 ? "text-waveform-peak" : "text-primary"}
             strokeWidth="1.5"
           />
         ))}

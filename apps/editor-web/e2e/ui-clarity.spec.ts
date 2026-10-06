@@ -1,5 +1,6 @@
 /// <reference lib="dom" />
 import { expect, test } from "@playwright/test";
+import { captureKernelWorker } from "./kernel-probe.ts";
 import { playbackWAV } from "./playback-fixture.ts";
 
 test("uses system fonts without downloads and keeps desktop and narrow editor controls compact", async ({
@@ -56,12 +57,58 @@ test("uses system fonts without downloads and keeps desktop and narrow editor co
   await expect(page.getByTestId("waveform-channel-0")).toHaveAttribute("data-rendered", "true");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(640);
   await expect(footer.getByTestId("document-name")).toBeVisible();
+  // A long name must truncate into the remaining toolbar space, not steal
+  // another row from the waveform at the narrow desktop breakpoint.
+  expect((await page.getByTestId("view-controls").boundingBox())?.height).toBeLessThanOrEqual(40);
   for (const action of ["Cut", "Copy", "Zoom in", "Zoom out", "Zoom to fit"]) {
     await expect(page.getByRole("button", { name: action, exact: true })).toBeInViewport();
   }
   await page.screenshot({ path: testInfo.outputPath("editor-narrow.png") });
   expect(fontRequests).toEqual([]);
   expect(await page.evaluate(() => document.fonts.size)).toBe(0);
+});
+
+test("waveform fills the workspace and repaints a height-only resize without refetching peaks", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await captureKernelWorker(page);
+  await page.goto("/");
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
+  await page.getByRole("button", { name: "Open demo", exact: true }).click();
+  const canvas = page.getByTestId("waveform-channel-0");
+  await expect(canvas).toHaveAttribute("data-rendered", "true");
+  await expect(page.getByTestId("waveform-channel-1")).toHaveAttribute("data-rendered", "true");
+  await expect(page.getByTestId("waveform-overview")).toHaveAttribute("data-rendered", "true");
+  const before = await canvas.boundingBox();
+  if (!before) throw new Error("waveform bounds missing");
+  expect(before.height).toBeGreaterThan(280);
+  await expect(page.getByTestId("waveform-channel-1")).toBeInViewport();
+  await expect(page.getByTestId("waveform-overview")).toBeInViewport();
+  await expect(page.locator("footer")).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("workspace-full-hd.png") });
+  const calls = await page.evaluate(() => window.__aaeTest?.peakCalls?.length);
+  await page.setViewportSize({ width: 1920, height: 720 });
+  await expect.poll(async () => (await canvas.boundingBox())?.height).toBeLessThan(before.height);
+  await expect
+    .poll(async () =>
+      canvas.evaluate((element) => {
+        const canvas = element as HTMLCanvasElement;
+        return (
+          canvas.height === Math.round(canvas.getBoundingClientRect().height * devicePixelRatio)
+        );
+      }),
+    )
+    .toBe(true);
+  await expect(canvas).toHaveAttribute("data-rendered", "true");
+  expect(await page.evaluate(() => window.__aaeTest?.peakCalls?.length)).toBe(calls);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1920);
+  await expect(page.getByTestId("waveform-overview")).toBeInViewport();
+  await expect(page.locator("footer")).toBeInViewport();
+  await page.setViewportSize({ width: 640, height: 720 });
+  await expect(canvas).toHaveAttribute("data-rendered", "true");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(640);
+  await page.screenshot({ path: testInfo.outputPath("workspace-narrow.png") });
 });
 
 test("information is on demand and does not stop playback or let editor shortcuts escape", async ({

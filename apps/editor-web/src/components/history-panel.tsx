@@ -43,11 +43,11 @@ export function HistoryPanel({
         </summary>
         <div
           data-disclosure-panel
-          className="absolute right-0 top-full z-40 mt-1 w-80 max-w-[calc(100vw-1rem)] rounded-md border bg-popover p-3 text-popover-foreground shadow-lg"
+          className="studio-dialog absolute right-0 top-full z-40 mt-2 max-h-[calc(100dvh-8rem)] w-80 max-w-[calc(100vw-1rem)] overflow-y-auto border p-3 text-popover-foreground"
         >
-          <p className="font-medium">
+          <p className="text-xs font-semibold tracking-tight">
             Edit history ·{" "}
-            <span data-testid="history-dirty">
+            <span data-testid="history-dirty" className="font-normal text-muted-foreground">
               {history ? (history.dirty ? "Unsaved changes" : "Saved") : "No document"}
             </span>
           </p>
@@ -77,19 +77,25 @@ export function HistoryPanel({
               Redo edit
             </Button>
             {history && (
-              <span data-testid="history-budget" className="text-muted-foreground">
+              <span
+                data-testid="history-budget"
+                className="text-[11px] leading-relaxed text-muted-foreground"
+              >
                 {history.entries.length} states · limit {history.maxEntries} edits · retained{" "}
                 {formatBytes(history.retainedBytes)} / {formatBytes(history.maxBytes)}
               </span>
             )}
           </div>
-          <ol aria-label="History states" className="mt-2 max-h-36 overflow-y-auto">
+          <ol
+            aria-label="History states"
+            className="mt-3 max-h-52 space-y-1 overflow-y-auto border-t border-border/60 pt-2"
+          >
             {history?.entries.map((entry, index) => {
               const isCurrent = entry.stateId === history.currentStateId;
               const saved = entry.stateId === history.savedStateId;
               const redo = current >= 0 && index > current;
               return (
-                <li key={entry.stateId} className="my-1">
+                <li key={entry.stateId} className="min-w-0">
                   <button
                     type="button"
                     aria-label={`Go to ${entry.label}`}
@@ -99,7 +105,7 @@ export function HistoryPanel({
                     data-current={String(isCurrent)}
                     data-saved={String(saved)}
                     data-redo={String(redo)}
-                    className="w-full rounded border px-2 py-1 text-left disabled:opacity-60"
+                    className="studio-button w-full break-words border px-2 py-1.5 text-left text-xs leading-relaxed disabled:opacity-60 data-[current=true]:border-primary/30 data-[current=true]:bg-primary/10 data-[current=true]:text-primary data-[current=true]:opacity-100 data-[redo=true]:text-muted-foreground"
                     onClick={() => {
                       if (!busy && !isCurrent) onJump(entry.stateId);
                     }}

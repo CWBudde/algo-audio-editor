@@ -26,7 +26,7 @@ export function AutomationDialog({
       ref={dialog}
       aria-labelledby={`${id}-title`}
       aria-modal="true"
-      className="m-auto max-h-[85vh] w-[min(42rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl backdrop:bg-black/50"
+      className="studio-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(42rem,calc(100vw-2rem))] overflow-y-auto border p-5 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]"
       onCancel={(event) => {
         event.preventDefault();
         if (automation.working) {
@@ -34,15 +34,15 @@ export function AutomationDialog({
         } else automation.close();
       }}
     >
-      <h2 id={`${id}-title`} className="text-lg font-medium">
+      <h2 id={`${id}-title`} className="studio-dialog-heading text-lg font-semibold tracking-tight">
         Macros and automation
       </h2>
-      <p className="my-2 text-sm text-muted-foreground">
+      <p className="studio-dialog-help my-2 max-w-[72ch] text-xs leading-relaxed text-muted-foreground">
         Record applied edits, processing and effects, then reuse the JSON chain here or with the
         native CLI. Previews, Undo, markers and metadata are excluded. Recording a new macro
         replaces this chain.
       </p>
-      <p className="my-2 text-sm text-muted-foreground">
+      <p className="studio-dialog-help my-2 max-w-[72ch] text-xs leading-relaxed text-muted-foreground">
         Whole-document steps adapt to each file. Partial selections retain sample coordinates.
         Replay adds one history entry per changed step; cancellation or failure keeps completed
         changes. Loaded impulse responses and noise profiles cannot be recorded.
@@ -52,7 +52,10 @@ export function AutomationDialog({
           {automation.error}
         </p>
       )}
-      <p role="status" className="my-3 text-sm">
+      <p
+        role="status"
+        className="studio-readout my-3 border-b border-border/60 pb-2 text-xs tabular-nums"
+      >
         {automation.recording
           ? "Recording applied operations"
           : `${automation.chain.operations.length} operation${automation.chain.operations.length === 1 ? "" : "s"}`}
@@ -60,19 +63,22 @@ export function AutomationDialog({
           ? ` · ${automation.progress.completed} of ${automation.progress.total} completed${automation.working && automation.progress.committing ? " · Committing" : automation.working && automation.progress.job ? ` · ${automation.progress.job.phase}` : ""}`
           : ""}
       </p>
-      <ol className="my-3 max-h-64 list-decimal overflow-auto pl-6 text-sm">
+      <ol className="studio-section my-3 max-h-64 list-decimal overflow-y-auto border px-3 py-2 pl-8 text-xs">
         {automation.chain.operations.map((operation, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: This read-only list has no row state; its ordinal identifies the chain step.
-          <li key={`${index}-${operation.method}`} className="my-1 break-words">
+          <li
+            // biome-ignore lint/suspicious/noArrayIndexKey: This read-only list has no row state; its ordinal identifies the chain step.
+            key={`${index}-${operation.method}`}
+            className="my-1 break-words py-1 leading-relaxed marker:text-muted-foreground"
+          >
             {operation.method === "effects.apply" ? "Effects" : operation.params.operation} ·{" "}
             {operation.range === "document" ? "Whole document" : "Selection / sample coordinates"}
           </li>
         ))}
       </ol>
-      <div className="flex flex-wrap gap-2 text-sm">
+      <div className="studio-dialog-actions flex flex-wrap gap-2 border-t pt-3 text-sm">
         {automation.recording ? (
           <button
-            className="rounded border px-3 py-2"
+            className="studio-button border px-3 py-2 text-sm disabled:opacity-50"
             type="button"
             onClick={automation.stopRecording}
           >
@@ -80,7 +86,7 @@ export function AutomationDialog({
           </button>
         ) : (
           <button
-            className="rounded border px-3 py-2"
+            className="studio-button border px-3 py-2 text-sm disabled:opacity-50"
             type="button"
             disabled={automation.working || !canReplay}
             onClick={automation.startRecording}
@@ -88,7 +94,9 @@ export function AutomationDialog({
             Record new macro
           </button>
         )}
-        <label className={`rounded border px-3 py-2 ${disabled ? "opacity-50" : "cursor-pointer"}`}>
+        <label
+          className={`studio-button border px-3 py-2 focus-within:ring-1 focus-within:ring-ring ${disabled ? "opacity-50" : "cursor-pointer"}`}
+        >
           Import chain
           <input
             aria-label="Import chain"
@@ -104,7 +112,7 @@ export function AutomationDialog({
           />
         </label>
         <button
-          className="rounded border px-3 py-2"
+          className="studio-button border px-3 py-2 text-sm disabled:opacity-50"
           type="button"
           disabled={disabled || !automation.chain.operations.length}
           onClick={() => void automation.save()}
@@ -112,7 +120,7 @@ export function AutomationDialog({
           Export chain
         </button>
         <button
-          className="rounded bg-primary px-3 py-2 text-primary-foreground"
+          className="studio-button studio-button-primary border px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
           type="button"
           disabled={disabled || !canReplay || !automation.chain.operations.length}
           onClick={() => void automation.replay()}
@@ -121,7 +129,7 @@ export function AutomationDialog({
         </button>
         {automation.working && automation.progress && (
           <button
-            className="rounded border px-3 py-2"
+            className="studio-button border px-3 py-2 text-sm disabled:opacity-50"
             type="button"
             disabled={automation.progress.committing}
             onClick={automation.cancel}
@@ -130,7 +138,7 @@ export function AutomationDialog({
           </button>
         )}
         <button
-          className="ml-auto rounded border px-3 py-2"
+          className="studio-button ml-auto border px-3 py-2 text-sm disabled:opacity-50"
           type="button"
           disabled={automation.working}
           onClick={automation.close}

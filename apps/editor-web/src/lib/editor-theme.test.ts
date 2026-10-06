@@ -61,7 +61,7 @@ describe("editor theme", () => {
     }
   });
 
-  it("shares purple selection/focus, orange samples, yellow warnings, and red errors", () => {
+  it("shares violet selection/focus, tonal amber peaks and RMS, and bright warm playhead", () => {
     vi.spyOn(window, "getComputedStyle").mockReturnValue(computed());
     const palette = resolveEditorPalette();
     expect(palette.focus).toBe(palette.primary);
@@ -72,14 +72,22 @@ describe("editor theme", () => {
     const [purpleR, purpleG, purpleB] = rgb(palette.primary);
     expect(purpleB).toBeGreaterThan(purpleR);
     expect(purpleR).toBeGreaterThan(purpleG);
-    const [orangeR, orangeG, orangeB] = rgb(palette.waveformPeak);
-    expect(orangeR).toBeGreaterThan(orangeG);
-    expect(orangeG).toBeGreaterThan(orangeB);
+    const [amberR, amberG, amberB] = rgb(palette.waveformPeak);
+    expect(amberR).toBeGreaterThan(amberG);
+    expect(amberG).toBeGreaterThan(amberB);
+    const [rmsR, rmsG, rmsB] = rgb(palette.waveformRms);
+    expect(rmsR).toBeGreaterThan(rmsG);
+    expect(rmsG).toBeGreaterThan(rmsB);
+    expect(Math.abs(amberG / amberR - rmsG / rmsR)).toBeLessThan(0.05);
+    expect(Math.abs(amberB / amberR - rmsB / rmsR)).toBeLessThan(0.05);
     const [yellowR, yellowG, yellowB] = rgb(palette.playhead);
-    expect(Math.min(yellowR, yellowG)).toBeGreaterThan(yellowB * 2);
+    expect(Math.min(yellowR, yellowG)).toBeGreaterThan(yellowB * 1.3);
+    expect(luminance(palette.playhead)).toBeGreaterThan(luminance(palette.waveformPeak));
     const [redR, redG, redB] = rgb(palette.error);
     expect(redR).toBeGreaterThan(Math.max(redG, redB) * 1.5);
-    expect(luminance(palette.waveformRms)).toBeLessThan(luminance(palette.primary));
+    expect(luminance(palette.waveformRms)).toBeLessThan(luminance(palette.waveformPeak));
+    expect(luminance(palette.waveformGrid)).toBeLessThan(luminance(palette.waveformCenter));
+    expect(luminance(palette.waveformCenter)).toBeLessThan(luminance(palette.waveformRms));
     expect(contrast(palette.waveformPeak, palette.waveformBackground)).toBeGreaterThan(4.5);
   });
 
@@ -115,6 +123,8 @@ describe("editor theme", () => {
       "waveform-peak",
       "waveform-sample",
       "waveform-rms",
+      "waveform-grid",
+      "waveform-center",
     ]) {
       expect(stylesheet).toContain(`--color-${token}: var(--editor-${token});`);
     }

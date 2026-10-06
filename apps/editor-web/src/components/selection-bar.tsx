@@ -65,15 +65,20 @@ function TimeField({ label, frame, rate, format, commit }: TimeFieldProps) {
   };
   return (
     <div className="min-w-0">
-      <label className="flex items-center gap-2 text-xs">
-        <span aria-hidden="true">{label.replace("Selection ", "")}</span>
+      <label className="flex items-center gap-2 rounded-md border border-border/60 bg-background/60 px-2 text-xs focus-within:border-ring">
+        <span
+          aria-hidden="true"
+          className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+        >
+          {label.replace("Selection ", "")}
+        </span>
         <input
           type="text"
           inputMode={format === "samples" ? "numeric" : "decimal"}
           aria-label={label}
           aria-invalid={Boolean(draft?.error)}
           aria-describedby={draft?.error ? errorId : undefined}
-          className="w-28 min-w-0 rounded border bg-background px-2 py-1 tabular-nums"
+          className="w-24 min-w-0 bg-transparent py-1 font-mono text-xs tabular-nums focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
           value={draft?.text ?? formatted}
           onFocus={() => {
             focused.current = true;
@@ -153,7 +158,7 @@ export function SelectionBar({
   return (
     <fieldset
       disabled={disabled}
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-1"
+      className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/60 bg-card px-3 py-1"
       data-testid="selection-bar"
     >
       <legend className="sr-only">Selection</legend>

@@ -72,7 +72,7 @@ export function EffectsDialog(props: Props) {
   return (
     <dialog
       ref={dialog}
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(64rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border bg-popover p-4 text-popover-foreground shadow-xl backdrop:bg-black/50"
+      className="studio-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(64rem,calc(100vw-2rem))] overflow-y-auto border p-4 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]"
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-help`}
       onCancel={(event) => {
@@ -80,24 +80,27 @@ export function EffectsDialog(props: Props) {
         if (view?.phase !== "committing") props.onCancel();
       }}
     >
-      <h2 id={`${id}-title`} className="text-lg font-medium">
+      <h2 id={`${id}-title`} className="studio-dialog-heading font-semibold tracking-tight">
         Effects rack
       </h2>
-      <p id={`${id}-help`} className="mt-1 text-sm text-muted-foreground">
+      <p id={`${id}-help`} className="studio-dialog-help mt-1 text-muted-foreground">
         Preview the selected time and channels, then apply the rack in one undo step. A cursor uses
         the whole document.
       </p>
       {view && (
-        <div className="mt-3 space-y-3">
-          <div className="grid items-end gap-3 sm:grid-cols-2">
+        <div className="mt-2.5 space-y-2.5">
+          <div className="studio-section grid items-end gap-3 border px-3 py-2 sm:grid-cols-2">
             <div className="flex flex-wrap items-end gap-2">
               <div className="min-w-0 flex-1">
-                <label htmlFor={`${id}-add`} className="block text-sm">
+                <label
+                  htmlFor={`${id}-add`}
+                  className="block text-xs font-medium text-muted-foreground"
+                >
                   Add effect
                 </label>
                 <select
                   id={`${id}-add`}
-                  className="mt-1 w-full rounded border px-2 py-1"
+                  className="studio-field mt-1 w-full border px-2 py-1.5 text-sm"
                   value={effectId}
                   disabled={Boolean(working) || view.rack.length >= 32}
                   onChange={(event) => setEffectId(event.target.value)}
@@ -127,7 +130,7 @@ export function EffectsDialog(props: Props) {
               </div>
               <button
                 type="button"
-                className="rounded border px-3 py-1 disabled:opacity-50"
+                className="studio-button border px-3 py-1 disabled:opacity-50"
                 disabled={Boolean(working) || !effectId || view.rack.length >= 32}
                 onClick={() => {
                   const descriptor = descriptors.find((entry) => entry.id === effectId);
@@ -138,7 +141,7 @@ export function EffectsDialog(props: Props) {
                 Add
               </button>
             </div>
-            <details className="min-w-0 rounded border p-2">
+            <details className="min-w-0 rounded border border-border/60 p-2">
               <summary className="cursor-pointer text-sm">User presets</summary>
               <div className="mt-2">
                 <label htmlFor={`${id}-preset`} className="text-sm">
@@ -146,7 +149,7 @@ export function EffectsDialog(props: Props) {
                 </label>
                 <select
                   id={`${id}-preset`}
-                  className="mx-2 max-w-full rounded border px-2 py-1"
+                  className="studio-field mx-2 max-w-full border px-2 py-1 text-sm"
                   value={presetId}
                   disabled={Boolean(working)}
                   onChange={(event) => {
@@ -164,7 +167,7 @@ export function EffectsDialog(props: Props) {
                 <button
                   type="button"
                   disabled={Boolean(working) || !presetId}
-                  className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                  className="studio-button border px-2 py-1 text-sm disabled:opacity-50"
                   onClick={() => {
                     props.onDeletePreset(presetId);
                     setPresetId("");
@@ -174,7 +177,7 @@ export function EffectsDialog(props: Props) {
                 </button>
                 <div className="mt-2 flex gap-2">
                   <input
-                    className="min-w-0 flex-1 rounded border px-2 py-1 text-sm"
+                    className="studio-field min-w-0 flex-1 border px-2 py-1 text-sm"
                     aria-label="Preset name"
                     placeholder="Name this rack"
                     value={presetName}
@@ -183,7 +186,7 @@ export function EffectsDialog(props: Props) {
                   />
                   <button
                     type="button"
-                    className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+                    className="studio-button border px-2 py-1 text-sm disabled:opacity-50"
                     disabled={Boolean(working) || !valid || !presetName.trim()}
                     onClick={() => props.onSavePreset(presetName)}
                   >
@@ -203,18 +206,25 @@ export function EffectsDialog(props: Props) {
                   </li>
                 );
               return (
-                <li key={node.id} data-effect-id={descriptor.id} className="rounded border p-3">
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="font-medium">
+                <li
+                  key={node.id}
+                  data-effect-id={descriptor.id}
+                  className="effect-rack-node border p-3"
+                >
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border/60 pb-1.5">
+                    <h3 className="text-sm font-semibold tracking-tight">
                       {index + 1}. {descriptor.name}
                     </h3>
                     <div className="flex min-w-0 items-center gap-2">
-                      <label className="text-sm" htmlFor={`${id}-factory-${node.id}`}>
+                      <label
+                        className="text-xs text-muted-foreground"
+                        htmlFor={`${id}-factory-${node.id}`}
+                      >
                         Factory preset
                       </label>
                       <select
                         id={`${id}-factory-${node.id}`}
-                        className="min-w-0 max-w-52 rounded border px-2 py-1 text-sm"
+                        className="studio-field min-w-0 max-w-52 border px-2 py-1 text-xs"
                         defaultValue=""
                         disabled={Boolean(working)}
                         onChange={(event) => {
@@ -256,6 +266,7 @@ export function EffectsDialog(props: Props) {
                       </label>
                       <button
                         type="button"
+                        className="studio-button size-7 border text-sm disabled:opacity-40"
                         aria-label={`Move ${descriptor.name} up`}
                         disabled={Boolean(working) || index === 0}
                         onClick={() => move(index, -1)}
@@ -264,6 +275,7 @@ export function EffectsDialog(props: Props) {
                       </button>
                       <button
                         type="button"
+                        className="studio-button size-7 border text-sm disabled:opacity-40"
                         aria-label={`Move ${descriptor.name} down`}
                         disabled={Boolean(working) || index === view.rack.length - 1}
                         onClick={() => move(index, 1)}
@@ -272,6 +284,7 @@ export function EffectsDialog(props: Props) {
                       </button>
                       <button
                         type="button"
+                        className="studio-button border px-2 py-1 text-xs disabled:opacity-40"
                         aria-label={`Remove ${descriptor.name}`}
                         disabled={Boolean(working)}
                         onClick={() =>
@@ -284,7 +297,7 @@ export function EffectsDialog(props: Props) {
                   </div>
                   {node.type === "reverb-conv" && (
                     <div className="mb-3">
-                      <label className="block text-sm">
+                      <label className="block text-xs font-medium text-muted-foreground">
                         Impulse response WAV
                         <input
                           type="file"
@@ -314,7 +327,7 @@ export function EffectsDialog(props: Props) {
               );
             })}
           </ol>
-          <div className="flex flex-wrap items-center gap-4 rounded border p-3">
+          <div className="studio-section flex flex-wrap items-center gap-4 border px-3 py-2">
             <label className="text-sm">
               <input
                 type="checkbox"
@@ -327,7 +340,7 @@ export function EffectsDialog(props: Props) {
             <label className="flex flex-1 items-center gap-2 text-sm">
               Wet/dry
               <input
-                className="flex-1"
+                className="min-w-12 flex-1 accent-primary"
                 type="range"
                 min="0"
                 max="100"
@@ -336,7 +349,9 @@ export function EffectsDialog(props: Props) {
                 disabled={Boolean(working)}
                 onChange={(event) => props.onChange({ wet: Number(event.target.value) / 100 })}
               />
-              <output>{Math.round(view.wet * 100)}% wet</output>
+              <output className="shrink-0 text-xs tabular-nums">
+                {Math.round(view.wet * 100)}% wet
+              </output>
             </label>
           </div>
           {view.meters && (
@@ -390,7 +405,7 @@ export function EffectsDialog(props: Props) {
               levels before applying.
             </p>
           )}
-          <p role="status" data-testid="effects-status" className="text-sm">
+          <p role="status" data-testid="effects-status" className="text-xs text-muted-foreground">
             {view.phase === "idle"
               ? view.previewing
                 ? "Previewing live effects"
@@ -405,11 +420,11 @@ export function EffectsDialog(props: Props) {
                       ? "Cancelling…"
                       : "Preparing preview…"}
           </p>
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="studio-dialog-actions flex flex-wrap justify-end gap-2 border-t border-border pt-2">
             {view.previewing ? (
               <button
                 type="button"
-                className="rounded border px-3 py-2 text-sm"
+                className="studio-button border px-3 py-2 text-sm"
                 disabled={Boolean(working)}
                 onClick={props.onStopPreview}
               >
@@ -418,7 +433,7 @@ export function EffectsDialog(props: Props) {
             ) : (
               <button
                 type="button"
-                className="rounded border px-3 py-2 text-sm disabled:opacity-50"
+                className="studio-button border px-3 py-2 text-sm disabled:opacity-50"
                 disabled={Boolean(working) || !valid}
                 onClick={props.onPreview}
               >
@@ -427,7 +442,7 @@ export function EffectsDialog(props: Props) {
             )}
             <button
               type="button"
-              className="rounded border px-3 py-2 text-sm disabled:opacity-50"
+              className="studio-button border px-3 py-2 text-sm disabled:opacity-50"
               disabled={view.phase === "cancelling" || view.phase === "committing"}
               onClick={props.onCancel}
             >
@@ -435,7 +450,7 @@ export function EffectsDialog(props: Props) {
             </button>
             <button
               type="button"
-              className="rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
+              className="studio-button studio-button-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
               disabled={Boolean(working) || !valid}
               onClick={() => props.onApply(view.phase === "ready")}
             >

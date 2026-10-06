@@ -17,6 +17,7 @@ was implemented. Historical temporary logs are not durable raw artifacts.
 | [FLAC evaluation, 2026-10-06](../licenses/flac-evaluation.md) | Pinned candidate/grant digests, seven-target compilation, native/WASM malformed-input probes and independent codec comparisons | Candidate adoption blocked by validation/allocation/32-bit encoding defects; full provenance and editor acceptance remain open |
 | [FLAC remediation, 2026-10-06](flac-remediation-2026-10-06.md) | Verified local upstream patches, bounded decoder tests and independent reference comparisons | No upstream release/adoption; full provenance, corpus and editor acceptance remain open |
 | [Go math reach, 2026-10-06](go-math-reach-2026-10-06.md) | Thirteen pure-Go builds, selected source declarations/notices, retention paths and verified raw WASM names | Optimized WASM attribution and permitted upstream math/toolchain replacements remain open |
+| [Visual design, 2026-10-06](visual-design-2026-10-06.md) | Icon-inspired palette, adaptive waveform workspace, dialog review, retained screenshots and browser/Linux Electron checks | Phase 24 user feedback, exhaustive state review and installed platform/scale acceptance remain open |
 
 R.5 additionally retains [analysis tool-output transcription](r5-analysis-2026-10-05.txt)
 and [production browser JSON](r5-browser-2026-10-05.json). Earlier reports are

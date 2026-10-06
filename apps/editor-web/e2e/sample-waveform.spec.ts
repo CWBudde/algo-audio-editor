@@ -76,7 +76,10 @@ async function paintPixels(canvas: Locator, points: PixelPoint[]) {
     }
     let rmsPixels = 0;
     for (let offset = 0; offset < pixels.length; offset += 4) {
-      if (matches(offset, rms)) rmsPixels++;
+      // RMS is an opaque bucket fill. An antialiased sample stroke can share
+      // its amber hue without being RMS; only count the actual core color.
+      if (rms.every((value, channel) => Math.abs(pixels[offset + channel] - value) <= 1))
+        rmsPixels++;
     }
     return {
       width: canvas.width,

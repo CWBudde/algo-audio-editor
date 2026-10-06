@@ -33,12 +33,16 @@ export function TransportBar(props: TransportBarProps) {
   const playCommand = props.commands?.find((command) => command.id === "transport.toggle-playback");
   const stopCommand = props.commands?.find((command) => command.id === "transport.stop");
   const readout = useRef<HTMLOutputElement>(null);
+  const secondsReadout = useRef<HTMLSpanElement>(null);
+  const framesReadout = useRef<HTMLSpanElement>(null);
   const updatePosition = useCallback(
     (frame: number) => {
       const element = readout.current;
       if (!element) return;
       element.dataset.frame = String(frame);
-      element.textContent = `${(frame / props.sampleRate).toFixed(3)} s · ${frame} frames`;
+      if (secondsReadout.current)
+        secondsReadout.current.textContent = `${(frame / props.sampleRate).toFixed(3)} s`;
+      if (framesReadout.current) framesReadout.current.textContent = ` · ${frame} frames`;
     },
     [props.sampleRate],
   );
@@ -52,8 +56,8 @@ export function TransportBar(props: TransportBarProps) {
       aria-label="Playback"
       className={
         props.frameless
-          ? "flex min-w-0 flex-wrap items-center gap-1"
-          : "flex min-h-9 flex-wrap items-center gap-1 border-b px-2 py-1"
+          ? "transport-controls flex min-w-0 flex-wrap items-center gap-1"
+          : "transport-controls flex min-h-9 flex-wrap items-center gap-1 border-b px-2 py-1"
       }
     >
       <IconAction
@@ -119,13 +123,19 @@ export function TransportBar(props: TransportBarProps) {
       </ControlDisclosure>
       <output
         ref={readout}
-        className="mx-2 whitespace-nowrap text-xs tabular-nums"
+        className="transport-readout mx-2 flex items-baseline whitespace-nowrap rounded-md border px-2.5 py-1 font-mono tabular-nums"
         aria-label="Playback position"
         aria-live="off"
         data-testid="play-position"
         data-frame={props.position}
       >
-        {(props.position / props.sampleRate).toFixed(3)} s · {props.position} frames
+        <span ref={secondsReadout} className="text-sm font-medium tracking-tight">
+          {(props.position / props.sampleRate).toFixed(3)} s
+        </span>
+        <span ref={framesReadout} className="text-[10px] text-muted-foreground">
+          {" · "}
+          {props.position} frames
+        </span>
       </output>
     </fieldset>
   );

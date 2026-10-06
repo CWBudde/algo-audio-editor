@@ -17,6 +17,7 @@ import { SpectralSelectionLayer } from "@/components/spectral-selection-layer";
 import { SpectrogramCanvas } from "@/components/spectrogram-canvas";
 import { TimelinePanel } from "@/components/timeline-panel";
 import type { PlaybackFollow } from "@/components/transport-bar";
+import { waveformLaneHeight } from "@/components/waveform/lane-layout";
 import { PeakCanvas } from "@/components/waveform/peak-canvas";
 import { AmplitudeRuler, TimeRuler } from "@/components/waveform/rulers";
 import { TimelineAnchors } from "@/components/waveform/timeline-anchors";
@@ -55,8 +56,7 @@ import {
 import type { SampleDisplayMode } from "@/lib/waveform-samples";
 
 const RULER_WIDTH = 56;
-const LANE_HEIGHT = 160;
-const OVERVIEW_HEIGHT = 48;
+const OVERVIEW_HEIGHT = 40;
 const MAX_SCROLL_WIDTH = 1_000_000;
 
 export interface WaveformViewHandle {
@@ -152,6 +152,12 @@ function WaveformContent({
   const selectedRange = selection.end > selection.start ? selection : undefined;
   useLayoutEffect(() => onSelectionChange?.(selection), [selection, onSelectionChange]);
   const lanes = useRef<HTMLDivElement>(null);
+  const [availableLaneHeight, setAvailableLaneHeight] = useState(0);
+  const laneHeight = waveformLaneHeight(
+    availableLaneHeight,
+    info.channels,
+    spectralView === "split",
+  );
   const cursorLines = useRef<(HTMLDivElement | null)[]>([]);
   const overviewCursor = useRef<HTMLDivElement>(null);
   const lanesId = useId();
@@ -168,6 +174,21 @@ function WaveformContent({
     dpr,
     resetViewport,
   } = useWaveformViewport(info, lanes, playing, follow);
+  useLayoutEffect(() => {
+    const element = lanes.current;
+    if (!element) return;
+    const measure = () => setAvailableLaneHeight(element.clientHeight);
+    measure();
+    const observer =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(element);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
   // The overview and a fitted first lane draw the same kernel summaries.
   // Keep one bounded full-range result; zoomed lanes retain their own requests.
   const fullPeaks = usePeaks(
@@ -431,7 +452,7 @@ function WaveformContent({
     pendingScroll.current = element.scrollLeft;
   }, [viewport.start, maxStart, scrollWidth, width]);
 
-  const amplitudeTicks = generateAmplitudeTicks(LANE_HEIGHT, amplitudeScale);
+  const amplitudeTicks = generateAmplitudeTicks(laneHeight, amplitudeScale);
   const selectionStart = selection ? Math.max(viewport.start, selection.start) : 0;
   const selectionEnd = selection ? Math.min(viewport.end, selection.end) : 0;
   const overviewLeft = info.frames > 0 ? (viewport.start / info.frames) * width : 0;
@@ -468,7 +489,7 @@ function WaveformContent({
   return (
     <section
       ref={host}
-      className="flex h-full min-h-[24rem] min-w-0 flex-col"
+      className="waveform-workspace flex min-h-[20rem] min-w-0 flex-1 flex-col overflow-hidden rounded-lg border"
       data-testid="waveform-view"
       data-document-id={info.documentId}
       data-start-frame={viewport.start}
@@ -478,7 +499,7 @@ function WaveformContent({
       data-channel-mask={selection.channelMask}
     >
       <div
-        className="flex min-h-9 flex-wrap items-center gap-2 border-b px-3 py-1"
+        className="waveform-toolbar flex min-h-9 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-2 py-1"
         data-testid="view-controls"
       >
         <fieldset aria-label="Zoom" className="flex items-center gap-1">
@@ -685,6 +706,12 @@ function WaveformContent({
             }
           />
         </fieldset>
+        <span
+          className="hidden min-w-0 flex-1 basis-0 truncate px-2 text-right text-xs font-medium text-muted-foreground sm:block"
+          title={info.name}
+        >
+          {info.name}
+        </span>
       </div>
       {spectralView !== "waveform" && (
         <div className="flex flex-wrap items-center gap-2 border-b px-3 py-1 text-xs">
@@ -751,11 +778,11 @@ function WaveformContent({
           {editor.error}
         </p>
       )}
-      <div className="grid border-b" style={sharedColumns}>
+      <div className="waveform-ruler grid shrink-0 border-b" style={sharedColumns}>
         <span className="flex items-center justify-center text-[10px] text-muted-foreground">
           Time
         </span>
-        <div className="relative h-7 overflow-hidden" data-testid="waveform-time-ruler">
+        <div className="relative h-6 overflow-hidden" data-testid="waveform-time-ruler">
           <TimelineAnchors
             timeline={timeline}
             viewport={viewport}
@@ -770,7 +797,7 @@ function WaveformContent({
       <div
         ref={lanes}
         id={lanesId}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        className="waveform-lanes min-h-0 flex-1 overflow-y-auto overscroll-contain"
         style={{ scrollbarGutter: "stable" }}
       >
         <p id={keyboardHelpId} className="sr-only">
@@ -788,9 +815,21 @@ function WaveformContent({
           </p>
         ) : (
           channelIds.map((channel) => (
-            <div key={channel} className="border-b">
-              <div className="bg-muted/30 px-3 py-1 text-xs text-muted-foreground">
-                Channel {channel + 1}
+            <div key={channel} className="waveform-channel border-b">
+              <div className="waveform-channel-header flex h-6 items-center gap-2 border-b px-3 text-[10px] text-muted-foreground">
+                <span className="w-8 font-mono tabular-nums">
+                  {String(channel + 1).padStart(2, "0")}
+                </span>
+                <span className="font-medium uppercase tracking-widest">Channel {channel + 1}</span>
+                <span className="ml-auto uppercase tracking-widest">
+                  {info.channels === 1
+                    ? "Mono"
+                    : info.channels === 2
+                      ? channel === 0
+                        ? "Left"
+                        : "Right"
+                      : "Audio"}
+                </span>
               </div>
               <div
                 className="grid"
@@ -798,18 +837,18 @@ function WaveformContent({
               >
                 <AmplitudeRuler
                   channel={channel}
-                  height={LANE_HEIGHT}
+                  height={laneHeight}
                   ticks={
                     spectralView === "spectrogram"
                       ? [
                           { value: info.sampleRate / 2, y: 8, label: `${info.sampleRate / 2} Hz` },
-                          { value: 0, y: LANE_HEIGHT - 8, label: "0 Hz" },
+                          { value: 0, y: laneHeight - 8, label: "0 Hz" },
                         ]
                       : amplitudeTicks
                   }
                 />
                 <fieldset
-                  className="relative min-w-0 overflow-hidden focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                  className="waveform-track-surface relative min-w-0 overflow-hidden focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
                   data-testid="waveform-track"
                   aria-label={`Channel ${channel + 1} waveform editor`}
                   aria-describedby={keyboardHelpId}
@@ -826,7 +865,7 @@ function WaveformContent({
                       channel={channel}
                       viewport={viewport}
                       width={width}
-                      height={LANE_HEIGHT}
+                      height={laneHeight}
                       dpr={dpr}
                       sampleMode={sampleMode}
                       peaks={
@@ -850,7 +889,7 @@ function WaveformContent({
                         channel={channel}
                         viewport={viewport}
                         width={width}
-                        height={LANE_HEIGHT}
+                        height={laneHeight}
                         settings={spectralSettings}
                         paused={analysisPaused}
                         stateId={analysisStateId}
@@ -869,7 +908,7 @@ function WaveformContent({
                         channel={channel}
                         viewport={viewport}
                         width={width}
-                        height={LANE_HEIGHT}
+                        height={laneHeight}
                         tool={spectralTool}
                         selection={spectralSelection}
                         disabled={disabled}
@@ -955,7 +994,7 @@ function WaveformContent({
           ))
         )}
       </div>
-      <div className="grid border-t" style={sharedColumns}>
+      <div className="waveform-overview grid shrink-0 border-t" style={sharedColumns}>
         <span className="flex items-center justify-center text-[10px] text-muted-foreground">
           Overview
         </span>
@@ -1057,7 +1096,7 @@ function WaveformContent({
           )}
         </div>
       </div>
-      <div className="grid" style={sharedColumns}>
+      <div className="grid shrink-0" style={sharedColumns}>
         <span />
         <div
           ref={scrollbar}
@@ -1070,7 +1109,7 @@ function WaveformContent({
           aria-valuemax={maxStart}
           aria-valuenow={viewport.start}
           tabIndex={0}
-          className="h-5 min-w-0 overflow-x-scroll overflow-y-hidden"
+          className="h-4 min-w-0 overflow-x-scroll overflow-y-hidden"
           onScroll={(event) => {
             const element = event.currentTarget;
             if (

@@ -1,0 +1,151 @@
+{
+  "metrics": {
+    "welcome-full-hd": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "dialog": null
+    },
+    "editor-demo": {
+      "width": 1280,
+      "height": 800,
+      "scrollWidth": 1280,
+      "laneHeight": 231,
+      "dialog": null
+    },
+    "workspace-full-hd": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "laneHeight": 371,
+      "dialog": null
+    },
+    "workspace-narrow": {
+      "width": 640,
+      "height": 720,
+      "scrollWidth": 640,
+      "laneHeight": 161,
+      "dialog": null
+    },
+    "command-palette": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "laneHeight": 371,
+      "dialog": {
+        "width": 576,
+        "height": 231,
+        "clientHeight": 229,
+        "scrollHeight": 229,
+        "clientWidth": 574,
+        "scrollWidth": 574
+      }
+    },
+    "process": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "laneHeight": 371,
+      "dialog": {
+        "width": 512,
+        "height": 368,
+        "clientHeight": 366,
+        "scrollHeight": 366,
+        "clientWidth": 510,
+        "scrollWidth": 510
+      }
+    },
+    "export": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "laneHeight": 371,
+      "dialog": {
+        "width": 512,
+        "height": 636.25,
+        "clientHeight": 634,
+        "scrollHeight": 634,
+        "clientWidth": 510,
+        "scrollWidth": 510
+      }
+    },
+    "metadata": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "laneHeight": 371,
+      "dialog": {
+        "width": 672,
+        "height": 758,
+        "clientHeight": 756,
+        "scrollHeight": 756,
+        "clientWidth": 670,
+        "scrollWidth": 670
+      }
+    },
+    "automation": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "laneHeight": 371,
+      "dialog": {
+        "width": 672,
+        "height": 333,
+        "clientHeight": 331,
+        "scrollHeight": 331,
+        "clientWidth": 670,
+        "scrollWidth": 670
+      }
+    },
+    "batch": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "laneHeight": 371,
+      "dialog": {
+        "width": 768,
+        "height": 507.5,
+        "clientHeight": 506,
+        "scrollHeight": 506,
+        "clientWidth": 766,
+        "scrollWidth": 766
+      }
+    },
+    "information": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "laneHeight": 371,
+      "dialog": {
+        "width": 480,
+        "height": 684,
+        "clientHeight": 682,
+        "scrollHeight": 682,
+        "clientWidth": 478,
+        "scrollWidth": 478
+      }
+    },
+    "statistics": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "laneHeight": 371,
+      "dialog": {
+        "width": 960,
+        "height": 348.5,
+        "clientHeight": 347,
+        "scrollHeight": 347,
+        "clientWidth": 958,
+        "scrollWidth": 958
+      }
+    },
+    "analysis-panels": {
+      "width": 1920,
+      "height": 1080,
+      "scrollWidth": 1920,
+      "laneHeight": 119,
+      "dialog": null
+    }
+  },
+  "errors": []
+}

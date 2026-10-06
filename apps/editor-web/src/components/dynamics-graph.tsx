@@ -61,7 +61,7 @@ export function DynamicsGraph({
       <svg
         ref={svg}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="w-full select-none rounded border bg-background"
+        className="effect-graph w-full select-none border"
         role="img"
         aria-label={`${descriptor.name} response curve`}
         aria-describedby={`${id}-help ${id}-readout`}
@@ -164,6 +164,8 @@ export function DynamicsGraph({
             stroke="currentColor"
             className="text-primary"
             strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
           {selected && (
             <g className="text-primary">
@@ -198,12 +200,16 @@ export function DynamicsGraph({
           </span>
         )}
       </div>
-      <output id={`${id}-readout`} className="block text-sm" aria-live="polite">
+      <output
+        id={`${id}-readout`}
+        className="studio-readout block rounded border border-border/60 bg-background/50 px-2 py-1.5 text-xs tabular-nums"
+        aria-live="polite"
+      >
         {selected
           ? `Input ${formatDB(selected[0])} → Output ${formatDB(selected[1])} · Gain change ${formatDB(selected[1] - selected[0])}`
           : "Loading transfer curve…"}
       </output>
-      <div className="flex items-center gap-3 text-xs">
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
         <label htmlFor={`${id}-input`}>Read input level</label>
         <input
           id={`${id}-input`}

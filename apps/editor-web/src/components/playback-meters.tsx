@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { MeterSnapshot } from "@/audio/meter-data";
 import { Button } from "@/components/ui/button";
+import { resolveEditorPalette } from "@/lib/editor-theme";
+import { resizeCanvas } from "@/lib/waveform-drawing";
 
 export function amplitudeDB(value: number): number {
   return value > 0 && Number.isFinite(value) ? 20 * Math.log10(value) : -Infinity;
@@ -17,17 +19,20 @@ function levelWidth(amplitude: number) {
 function Goniometer({ snapshot }: { snapshot?: MeterSnapshot }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    const ctx = canvas.current?.getContext("2d");
+    const element = canvas.current;
+    if (!element) return;
+    const ctx = resizeCanvas(element, 160, 100);
     if (!ctx) return;
+    const palette = resolveEditorPalette(element);
     ctx.clearRect(0, 0, 160, 100);
-    ctx.strokeStyle = "#64748b";
+    ctx.strokeStyle = palette.waveformCenter;
     ctx.beginPath();
     ctx.moveTo(80, 0);
     ctx.lineTo(80, 100);
     ctx.moveTo(0, 50);
     ctx.lineTo(160, 50);
     ctx.stroke();
-    ctx.fillStyle = "#a855f7";
+    ctx.fillStyle = palette.primary;
     const points = snapshot?.goniometer;
     if (points)
       for (let i = 0; i < points.length; i += 2) {
@@ -47,7 +52,7 @@ function Goniometer({ snapshot }: { snapshot?: MeterSnapshot }) {
       height={100}
       role="img"
       aria-label="Mid/side goniometer"
-      className="h-24 w-40 rounded border"
+      className="effect-graph shrink-0 rounded border"
     />
   );
 }
@@ -70,8 +75,11 @@ export function PlaybackMeters({
       ]
     : undefined;
   return (
-    <section aria-label="Playback output meters" className="border-t bg-muted/20 p-3">
-      <div className="mb-2 flex items-center gap-2">
+    <section
+      aria-label="Playback output meters"
+      className="max-h-[30dvh] shrink-0 overflow-auto border-t bg-card p-3"
+    >
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <h2 className="mr-auto text-sm font-medium">Output meters</h2>
         <span className="text-xs text-muted-foreground">Rendered ahead of the output device</span>
         <Button size="sm" variant="outline" onClick={onReset}>
@@ -88,7 +96,7 @@ export function PlaybackMeters({
         <div className="min-w-48 flex-1 space-y-2">
           {snapshot?.channels.map((channel) => (
             <div key={`channel-${channel.channel + 1}`} className="text-xs">
-              <div className="flex justify-between">
+              <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 tabular-nums">
                 <span>Channel {channel.channel + 1}</span>
                 <span>
                   Peak {meterNumber(amplitudeDB(channel.peak), "dBFS")} · RMS{" "}
@@ -116,11 +124,11 @@ export function PlaybackMeters({
                 className="relative mt-1 h-3 overflow-hidden rounded bg-muted"
               >
                 <span
-                  className={`absolute inset-y-0 left-0 ${channel.truePeak > 1 ? "bg-destructive" : "bg-purple-500"}`}
+                  className={`absolute inset-y-0 left-0 ${channel.truePeak > 1 ? "bg-destructive" : "bg-primary"}`}
                   style={{ width: `${levelWidth(channel.peak)}%` }}
                 />
                 <span
-                  className="absolute inset-y-1 left-0 bg-amber-400"
+                  className="absolute inset-y-1 left-0 bg-waveform-peak"
                   style={{ width: `${levelWidth(channel.rms)}%` }}
                 />
                 <span
@@ -131,7 +139,7 @@ export function PlaybackMeters({
             </div>
           )) ?? <p className="text-xs text-muted-foreground">Play audio to read channel levels.</p>}
         </div>
-        <dl className="grid grid-cols-2 gap-x-4 text-xs">
+        <dl className="grid grid-cols-2 gap-x-4 text-xs tabular-nums">
           <dt>Momentary</dt>
           <dd>{meterNumber(snapshot?.momentary, "LUFS")}</dd>
           <dt>Maximum momentary</dt>

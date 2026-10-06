@@ -7,7 +7,35 @@ export interface WaveformColors {
   peakColor?: string;
   rmsColor?: string;
   sampleColor?: string;
+  gridColor?: string;
+  centerLineColor?: string;
   showRMS?: boolean;
+}
+
+/** Amplitude guides are display geometry, independent of the kernel summaries. */
+function drawAmplitudeGuides(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  colors: WaveformColors,
+): void {
+  ctx.lineWidth = 1;
+  if (colors.gridColor) {
+    ctx.strokeStyle = colors.gridColor;
+    ctx.beginPath();
+    for (const position of [0.25, 0.75]) {
+      ctx.moveTo(0, height * position);
+      ctx.lineTo(width, height * position);
+    }
+    ctx.stroke();
+  }
+  if (colors.centerLineColor) {
+    ctx.strokeStyle = colors.centerLineColor;
+    ctx.beginPath();
+    ctx.moveTo(0, height / 2);
+    ctx.lineTo(width, height / 2);
+    ctx.stroke();
+  }
 }
 
 /** Draw exact single-frame kernel summaries as geometry, never audio DSP.
@@ -40,8 +68,9 @@ export function drawSampleWaveform(
   ctx.beginPath();
   ctx.rect(0, 0, width, height);
   ctx.clip();
-  ctx.strokeStyle = colors.peakColor ?? "#2dd4bf";
-  ctx.fillStyle = colors.peakColor ?? "#2dd4bf";
+  drawAmplitudeGuides(ctx, width, height, colors);
+  ctx.strokeStyle = colors.peakColor ?? "#e4b967";
+  ctx.fillStyle = colors.peakColor ?? "#e4b967";
   ctx.lineWidth = 1;
   ctx.beginPath();
   let previousFrame = Number.NaN;
@@ -74,7 +103,7 @@ export function drawSampleWaveform(
   // One fill path for visible dots, independent of page seams or DPR. Context
   // neighbors contribute connections but never phantom offscreen sample dots.
   const radius = Math.min(2.5, Math.max(0.75, (width / (range.end - range.start)) * 0.25));
-  ctx.fillStyle = colors.sampleColor ?? colors.peakColor ?? "#2dd4bf";
+  ctx.fillStyle = colors.sampleColor ?? colors.peakColor ?? "#e4b967";
   ctx.beginPath();
   for (const page of pages) {
     for (let index = 0; index < page.frameCounts.length; index++) {
@@ -140,7 +169,8 @@ export function drawWaveform(
   ctx.beginPath();
   ctx.rect(0, 0, width, height);
   ctx.clip();
-  ctx.fillStyle = colors.peakColor ?? "#2dd4bf";
+  drawAmplitudeGuides(ctx, width, height, colors);
+  ctx.fillStyle = colors.peakColor ?? "#e4b967";
   for (let index = 0; index < peaks.frameCounts.length; index++) {
     const start = peaks.startFrames[index];
     const end = start + peaks.frameCounts[index];
@@ -155,12 +185,10 @@ export function drawWaveform(
     ctx.fillRect(left, top, Math.max(1, right - left), Math.max(1, bottom - top));
   }
   if (colors.showRMS !== false) {
-    ctx.fillStyle = colors.rmsColor ?? "#0f766e";
-    ctx.strokeStyle = colors.rmsColor ?? "#0f766e";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    let connected = false;
-    let previousEnd = Number.NaN;
+    // A quieter tonal core keeps RMS legible without a second competing trace.
+    // Each fill retains the exact kernel bucket extent; no interpolated contour
+    // crosses page gaps or implies sample values between aggregate buckets.
+    ctx.fillStyle = colors.rmsColor ?? "#b08d4e";
     for (let index = 0; index < peaks.frameCounts.length; index++) {
       const start = peaks.startFrames[index];
       const end = start + peaks.frameCounts[index];
@@ -172,13 +200,7 @@ export function drawWaveform(
       const top = amplitudeToY(rms, height);
       const bottom = amplitudeToY(-rms, height);
       ctx.fillRect(left, top, Math.max(1, right - left), Math.max(1, bottom - top));
-      const middle = (left + right) / 2;
-      if (connected && start === previousEnd) ctx.lineTo(middle, top);
-      else ctx.moveTo(middle, top);
-      connected = true;
-      previousEnd = end;
     }
-    ctx.stroke();
   }
   ctx.restore();
 }

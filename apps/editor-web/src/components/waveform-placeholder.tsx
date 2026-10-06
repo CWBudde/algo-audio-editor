@@ -16,7 +16,7 @@ export function WaveformPlaceholder({
   if (info) {
     return (
       <section
-        className="flex h-full flex-col items-center justify-center gap-3 p-6"
+        className="editor-empty-state flex min-h-[20rem] flex-1 flex-col items-center justify-center gap-3 rounded-lg border p-6"
         data-testid="document-info"
       >
         <FileAudio className="size-10 text-muted-foreground" />
@@ -35,10 +35,17 @@ export function WaveformPlaceholder({
     );
   }
   return (
-    <div className="flex h-full items-center justify-center p-6">
-      <div className="flex max-w-md flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center">
-        <FileAudio className="size-10 text-muted-foreground" />
-        <p className="font-medium">No document open</p>
+    <div className="editor-empty-state flex min-h-[20rem] flex-1 items-center justify-center rounded-lg border p-6">
+      <div className="flex max-w-md flex-col items-center gap-4 p-4 text-center sm:p-10">
+        <div className="editor-empty-icon flex size-16 items-center justify-center rounded-2xl border">
+          <FileAudio className="size-7 text-primary" aria-hidden="true" />
+        </div>
+        <div>
+          <p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+            Your audio workspace
+          </p>
+          <h1 className="text-xl font-semibold tracking-tight">No document open</h1>
+        </div>
         <p className="text-sm text-muted-foreground">
           Open an audio file or drop it here to view its waveform and play it.
         </p>
@@ -54,8 +61,10 @@ export function WaveformPlaceholder({
             Open demo
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">Demo: four seconds of quiet stereo tones.</p>
-        <div className="flex gap-4 text-sm">
+        <p className="text-[11px] text-muted-foreground">
+          Demo: four seconds of quiet stereo tones.
+        </p>
+        <div className="flex gap-4 text-xs text-muted-foreground">
           <a
             className="underline"
             href="https://github.com/cwbudde/algo-audio-editor"

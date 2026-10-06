@@ -32,7 +32,7 @@ function PitchTrack({ view }: { view: AnalysisView }) {
         role="img"
         aria-label="Pitch tracking"
         viewBox="0 0 600 160"
-        className="mt-3 w-full rounded border"
+        className="effect-graph mt-3 w-full border"
       >
         <text x="5" y="13" fill="currentColor" fontSize="10">
           2000 Hz
@@ -46,16 +46,17 @@ function PitchTrack({ view }: { view: AnalysisView }) {
             data-testid="pitch-track-path"
             d={path}
             fill="none"
-            stroke={channel % 2 ? "#f59e0b" : "#22c55e"}
+            stroke="currentColor"
+            className={channel % 2 ? "text-warning" : "text-primary"}
             strokeWidth="1.5"
           />
         ))}
       </svg>
       {!voiced && <p>No confident pitch detected in this range.</p>}
       {detail.length > 0 && (
-        <details className="mt-2 text-xs">
+        <details className="studio-section mt-2 border p-3 text-xs">
           <summary>Pitch measurements (first {detail.length} voiced frames)</summary>
-          <table className="w-full text-left">
+          <table className="studio-data-table mt-2 w-full text-left text-xs tabular-nums">
             <thead>
               <tr>
                 <th>Channel</th>
@@ -116,29 +117,34 @@ export function AnalysisDialog({
       ref={dialog}
       aria-labelledby={`${id}-title`}
       aria-modal="true"
-      className="m-auto max-h-[85vh] w-[min(60rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl backdrop:bg-black/50"
+      className="studio-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(60rem,calc(100vw-2rem))] overflow-y-auto border p-5 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]"
       onCancel={(e) => {
         e.preventDefault();
         if (!view?.committing) onCancel();
       }}
     >
-      <h2 id={`${id}-title`} className="text-lg font-medium">
+      <h2 id={`${id}-title`} className="studio-dialog-heading text-lg font-semibold tracking-tight">
         {title}
       </h2>
       {view && (
         <>
-          <p className="my-2 text-sm text-muted-foreground">
+          <p className="studio-section my-3 border px-3 py-2 text-xs leading-relaxed text-muted-foreground">
             {view.info.name} ·{" "}
             {view.selection.start === view.selection.end
               ? "Whole document"
               : `Frames ${view.selection.start}–${view.selection.end}`}{" "}
             · selected channels
           </p>
-          {view.error && <p role="alert">{view.error}</p>}
+          {view.error && (
+            <p role="alert" className="text-sm text-destructive">
+              {view.error}
+            </p>
+          )}
           {view.working && (
-            <div role="status">
+            <div role="status" className="studio-section border p-3 text-sm">
               <p>{view.committing ? "Adding clipping markers…" : "Analysing audio…"}</p>
               <progress
+                className="mt-2 w-full"
                 aria-label="Analysis progress"
                 max={job?.totalFrames ?? 1}
                 value={job?.processedFrames ?? 0}
@@ -149,39 +155,41 @@ export function AnalysisDialog({
             <>
               {view.kind === "statistics" && (
                 <>
-                  <table className="my-3 w-full text-left text-sm">
-                    <thead>
-                      <tr>
-                        {[
-                          "Channel",
-                          "Peak (dBFS)",
-                          "RMS (dBFS)",
-                          "DC offset",
-                          "Crest (dB)",
-                          "Zero crossings",
-                          "Clipped samples",
-                        ].map((label) => (
-                          <th key={label} className="p-2">
-                            {label}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {job.statistics?.map((row) => (
-                        <tr key={row.channel}>
-                          <th className="p-2">{row.channel + 1}</th>
-                          <td>{meterNumber(amplitudeDB(row.peak), "")}</td>
-                          <td>{meterNumber(amplitudeDB(row.rms), "")}</td>
-                          <td>{row.dc.toFixed(6)}</td>
-                          <td>{row.crestDB?.toFixed(2) ?? "—"}</td>
-                          <td>{row.zeroCrossings}</td>
-                          <td>{row.clippedSamples}</td>
+                  <div className="my-3 overflow-x-auto rounded-lg border border-border/70">
+                    <table className="studio-data-table w-full text-left text-xs tabular-nums [&_td]:px-2 [&_td]:py-2 [&_tbody_tr]:border-t [&_th]:whitespace-nowrap">
+                      <thead>
+                        <tr>
+                          {[
+                            "Channel",
+                            "Peak (dBFS)",
+                            "RMS (dBFS)",
+                            "DC offset",
+                            "Crest (dB)",
+                            "Zero crossings",
+                            "Clipped samples",
+                          ].map((label) => (
+                            <th key={label} className="p-2">
+                              {label}
+                            </th>
+                          ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <p>
+                      </thead>
+                      <tbody>
+                        {job.statistics?.map((row) => (
+                          <tr key={row.channel}>
+                            <th className="p-2">{row.channel + 1}</th>
+                            <td>{meterNumber(amplitudeDB(row.peak), "")}</td>
+                            <td>{meterNumber(amplitudeDB(row.rms), "")}</td>
+                            <td>{row.dc.toFixed(6)}</td>
+                            <td>{row.crestDB?.toFixed(2) ?? "—"}</td>
+                            <td>{row.zeroCrossings}</td>
+                            <td>{row.clippedSamples}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="studio-readout rounded border border-border/60 bg-background/50 px-3 py-2 text-sm tabular-nums">
                     Integrated loudness:{" "}
                     {job.integratedLUFS === null
                       ? "Below measurement gate"
@@ -198,11 +206,11 @@ export function AnalysisDialog({
               )}
             </>
           )}
-          <div className="mt-4 flex justify-end gap-2">
+          <div className="studio-dialog-actions mt-4 flex justify-end gap-2 border-t border-border pt-3">
             {view.kind === "clipping" && (
               <button
                 type="button"
-                className="rounded bg-primary px-3 py-2 text-primary-foreground"
+                className="studio-button studio-button-primary px-3 py-2 text-primary-foreground"
                 disabled={view.working || !job?.markerCount}
                 onClick={onCommit}
               >
@@ -211,7 +219,7 @@ export function AnalysisDialog({
             )}
             <button
               type="button"
-              className="rounded border px-3 py-2"
+              className="studio-button border px-3 py-2 text-sm"
               disabled={view.committing}
               onClick={onCancel}
             >

@@ -107,7 +107,7 @@ export function ParametricEQGraph({
       <svg
         ref={svg}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="mx-auto w-full max-w-[40rem] touch-none select-none rounded border bg-background"
+        className="effect-graph mx-auto w-full max-w-[40rem] touch-none select-none border"
         role="group"
         aria-label="Parametric EQ frequency graph"
         aria-describedby={`${id}-help`}
@@ -239,6 +239,8 @@ export function ParametricEQGraph({
             className="text-primary"
             stroke="currentColor"
             strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
         </g>
         {bands.map((band) => {
@@ -351,7 +353,7 @@ export function ParametricEQGraph({
             <Menu.Popup
               aria-label={`Band ${menu?.band} filter type`}
               finalFocus={false}
-              className="min-w-40 rounded border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
+              className="min-w-40 rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl outline-none"
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   event.preventDefault();
@@ -382,7 +384,10 @@ export function ParametricEQGraph({
           </Menu.Positioner>
         </Menu.Portal>
       </Menu.Root>
-      <p className="text-sm" aria-live="polite">
+      <p
+        className="studio-readout rounded border border-border/60 bg-background/50 px-2 py-1 text-xs tabular-nums"
+        aria-live="polite"
+      >
         <span style={{ color: EQ_BAND_COLORS[activeBand - 1] }}>Band {activeBand}</span> ·{" "}
         {formatHz(value(activeBand, "FreqHz"))} Hz · {value(activeBand, "GainDB").toFixed(1)} dB · Q{" "}
         {value(activeBand, "Q").toFixed(2)}

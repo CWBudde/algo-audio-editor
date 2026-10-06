@@ -109,15 +109,22 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
   return (
     <TooltipProvider>
       <div
-        className="flex h-dvh flex-col bg-background text-foreground"
+        className="editor-shell flex h-dvh flex-col bg-background text-foreground"
         data-kernel-state={kernel.status}
       >
-        <header className="flex h-9 shrink-0 min-w-0 items-center gap-2 border-b px-2">
-          <span className="hidden shrink-0 px-1 text-sm font-semibold tracking-tight md:inline">
+        <header className="editor-header flex h-9 shrink-0 min-w-0 items-center gap-2 border-b px-3">
+          <img
+            src={`${import.meta.env.BASE_URL}app-icon.png`}
+            alt=""
+            className="size-6 shrink-0 rounded-md"
+          />
+          <span className="hidden shrink-0 pr-2 text-xs font-semibold tracking-tight md:inline">
             algo-audio-editor
           </span>
           {!desktop.native && (
-            <span className="shrink-0 text-xs text-muted-foreground">Development build</span>
+            <span className="hidden shrink-0 rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground lg:inline">
+              Development
+            </span>
           )}
           {!desktop.native && <AppMenubar commands={commands} onExecute={execute} />}
           {automation.recording && (
@@ -148,7 +155,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
           </p>
         )}
         <fieldset
-          className="flex min-h-9 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-2 py-1"
+          className="editor-toolbar flex min-h-9 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-1"
           aria-label="Editor actions"
           data-testid="primary-controls"
         >
@@ -230,7 +237,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
           }}
         />
         <main
-          className="relative min-h-0 flex-1 overflow-auto"
+          className="editor-workspace relative flex min-h-0 flex-1 flex-col overflow-auto p-2 sm:p-3"
           data-testid="document-drop-zone"
           aria-busy={busy}
           onDragOver={(event) => {
@@ -243,7 +250,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
           }}
         >
           {doc.info && spectralView !== "waveform" && (
-            <div className="border-b p-2">
+            <div className="mb-2 shrink-0 rounded-lg border p-2">
               <AnalysisControls
                 showAveraging={false}
                 settings={spectralSettings}
@@ -253,7 +260,10 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
             </div>
           )}
           {busy && (
-            <p role="status" className="absolute right-3 top-3 text-sm text-muted-foreground">
+            <p
+              role="status"
+              className="absolute right-4 top-4 z-30 rounded border bg-popover px-2 py-1 text-xs text-muted-foreground"
+            >
               Working on document…
             </p>
           )}

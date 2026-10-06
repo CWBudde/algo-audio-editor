@@ -120,7 +120,7 @@ export function CommandPalette({ open, onOpenChange, commands, onExecute }: Comm
       aria-modal="true"
       aria-describedby={`${id}-help`}
       data-testid="command-palette"
-      className="m-auto w-[min(36rem,calc(100vw-2rem))] rounded-lg border bg-popover p-0 text-popover-foreground shadow-xl backdrop:bg-black/50"
+      className="studio-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(36rem,calc(100vw-2rem))] overflow-y-auto border p-0 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]"
       onCancel={(event) => {
         event.preventDefault();
         dismiss();
@@ -148,19 +148,19 @@ export function CommandPalette({ open, onOpenChange, commands, onExecute }: Comm
       }}
     >
       <div className="flex items-center justify-between px-4 pt-3">
-        <h2 id={`${id}-title`} className="font-medium">
+        <h2 id={`${id}-title`} className="studio-dialog-heading font-semibold tracking-tight">
           Command palette
         </h2>
         <button
           type="button"
           aria-label="Close command palette"
           onClick={dismiss}
-          className="rounded px-2 py-1 text-sm hover:bg-muted"
+          className="studio-button border px-2 py-1 text-[11px]"
         >
           Esc
         </button>
       </div>
-      <p id={`${id}-help`} className="px-4 text-xs text-muted-foreground">
+      <p id={`${id}-help`} className="studio-dialog-help px-4 text-xs text-muted-foreground">
         Search commands. Use arrow keys to choose and Enter to run.
       </p>
       <input
@@ -179,13 +179,13 @@ export function CommandPalette({ open, onOpenChange, commands, onExecute }: Comm
         onKeyDown={navigate}
         autoComplete="off"
         spellCheck={false}
-        className="m-3 w-[calc(100%-1.5rem)] rounded border bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring"
+        className="studio-field m-3 w-[calc(100%-1.5rem)] border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring"
       />
       <div
         id={`${id}-results`}
         role="listbox"
         aria-label="Commands"
-        className="max-h-80 overflow-auto border-t p-2"
+        className="max-h-[min(24rem,calc(100dvh-14rem))] overflow-y-auto border-t p-2"
       >
         {results.map((command) => (
           <div
@@ -197,7 +197,7 @@ export function CommandPalette({ open, onOpenChange, commands, onExecute }: Comm
             aria-disabled={!command.enabled}
             aria-keyshortcuts={command.ariaShortcut}
             data-command-id={command.id}
-            className={`flex cursor-default items-center gap-3 rounded px-3 py-2 ${active?.id === command.id ? "bg-accent text-accent-foreground" : ""} ${!command.enabled ? "opacity-50" : ""}`}
+            className={`flex cursor-default items-center gap-3 rounded-md border px-3 py-2.5 ${active?.id === command.id ? "border-primary/20 bg-accent text-accent-foreground" : "border-transparent"} ${!command.enabled ? "opacity-50" : ""}`}
             onPointerMove={() => {
               if (command.enabled) setActiveId(command.id);
             }}
@@ -211,20 +211,26 @@ export function CommandPalette({ open, onOpenChange, commands, onExecute }: Comm
               }
             }}
           >
-            <span className="flex-1">
-              <span className="block text-sm">{command.label}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block break-words text-sm font-medium">{command.label}</span>
               <span className="block text-xs text-muted-foreground">
                 {command.menu}
                 {!command.enabled && " · unavailable"}
               </span>
             </span>
             {command.shortcutLabel && (
-              <kbd className="text-xs text-muted-foreground">{command.shortcutLabel}</kbd>
+              <kbd className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                {command.shortcutLabel}
+              </kbd>
             )}
           </div>
         ))}
       </div>
-      <p role="status" aria-live="polite" className="px-4 py-2 text-xs text-muted-foreground">
+      <p
+        role="status"
+        aria-live="polite"
+        className="border-t px-4 py-2 text-[11px] text-muted-foreground"
+      >
         {results.length
           ? `${results.length} command${results.length === 1 ? "" : "s"}${enabled.length ? "" : " · none available"}`
           : "No matching commands."}

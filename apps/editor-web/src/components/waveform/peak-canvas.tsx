@@ -70,6 +70,7 @@ export function PeakCanvas({
     start: number;
     end: number;
     width: number;
+    height: number;
     dpr: number;
   }>();
 
@@ -78,7 +79,15 @@ export function PeakCanvas({
   useLayoutEffect(() => {
     const previous = lastPaint.current;
     // Keep the previous canvas intact during a same-document viewport refill.
-    if (loading && previous?.info === info && previous.client === client) return;
+    if (
+      loading &&
+      previous?.info === info &&
+      previous.client === client &&
+      previous.width === width &&
+      previous.height === height &&
+      previous.dpr === dpr
+    )
+      return;
     // Paint bookkeeping must not keep obsolete sample pages alive after a request clears.
     if (!source) setPaint(undefined);
     const element = canvas.current;
@@ -91,6 +100,8 @@ export function PeakCanvas({
       peakColor: palette.waveformPeak,
       sampleColor: palette.waveformSample,
       rmsColor: palette.waveformRms,
+      gridColor: overview ? undefined : palette.waveformGrid,
+      centerLineColor: overview ? undefined : palette.waveformCenter,
       showRMS: !overview,
     };
     if (displayMode === "envelope") {
@@ -107,6 +118,7 @@ export function PeakCanvas({
         start: viewport.start,
         end: viewport.end,
         width,
+        height,
         dpr,
       });
   }, [
@@ -132,6 +144,7 @@ export function PeakCanvas({
       paint.start === viewport.start &&
       paint.end === viewport.end &&
       paint.width === width &&
+      paint.height === height &&
       paint.dpr === dpr,
   );
 

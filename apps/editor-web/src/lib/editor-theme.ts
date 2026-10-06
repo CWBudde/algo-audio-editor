@@ -12,6 +12,8 @@ export const EDITOR_THEME_PROPERTIES = {
   waveformPeak: "--editor-waveform-peak",
   waveformSample: "--editor-waveform-sample",
   waveformRms: "--editor-waveform-rms",
+  waveformGrid: "--editor-waveform-grid",
+  waveformCenter: "--editor-waveform-center",
   playhead: "--editor-playhead",
   warning: "--editor-warning",
   destructive: "--editor-destructive",

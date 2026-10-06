@@ -96,23 +96,26 @@ export function ProcessDialog({
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-help`}
       aria-modal="true"
-      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-lg border bg-popover p-5 text-popover-foreground shadow-xl backdrop:bg-black/50"
+      className="studio-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(32rem,calc(100vw-2rem))] overflow-y-auto border p-5 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]"
       onCancel={(event) => {
         event.preventDefault();
         if (cancellable) onCancel();
       }}
     >
-      <h2 id={`${id}-title`} className="text-lg font-medium">
+      <h2 id={`${id}-title`} className="studio-dialog-heading text-lg font-semibold tracking-tight">
         {view ? PROCESS_TITLES[view.operation] : "Amplify"}
       </h2>
-      <p id={`${id}-help`} className="mt-1 text-sm text-muted-foreground">
+      <p
+        id={`${id}-help`}
+        className="studio-dialog-help mt-1 max-w-[72ch] text-sm leading-relaxed text-muted-foreground"
+      >
         {view?.operation === "extract-channel"
           ? "Preview a private copy, then open it in a new editor window."
           : "Preview a private processed copy. Apply creates one undoable edit; Cancel discards it."}
       </p>
       {view && (
         <>
-          <p className="mt-3 text-sm">
+          <p className="studio-section mt-3 border px-3 py-2 text-xs leading-relaxed text-muted-foreground">
             {view.info.name} · frames {view.selection.start}–{view.selection.end} · channel mask{" "}
             {view.selection.channelMask}
           </p>
@@ -121,14 +124,17 @@ export function ProcessDialog({
               <p className="mt-1 text-xs text-muted-foreground">
                 One linked gain across the selected channels; other channels stay unchanged.
               </p>
-              <label className="mt-3 block text-sm" htmlFor={`${id}-mode`}>
+              <label
+                className="mt-3 block text-xs font-medium text-muted-foreground"
+                htmlFor={`${id}-mode`}
+              >
                 Normalization mode
               </label>
               <select
                 id={`${id}-mode`}
                 value={view.operation}
                 disabled={working}
-                className="mt-1 w-full rounded border bg-background px-3 py-2"
+                className="studio-field mt-1 w-full border px-3 py-2 text-sm"
                 onChange={(event) =>
                   onOperationChange(
                     event.target.value === "normalize-loudness"
@@ -144,7 +150,10 @@ export function ProcessDialog({
           )}
           {numeric && (
             <>
-              <label className="mt-3 block text-sm" htmlFor={`${id}-gain`}>
+              <label
+                className="mt-3 block text-xs font-medium text-muted-foreground"
+                htmlFor={`${id}-gain`}
+              >
                 {view.operation === "gain" || view.operation === "spectral-attenuate"
                   ? "Gain (dB)"
                   : view.operation === "normalize-peak"
@@ -160,7 +169,7 @@ export function ProcessDialog({
                 disabled={working}
                 aria-invalid={value === undefined}
                 aria-describedby={value === undefined ? `${id}-error` : undefined}
-                className="mt-1 w-full rounded border bg-background px-3 py-2"
+                className="studio-field mt-1 w-full border px-3 py-2 text-sm"
                 onChange={(event) => onParameterTextChange(event.target.value)}
               />
               {value === undefined && (
@@ -207,7 +216,7 @@ export function ProcessDialog({
                         : "Enter valid settings. Frequencies must be positive and at most half the sample rate; sample rates must be whole hertz from 8000 to 384000."}
             </p>
           )}
-          <div className="mt-4" aria-live="polite">
+          <div className="studio-section mt-4 border p-3" aria-live="polite">
             <p role="status" className="text-sm" data-testid="process-status">
               {view.phase === "cancelling"
                 ? "Cancelling…"
@@ -270,7 +279,7 @@ export function ProcessDialog({
               </div>
             )}
             {warning && (
-              <p role="alert" className="mt-2 text-sm text-amber-400">
+              <p role="alert" className="mt-2 text-sm text-warning">
                 The processed result exceeds full scale or contains nonfinite samples. PCM export
                 may clip. Apply anyway to keep this result.
               </p>
@@ -281,10 +290,10 @@ export function ProcessDialog({
               </p>
             )}
           </div>
-          <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <div className="studio-dialog-actions mt-4 flex flex-wrap justify-end gap-2 border-t border-border pt-3">
             <button
               type="button"
-              className="rounded border px-3 py-2 text-sm disabled:opacity-50"
+              className="studio-button border px-3 py-2 text-sm disabled:opacity-50"
               disabled={working || !valid}
               onClick={onPreview}
             >
@@ -292,7 +301,7 @@ export function ProcessDialog({
             </button>
             <button
               type="button"
-              className="rounded border px-3 py-2 text-sm disabled:opacity-50"
+              className="studio-button border px-3 py-2 text-sm disabled:opacity-50"
               disabled={working || !view.previewing}
               onClick={onStopPreview}
             >
@@ -300,7 +309,7 @@ export function ProcessDialog({
             </button>
             <button
               type="button"
-              className="rounded border px-3 py-2 text-sm disabled:opacity-50"
+              className="studio-button border px-3 py-2 text-sm disabled:opacity-50"
               disabled={!cancellable}
               onClick={onCancel}
             >
@@ -308,7 +317,7 @@ export function ProcessDialog({
             </button>
             <button
               type="button"
-              className="rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
+              className="studio-button studio-button-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
               disabled={working || !valid}
               onClick={() => onApply(warning)}
             >

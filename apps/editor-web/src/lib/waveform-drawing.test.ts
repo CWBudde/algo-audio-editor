@@ -71,8 +71,9 @@ describe("waveform canvas drawing", () => {
       [0, 75, 200, 50],
       [200, 87.5, 100, 25],
     ]);
-    expect(ctx.moveTo).toHaveBeenCalledWith(100, 75);
-    expect(ctx.lineTo).toHaveBeenCalledWith(250, 87.5);
+    expect(ctx.moveTo).not.toHaveBeenCalled();
+    expect(ctx.lineTo).not.toHaveBeenCalled();
+    expect(ctx.stroke).not.toHaveBeenCalled();
     expect(ctx.restore).toHaveBeenCalledTimes(1);
   });
 
@@ -156,11 +157,53 @@ describe("waveform canvas drawing", () => {
       [50, 37.5, 25, 25],
       [75, 25, 25, 50],
     ]);
+    expect(ctx.moveTo).not.toHaveBeenCalled();
+    expect(ctx.lineTo).not.toHaveBeenCalled();
+    expect(ctx.stroke).not.toHaveBeenCalled();
+  });
+
+  it("paints optional amplitude guides before exact bucket fills without an RMS contour", () => {
+    const { ctx } = recordingCanvas();
+    const peaks: PeakViews = {
+      peaks: new Float32Array([-0.5, 0.75, 0.25, -0.25, 0.5, 0.125]),
+      startFrames: new Float64Array([0, 20]),
+      frameCounts: new Uint32Array([10, 5]),
+    };
+    const original = new Uint32Array(peaks.peaks.buffer).slice();
+    drawWaveform(
+      ctx as unknown as CanvasRenderingContext2D,
+      peaks,
+      { start: 0, end: 25 },
+      100,
+      80,
+      {
+        peakColor: "#e4b967",
+        rmsColor: "#b08d4e",
+        gridColor: "#1b2940",
+        centerLineColor: "#35425a",
+      },
+    );
     expect(ctx.moveTo.mock.calls).toEqual([
-      [12.5, 25],
-      [62.5, 37.5],
+      [0, 20],
+      [0, 60],
+      [0, 40],
     ]);
-    expect(ctx.lineTo).toHaveBeenCalledWith(87.5, 25);
+    expect(ctx.lineTo.mock.calls).toEqual([
+      [100, 20],
+      [100, 60],
+      [100, 40],
+    ]);
+    expect(ctx.stroke).toHaveBeenCalledTimes(2);
+    expect(ctx.fillRect.mock.calls).toEqual([
+      [0, 10, 40, 50],
+      [80, 20, 20, 30],
+      [0, 30, 40, 20],
+      [80, 35, 20, 10],
+    ]);
+    expect(ctx.stroke.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      ctx.fillRect.mock.invocationCallOrder[0],
+    );
+    expect(new Uint32Array(peaks.peaks.buffer)).toEqual(original);
   });
 });
 
@@ -173,6 +216,34 @@ function samples(start: number, values: number[]): PeakViews {
 }
 
 describe("sample waveform geometry", () => {
+  it("keeps exact sample connections after subdued amplitude guides without painting RMS", () => {
+    const { ctx } = recordingCanvas();
+    drawSampleWaveform(
+      ctx as unknown as CanvasRenderingContext2D,
+      [samples(0, [-1, 0, 1])],
+      { start: 0, end: 3 },
+      300,
+      100,
+      "linear",
+      { gridColor: "#1b2940", centerLineColor: "#35425a", rmsColor: "#b08d4e" },
+    );
+    expect(ctx.lineTo.mock.calls).toEqual([
+      [300, 25],
+      [300, 75],
+      [300, 50],
+      [100, 50],
+      [200, 0],
+    ]);
+    expect(ctx.arc.mock.calls.map((call) => call.slice(0, 2))).toEqual([
+      [0, 100],
+      [100, 50],
+      [200, 0],
+    ]);
+    expect(ctx.fillRect).not.toHaveBeenCalled();
+    expect(ctx.stroke).toHaveBeenCalledTimes(3);
+    expect(ctx.strokeStyle).toBe("#e4b967");
+  });
+
   it("draws signed exact sample points and straight connections by default, without RMS", () => {
     const { ctx } = recordingCanvas();
     drawSampleWaveform(

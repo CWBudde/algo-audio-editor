@@ -615,7 +615,11 @@ describe("WaveformView", () => {
     expect(drawing?.arc).toHaveBeenCalledTimes(4);
     expect(drawing?.strokeStyle).toBe(testPalette.waveformPeak);
     expect(drawing?.fillStyle).toBe(testPalette.waveformSample);
+    // Amplitude guides precede the exact kernel-sample geometry.
     expect(drawing?.lineTo.mock.calls).toEqual([
+      [744, 40],
+      [744, 120],
+      [744, 80],
       [186, 40],
       [372, 140],
       [558, 40],
@@ -631,6 +635,9 @@ describe("WaveformView", () => {
     await painted(getByTestId);
     expect(canvas.dataset.displayMode).toBe("steps");
     expect(drawing?.lineTo.mock.calls).toEqual([
+      [744, 40],
+      [744, 120],
+      [744, 80],
       [186, 140],
       [186, 40],
       [372, 40],
