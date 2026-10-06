@@ -22,7 +22,7 @@ install:
 
 # Build kernel.wasm and copy the matching wasm_exec.js into the web app
 wasm-build:
-    node scripts/build-wasm.mjs
+    bun scripts/build-wasm.mjs
 
 # Build the native single-file/batch CLI and stdio MCP server (host OS/architecture).
 native-build:
@@ -41,20 +41,20 @@ demo:
 
 # Bound all production JS/WASM artifacts after the web build.
 check-web-budget:
-    node scripts/check-web-budget.mjs
+    bun scripts/check-web-budget.mjs
 
 # Start the Vite dev server (rebuilds the kernel first)
 dev: wasm-build
-    bun run --cwd {{web}} dev
+    bun run --bun --cwd {{web}} dev
 
 # Production build of the web app into apps/editor-web/dist
 build: wasm-build
-    bun run --cwd {{web}} build
+    bun run --bun --cwd {{web}} build
     just check-web-budget
 
 # Serve the production build locally (COOP/COEP headers included)
 preview: build
-    bun run --cwd {{web}} preview
+    bun run --bun --cwd {{web}} preview
 
 # Build the web app and the Electron shell, then launch it
 desktop-dev: build desktop-build
@@ -112,32 +112,34 @@ fuzz-codecs duration="10s":
 fuzz-export duration="10s":
     cd {{kernel}} && go test -run '^$' -fuzz '^FuzzDocumentExport$' -fuzztime='{{duration}}' -parallel=2 ./internal/engine
 
+# Vitest's jsdom environment currently requires Node; .nvmrc matches CI.
 test-web:
     bun run --cwd {{web}} test
 
 # Main-process security and filesystem tests run without launching Electron.
 test-desktop:
-    bun run --cwd {{desktop}} test
+    bun run --bun --cwd {{desktop}} test
 
 # Browser end-to-end tests against the production build (no hardware timing gates)
 e2e: build native-build
-    bun run --cwd {{web}} e2e
+    bun run --bun --cwd {{web}} e2e
 
 # Actual headerless Pages subpath and cold service-worker boot.
 e2e-pages:
     VITE_BASE=/algo-audio-editor/ VITE_OUT_DIR=dist-pages just build
-    AAE_EXPECTED_COMMIT="$(git rev-parse HEAD)" bun run --cwd {{web}} e2e --config playwright.pages.config.ts
+    AAE_EXPECTED_COMMIT="$(git rev-parse HEAD)" bun run --bun --cwd {{web}} e2e --config playwright.pages.config.ts
 
 # Live site verification without rebuilding or launching a local server.
 e2e-pages-live:
     test -n "${PLAYWRIGHT_BASE_URL:-}"
-    bun run --cwd {{web}} e2e --config playwright.pages.config.ts
+    bun run --bun --cwd {{web}} e2e --config playwright.pages.config.ts
 
 # Opt-in hardware timing gates (`@timing`): run on the target laptop, not on shared CI.
 e2e-timing: build
-    AAE_TIMING=1 bun run --cwd {{web}} e2e
+    AAE_TIMING=1 bun run --bun --cwd {{web}} e2e
 
 # Electron end-to-end tests (needs a display, or xvfb-run on CI)
+# Keep the Electron Playwright runner on Node; Bun fails to collect its tests.
 e2e-desktop: build desktop-build
     bun run --cwd {{desktop}} e2e
 
@@ -170,12 +172,12 @@ bench-process-wasm:
 # Opt-in hardware timing gate: full ten-minute import, including file read and UI.
 # Run in isolation on the target laptop; this is not part of shared-runner CI.
 bench-import-browser: build
-    AAE_IMPORT_BENCHMARK=1 bun run --cwd {{web}} e2e e2e/import-benchmark.spec.ts --workers=1
+    AAE_IMPORT_BENCHMARK=1 bun run --bun --cwd {{web}} e2e e2e/import-benchmark.spec.ts --workers=1
 
 # Opt-in hardware gate: ten-minute 32-case Phase 3.2 matrix, commit/handoff and painted waveforms.
 # Run serially on the target laptop; this is not part of shared-runner CI.
 bench-process-browser: build
-    AAE_PROCESS_BENCHMARK=1 bun run --cwd {{web}} e2e e2e/process-benchmark.spec.ts --workers=1
+    AAE_PROCESS_BENCHMARK=1 bun run --bun --cwd {{web}} e2e e2e/process-benchmark.spec.ts --workers=1
 
 # Profile the same full-size import natively; output_dir must be an existing absolute path.
 # Keep the test binary/profile outside the worktree, then print CPU hotspots.
@@ -203,7 +205,7 @@ flac-hour-fixture output:
 # Full production browser import-to-painted-waveform acceptance, without a timing threshold.
 test-flac-hour-browser fixture: build
     [[ '{{fixture}}' == /* && -f '{{fixture}}' ]]
-    AAE_HOUR_FLAC_FIXTURE='{{fixture}}' bun run --cwd {{web}} e2e e2e/flac-hour.spec.ts --workers=1
+    AAE_HOUR_FLAC_FIXTURE='{{fixture}}' bun run --bun --cwd {{web}} e2e e2e/flac-hour.spec.ts --workers=1
 
 # One-hour JSON analysis round-trip comparison (shared repeated source, no codec import).
 bench-analysis-hour:
@@ -225,8 +227,8 @@ lint-go:
 
 lint-web:
     bunx biome lint apps packages/protocol
-    bun run --cwd {{web}} typecheck
-    bun run --cwd {{desktop}} typecheck
+    bun run --bun --cwd {{web}} typecheck
+    bun run --bun --cwd {{desktop}} typecheck
 
 fmt:
     treefmt

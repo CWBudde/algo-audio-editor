@@ -86,6 +86,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Development and build recipes explicitly run Vite with Bun, avoiding failures
+  when its Node shebang selects an older system Node. WASM builds, typechecks,
+  browser Playwright and desktop unit tests also use Bun; web DOM unit tests,
+  Electron Playwright and Node-specific tools retain Node 24, selected by `.nvmrc`.
 - MP3 imports preserve mono channels and trim supported Xing/LAME encoder
   delay/padding; PCM8 WAV data is centered correctly and round-trips every code.
 - Surround loudness uses the correct physical channel weights; noise profiles

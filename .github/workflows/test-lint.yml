@@ -52,7 +52,7 @@ jobs:
         run: bunx biome ci apps packages/protocol
       - name: Typecheck
         run: |
-          bun run --cwd apps/editor-web typecheck
-          bun run --cwd apps/desktop typecheck
+          bun run --bun --cwd apps/editor-web typecheck
+          bun run --bun --cwd apps/desktop typecheck
       - name: Reviewed dependency licenses and notices
         run: just check-licenses

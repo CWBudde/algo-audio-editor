@@ -48,7 +48,7 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
     : {
-        command: `bun run preview --port ${PORT} --strictPort`,
+        command: `bun run --bun preview --port ${PORT} --strictPort`,
         url: `http://localhost:${PORT}`,
         // Own the preview lifecycle so tests always verify this production build.
         // A busy port fails explicitly; AAE_E2E_PORT avoids unrelated local servers.

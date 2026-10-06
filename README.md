@@ -49,6 +49,13 @@ Requirements: Go ≥ 1.25 (the kernel module selects toolchain 1.26.8),
 [Bun](https://bun.sh) ≥ 1.4.2, Node.js ≥ 24, [just](https://just.systems), and
 for formatting `treefmt`, `gofumpt`, `gci` and `shfmt`.
 
+Development, production builds, typechecks, browser Playwright and desktop unit
+tests run with Bun. Recipes explicitly override Node shebangs with `--bun`, so
+`just dev` also works when the system Node is older than Vite supports.
+Web DOM unit tests, Electron Playwright, Go/WASM tests and Node-specific
+audit/packaging tools still use Node 24. With nvm, run `nvm install` and
+`nvm use`; `.nvmrc` matches CI.
+
 ```bash
 just install          # dependencies, Electron binary, git hooks
 just dev              # http://localhost:5173

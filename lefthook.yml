@@ -19,11 +19,11 @@ pre-commit:
       glob:
         - "apps/editor-web/**/*.{ts,tsx}"
         - "packages/protocol/**/*.ts"
-      run: bun run --cwd apps/editor-web typecheck
+      run: bun run --bun --cwd apps/editor-web typecheck
 
     - name: typecheck-desktop
       glob: "apps/desktop/**/*.{ts,mts}"
-      run: bun run --cwd apps/desktop typecheck
+      run: bun run --bun --cwd apps/desktop typecheck
 
     # With root set, {staged_files} is relative to packages/kernel.
     - name: gofumpt

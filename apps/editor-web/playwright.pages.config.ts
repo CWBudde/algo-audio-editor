@@ -28,7 +28,7 @@ export default defineConfig({
   webServer: remote
     ? undefined
     : {
-        command: `node ../../scripts/serve-pages.mjs ${port}`,
+        command: `bun ../../scripts/serve-pages.mjs ${port}`,
         url: `http://localhost:${port}/algo-audio-editor/`,
         reuseExistingServer: false,
       },
