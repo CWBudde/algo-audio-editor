@@ -211,10 +211,36 @@ Add, remove or reorder effects, adjust their generated controls, or choose a
 factory preset. Numeric parameters use knobs with editable values and units.
 EQ curves and dynamics transfer curves are computed by the kernel; drag an EQ
 band to adjust frequency and gain, or right-click a band to choose its filter
-type. Keyboard controls provide the same adjustments. Graphic EQ uses vertical
+type. Parametric EQ starts with six logarithmically spaced bands: highpass
+(30 Hz), low shelf (100 Hz), two peaks (350 Hz and 1.2 kHz), high shelf (4 kHz),
+and lowpass (14 kHz). Low sample rates compress the spacing; pass bands adjust
+cutoff and Q rather than gain. Keyboard controls provide the same adjustments.
+Each band has an Order dropdown beside Type (2–12 in steps of two). Order two
+keeps the original Q/resonance controls; higher orders use steeper Butterworth
+filters. Q controls peak bandwidth and is fixed for higher-order passes/shelves.
+Wheel over a band dot to adjust Q/bandwidth: up narrows, down widens, and Shift
+makes finer changes.
+Graphic EQ uses vertical
 gain and order sliders with editable readouts, plus a full-width logarithmic
 frequency graph. Complementary transitions keep equal neighboring gains flat;
 the lowest and highest controls extend to DC and Nyquist respectively.
+
+**Filter…** combines lowpass, highpass, bandpass, notch, all-pass, peak and
+shelving filters. Choose Type and Family above the compact knob controls;
+only supported families and relevant Q, bandwidth, ripple or stopband controls
+appear. Higher-order designs have an Order dropdown; RBJ uses one second-order
+biquad. Butterworth and Chebyshev I/II support orders up to 20; Bessel stops at
+10 and elliptic at 12. Moog ladder is available for lowpass, with resonance, drive and
+oversampling controls and live preview instead of a linear response chart.
+**Weighting filters…** switches between A- and C-weighting in one editor.
+Both editors show full-width frequency readouts with logarithmic frequency,
+dB levels and pointer readout. Existing filter presets and automation node IDs
+remain supported.
+
+The compressor uses a square transfer plot beside two columns of knobs in three
+rows. **Auto gain** uses the kernel's automatic makeup compensation; the manual
+Makeup control is disabled while enabled and retains its value for switching back.
+Inspect the curve with the pointer or focus it and use Left/Right or Home/End.
 
 Preview loops the selection with live parameter changes, rack/effect bypass,
 wet/dry balance and input/output peak/RMS meters. Apply renders the final rack

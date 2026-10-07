@@ -114,6 +114,9 @@ Original phase numbers are noted per phase; dated reports in `docs/benchmarks/` 
 
 *Originally Phase 24 open item.*
 
+- [x] Consolidated standard filter menu/rack entry points in **Filter…** and A-/C-weighting in **Weighting filters…**, with full-width kernel frequency charts, compatible type/family selectors and only relevant controls (`effect-menu.ts`, `filter-controls.ts`, `filter-response-graph.tsx`, `EffectParameters`, `EffectsDialog`). Legacy node IDs remain supported. Focused UI tests and Chromium checks cover control switching, charts, responsive layout and Apply/Undo; full commit checks remain deferred during interactive design.
+- [x] Narrower filter/weighting dialogs (80% of previous maximum), 320 px frequency charts down to −96 dB, and upstream Butterworth/Chebyshev orders through 20 (`algo-dsp v0.12.1`; Bessel 10 and elliptic 12 retained). Compact compressor uses a square plot beside two columns/three rows of knobs and a kernel-backed Auto gain checkbox; manual makeup stays stored, and keyboard/pointer curve inspection replaces the redundant slider/help (`DynamicsGraph`, `EffectParameters`). Focused upstream race tests, web tests/typecheck and Chromium checks cover real processing/response, control toggles, responsive geometry and exact Undo.
+
 - [ ] Continue visual review with user feedback: remaining populated/error/loading dialogs, combined dense multichannel/spectral/analysis states, complete small-screen focus/scroll access and contrast review at OS scaling settings. Installed Windows/macOS typography/scale is covered in Phase 19.
 - [ ] Decide the zoomed-out waveform redesign and sinc interpolation for sample view (outside original Phase U's scope).
 

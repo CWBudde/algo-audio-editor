@@ -29,7 +29,19 @@ All notable changes to this project are documented here. The format follows
   logarithmic frequency graphs, parametric EQ right-click filter-type menus
   and dynamics input/output graphs provide dedicated controls. Graphic EQ uses
   complementary transitions from algo-dsp v0.11.0 to remove actual audio gain
-  spikes between overlapping bands.
+  spikes between overlapping bands. Parametric EQ uses algo-dsp v0.11.1 for
+  highpass/lowpass support and six default bands spaced across 30 Hz–14 kHz:
+  highpass, low shelf, two peaks, high shelf and lowpass. Pass controls edit
+  cutoff/Q; six band cards use three columns on wide screens. Per-band Order
+  dropdowns beside Type select 2–12 via algo-dsp v0.12.0; higher orders sharpen
+  Butterworth transitions while preserving the requested gain.
+- Unified Filter and Weighting filters editors replace redundant menu/picker
+  entries, with full-width frequency readouts and controls matched to the
+  selected type/family. Legacy preset and automation filter types remain valid.
+  Their narrower dialogs have taller charts down to −96 dB. algo-dsp v0.12.1
+  extends Butterworth/Chebyshev filter orders through 20. Compressor controls
+  use three rows beside a square transfer plot, with kernel automatic makeup
+  gain and no redundant inspection slider or help paragraph.
 - Output peak/RMS/true-peak and loudness meters, loudness range, stereo correlation
   and goniometer; selection/live spectra, progressive spectrograms, statistics,
   pitch tracking and optional clipping markers.

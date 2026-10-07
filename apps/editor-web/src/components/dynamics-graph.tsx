@@ -2,19 +2,14 @@ import type { EffectDescriptor } from "@aae/protocol";
 import { type PointerEvent, useId, useRef, useState } from "react";
 import type { RackEffect } from "@/lib/effect-presets";
 
-const WIDTH = 640;
-const HEIGHT = 320;
-const LEFT = 64;
-const RIGHT = 620;
-const TOP = 28;
-const BOTTOM = 264;
 const MIN_INPUT = -80;
 const MAX_INPUT = 0;
 const MIN_OUTPUT = -80;
 const MAX_OUTPUT = 24;
-const formatDB = (value: number) => `${value > 0 ? "+" : ""}${value.toFixed(1)} dB`;
-const x = (db: number) => LEFT + ((db - MIN_INPUT) * (RIGHT - LEFT)) / (MAX_INPUT - MIN_INPUT);
-const y = (db: number) => TOP + ((MAX_OUTPUT - db) * (BOTTOM - TOP)) / (MAX_OUTPUT - MIN_OUTPUT);
+const formatDB = (value: number) => {
+  const rounded = Number(value.toFixed(1));
+  return `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)} dB`;
+};
 
 /** Draw and inspect the kernel's gain-computer samples; no dynamics model lives in the UI. */
 export function DynamicsGraph({
@@ -22,12 +17,22 @@ export function DynamicsGraph({
   node,
   points,
   disabled,
+  compact = false,
 }: {
   descriptor: EffectDescriptor;
   node: RackEffect;
   points: [number, number][];
   disabled: boolean;
+  compact?: boolean;
 }) {
+  const WIDTH = compact ? 360 : 640;
+  const HEIGHT = compact ? 360 : 320;
+  const LEFT = compact ? 56 : 64;
+  const RIGHT = compact ? 336 : 620;
+  const TOP = compact ? 24 : 28;
+  const BOTTOM = compact ? 304 : 264;
+  const x = (db: number) => LEFT + ((db - MIN_INPUT) * (RIGHT - LEFT)) / (MAX_INPUT - MIN_INPUT);
+  const y = (db: number) => TOP + ((MAX_OUTPUT - db) * (BOTTOM - TOP)) / (MAX_OUTPUT - MIN_OUTPUT);
   const id = useId();
   const svg = useRef<SVGSVGElement>(null);
   const [input, setInput] = useState(-12);
@@ -61,12 +66,37 @@ export function DynamicsGraph({
       <svg
         ref={svg}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="effect-graph w-full select-none border"
+        className="effect-graph w-full select-none border outline-none focus-visible:ring-2 focus-visible:ring-ring"
         role="img"
+        tabIndex={disabled ? -1 : 0}
         aria-label={`${descriptor.name} response curve`}
-        aria-describedby={`${id}-help ${id}-readout`}
+        aria-describedby={`${id}-readout`}
+        aria-keyshortcuts="ArrowLeft ArrowRight Home End"
         onPointerMove={inspect}
         onPointerDown={inspect}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (disabled || !points.length) return;
+          let index: number;
+          switch (event.key) {
+            case "ArrowLeft":
+              index = nearest - (event.shiftKey ? 10 : 1);
+              break;
+            case "ArrowRight":
+              index = nearest + (event.shiftKey ? 10 : 1);
+              break;
+            case "Home":
+              index = 0;
+              break;
+            case "End":
+              index = points.length - 1;
+              break;
+            default:
+              return;
+          }
+          event.preventDefault();
+          setInput(points[Math.max(0, Math.min(points.length - 1, index))][0]);
+        }}
       >
         <title>{descriptor.name} input/output transfer curve</title>
         <defs>
@@ -190,16 +220,18 @@ export function DynamicsGraph({
           )}
         </g>
       </svg>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span className="text-waveform-peak">Transfer curve</span>
-        <span>Dashed: unity (1:1)</span>
-        {Number.isFinite(threshold) && (
-          <span className="text-trace-secondary">
-            Threshold {formatDB(threshold)}
-            {Number.isFinite(knee) && knee > 0 ? ` · Knee ${formatDB(knee)}` : ""}
-          </span>
-        )}
-      </div>
+      {!compact && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span className="text-waveform-peak">Transfer curve</span>
+          <span>Dashed: unity (1:1)</span>
+          {Number.isFinite(threshold) && (
+            <span className="text-trace-secondary">
+              Threshold {formatDB(threshold)}
+              {Number.isFinite(knee) && knee > 0 ? ` · Knee ${formatDB(knee)}` : ""}
+            </span>
+          )}
+        </div>
+      )}
       <output
         id={`${id}-readout`}
         className="studio-readout block rounded border border-border/60 bg-background/50 px-2 py-1.5 text-xs tabular-nums"
@@ -209,31 +241,6 @@ export function DynamicsGraph({
           ? `Input ${formatDB(selected[0])} → Output ${formatDB(selected[1])} · Gain change ${formatDB(selected[1] - selected[0])}`
           : "Loading transfer curve…"}
       </output>
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <label htmlFor={`${id}-input`}>Read input level</label>
-        <input
-          id={`${id}-input`}
-          className="min-w-0 flex-1 accent-primary"
-          type="range"
-          min={0}
-          max={Math.max(0, points.length - 1)}
-          step={1}
-          value={nearest}
-          disabled={disabled || !selected}
-          aria-valuetext={
-            selected ? `${formatDB(selected[0])} input, ${formatDB(selected[1])} output` : undefined
-          }
-          onChange={(event) => {
-            const point = points[Number(event.target.value)];
-            if (point) setInput(point[0]);
-          }}
-        />
-      </div>
-      <p id={`${id}-help`} className="text-xs text-muted-foreground">
-        Move over the plot or use the input level slider to read a curve point. −80–0 dB input /
-        −80–24 dB output; values outside the output axis remain in the readout. The steady-state
-        curve includes makeup gain; attack, release and lookahead affect timing during playback.
-      </p>
     </div>
   );
 }

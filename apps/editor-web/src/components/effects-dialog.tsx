@@ -3,6 +3,7 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { EffectParameters } from "@/components/effect-parameters";
 import type { EffectsView } from "@/hooks/use-effects";
 import type { KernelClient } from "@/kernel/client";
+import { effectMenuEntries, isStandardFilter, isWeightingFilter } from "@/lib/effect-menu";
 import type { EffectPreset, RackEffect } from "@/lib/effect-presets";
 import { createRackEffect, stereoSelection, validRack } from "@/lib/effect-rack";
 
@@ -54,6 +55,13 @@ export function EffectsDialog(props: Props) {
     };
   }, [open]);
   const working = view && !["idle", "ready"].includes(view.phase);
+  const entries = effectMenuEntries(descriptors);
+  const singleType = view?.rack.length === 1 ? view.rack[0].type : "";
+  const title = isStandardFilter(singleType)
+    ? "Filter"
+    : isWeightingFilter(singleType)
+      ? "Weighting filters"
+      : "Effects rack";
   const valid = view && validRack(view.rack, descriptors, view.selection.channelMask);
   const changeNode = (index: number, change: Partial<RackEffect>) => {
     if (view)
@@ -72,7 +80,7 @@ export function EffectsDialog(props: Props) {
   return (
     <dialog
       ref={dialog}
-      className="studio-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(64rem,calc(100vw-2rem))] overflow-y-auto border p-4 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]"
+      className={`studio-dialog m-auto max-h-[calc(100dvh-2rem)] ${isStandardFilter(singleType) || isWeightingFilter(singleType) || singleType === "dyn-compressor" ? "w-[min(51.2rem,calc(100vw-2rem))]" : "w-[min(64rem,calc(100vw-2rem))]"} overflow-y-auto border p-4 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]`}
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-help`}
       onCancel={(event) => {
@@ -81,7 +89,7 @@ export function EffectsDialog(props: Props) {
       }}
     >
       <h2 id={`${id}-title`} className="studio-dialog-heading font-semibold tracking-tight">
-        Effects rack
+        {title}
       </h2>
       <p id={`${id}-help`} className="studio-dialog-help mt-1 text-muted-foreground">
         Preview the selected time and channels, then apply the rack in one undo step. A cursor uses
@@ -106,10 +114,10 @@ export function EffectsDialog(props: Props) {
                   onChange={(event) => setEffectId(event.target.value)}
                 >
                   <option value="">Choose an effect</option>
-                  {[...new Set(descriptors.map((descriptor) => descriptor.category))].map(
+                  {[...new Set(entries.map((descriptor) => descriptor.category))].map(
                     (category) => (
                       <optgroup key={category} label={category}>
-                        {descriptors
+                        {entries
                           .filter((effect) => effect.category === category)
                           .map((effect) => (
                             <option
@@ -198,7 +206,10 @@ export function EffectsDialog(props: Props) {
           </div>
           <ol className="space-y-3" aria-label="Effect order">
             {view.rack.map((node, index) => {
-              const descriptor = descriptors.find((entry) => entry.id === node.type);
+              const original = descriptors.find((entry) => entry.id === node.type);
+              const descriptor = isStandardFilter(node.type)
+                ? (descriptors.find((entry) => entry.id === "filter") ?? original)
+                : original;
               if (!descriptor)
                 return (
                   <li key={node.id} role="alert">
@@ -223,6 +234,7 @@ export function EffectsDialog(props: Props) {
                         Factory preset
                       </label>
                       <select
+                        key={node.type}
                         id={`${id}-factory-${node.id}`}
                         className="studio-field min-w-0 max-w-52 border px-2 py-1 text-xs"
                         defaultValue=""
@@ -233,6 +245,7 @@ export function EffectsDialog(props: Props) {
                           );
                           if (preset)
                             changeNode(index, {
+                              type: descriptor.id,
                               params: {
                                 ...createRackEffect(descriptor).params,
                                 ...preset.num,
@@ -315,13 +328,55 @@ export function EffectsDialog(props: Props) {
                       </p>
                     </div>
                   )}
+                  {isWeightingFilter(node.type) && (
+                    <label className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                      Weighting
+                      <select
+                        aria-label="Weighting"
+                        className="studio-field min-w-36 border px-2 py-1.5"
+                        value={node.type}
+                        disabled={Boolean(working)}
+                        onChange={(event) => {
+                          const next = descriptors.find((entry) => entry.id === event.target.value);
+                          if (next)
+                            changeNode(index, {
+                              type: next.id,
+                              params: createRackEffect(next).params,
+                            });
+                        }}
+                      >
+                        {descriptors
+                          .filter((entry) => isWeightingFilter(entry.id))
+                          .map((entry) => (
+                            <option key={entry.id} value={entry.id}>
+                              {entry.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  )}
                   <EffectParameters
                     descriptor={descriptor}
-                    node={node}
+                    node={
+                      descriptor.id !== node.type
+                        ? {
+                            ...node,
+                            params: { ...createRackEffect(descriptor).params, ...node.params },
+                          }
+                        : node
+                    }
                     client={props.client}
                     sampleRate={view.info.sampleRate}
                     disabled={Boolean(working)}
-                    onChange={(params) => changeNode(index, { params })}
+                    onChange={(params) =>
+                      changeNode(index, {
+                        type:
+                          isStandardFilter(descriptor.id) && params.family === "moog"
+                            ? "filter-moog"
+                            : descriptor.id,
+                        params,
+                      })
+                    }
                   />
                 </li>
               );

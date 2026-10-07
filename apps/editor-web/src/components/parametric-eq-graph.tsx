@@ -3,10 +3,8 @@ import { Menu } from "@base-ui/react/menu";
 import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import type { RackEffect } from "@/lib/effect-presets";
 
-const WIDTH = 640;
 const HEIGHT = 220;
 const LEFT = 52;
-const RIGHT = 620;
 const TOP = 20;
 const BOTTOM = 170;
 // Band colors identify physical EQ bands; selected controls use the interaction role.
@@ -42,9 +40,21 @@ export function ParametricEQGraph({
 }) {
   const id = useId();
   const svg = useRef<SVGSVGElement>(null);
+  const wheelHandler = useRef<((event: WheelEvent) => void) | undefined>(undefined);
   const drag = useRef<{ band: number; pointer: number } | undefined>(undefined);
   const [selected, setSelected] = useState(1);
   const [menu, setMenu] = useState<{ band: number; anchor: SVGElement }>();
+  const [width, setWidth] = useState(640);
+  useEffect(() => {
+    const element = svg.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width > 0) setWidth(entry.contentRect.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const right = width - 20;
   const maxHz = Math.min(20000, sampleRate * 0.49);
   const bandCount = clamp(Math.trunc(Number(node.params.bands) || 1), 1, 8);
   useEffect(() => {
@@ -55,8 +65,13 @@ export function ParametricEQGraph({
     descriptor.parameters.find((p) => p.id === `band${band}${suffix}`);
   const value = (band: number, suffix: string) =>
     Number(node.params[`band${band}${suffix}`] ?? parameter(band, suffix)?.default);
+  const type = (band: number) =>
+    String(node.params[`band${band}Type`] ?? parameter(band, "Type")?.defaultString ?? "peak");
+  const isPass = (band: number) => ["highpass", "lowpass"].includes(type(band));
+  const order = (band: number) => value(band, "Order") || 2;
+  const fixedQ = (band: number) => order(band) > 2 && type(band) !== "peak";
   const x = (hz: number) =>
-    LEFT + ((RIGHT - LEFT) * Math.log(clamp(hz, 20, maxHz) / 20)) / Math.log(maxHz / 20);
+    LEFT + ((right - LEFT) * Math.log(clamp(hz, 20, maxHz) / 20)) / Math.log(maxHz / 20);
   const y = (db: number) => TOP + ((BOTTOM - TOP) * (24 - clamp(db, -24, 24))) / 48;
   const path = points.map(([hz, db], index) => `${index ? "L" : "M"}${x(hz)},${y(db)}`).join(" ");
   const update = (changes: [EffectParameterDescriptor | undefined, number][]) => {
@@ -67,15 +82,39 @@ export function ParametricEQGraph({
     }
     onChange(params);
   };
+  wheelHandler.current = (event) => {
+    if (disabled || event.ctrlKey) return;
+    const handle = event.target instanceof Element ? event.target.closest("[data-eq-band]") : null;
+    if (!handle) return;
+    const band = Number(handle.getAttribute("data-eq-band"));
+    const field = parameter(band, "Q");
+    const delta = event.deltaY || event.deltaX;
+    if (!field || !Number.isFinite(delta) || delta === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setSelected(band);
+    if (fixedQ(band) || drag.current) return;
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? HEIGHT : 1;
+    const factor = Math.exp(-clamp(delta * unit, -240, 240) * (event.shiftKey ? 0.0004 : 0.002));
+    update([[field, value(band, "Q") * factor]]);
+  };
+  useEffect(() => {
+    const element = svg.current;
+    if (!element) return;
+    // A native listener can consume the gesture; React's wheel handlers are passive.
+    const wheel = (event: WheelEvent) => wheelHandler.current?.(event);
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => element.removeEventListener("wheel", wheel);
+  }, []);
   const position = (event: PointerEvent<SVGSVGElement>) => {
     const box = svg.current?.getBoundingClientRect();
     if (!box?.width || !box.height) return;
-    const px = ((event.clientX - box.left) * WIDTH) / box.width;
+    const px = ((event.clientX - box.left) * width) / box.width;
     const py = ((event.clientY - box.top) * HEIGHT) / box.height;
     return {
       px,
       py,
-      hz: 20 * (maxHz / 20) ** clamp((px - LEFT) / (RIGHT - LEFT), 0, 1),
+      hz: 20 * (maxHz / 20) ** clamp((px - LEFT) / (right - LEFT), 0, 1),
       db: 24 - 48 * clamp((py - TOP) / (BOTTOM - TOP), 0, 1),
     };
   };
@@ -86,7 +125,7 @@ export function ParametricEQGraph({
     if (point)
       update([
         [parameter(active.band, "FreqHz"), point.hz],
-        [parameter(active.band, "GainDB"), point.db],
+        [isPass(active.band) ? undefined : parameter(active.band, "GainDB"), point.db],
       ]);
   };
   const stop = (event: PointerEvent<SVGSVGElement>) => {
@@ -107,8 +146,9 @@ export function ParametricEQGraph({
       {/* biome-ignore lint/a11y/useSemanticElements: SVG groups the response image and independently focusable band handles. */}
       <svg
         ref={svg}
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="effect-graph mx-auto w-full max-w-[40rem] touch-none select-none border"
+        viewBox={`0 0 ${width} ${HEIGHT}`}
+        preserveAspectRatio="none"
+        className="effect-graph h-[220px] w-full touch-none select-none border"
         role="group"
         aria-label="Parametric EQ frequency graph"
         aria-describedby={`${id}-help`}
@@ -125,7 +165,7 @@ export function ParametricEQGraph({
         onPointerDown={(event) => {
           if (disabled || event.button !== 0 || drag.current) return;
           const point = position(event);
-          if (!point || point.px < LEFT || point.px > RIGHT || point.py < TOP || point.py > BOTTOM)
+          if (!point || point.px < LEFT || point.px > right || point.py < TOP || point.py > BOTTOM)
             return;
           const handle =
             event.target instanceof Element ? event.target.closest("[data-eq-band]") : null;
@@ -155,10 +195,10 @@ export function ParametricEQGraph({
         {/* biome-ignore lint/a11y/noInteractiveElementToNoninteractiveRole: This SVG group contains only the noninteractive response drawing; sliders are siblings. */}
         <g role="img" aria-label={`${descriptor.name} response curve`}>
           <title>{descriptor.name} frequency response</title>
-          <rect width={WIDTH} height={HEIGHT} fill="transparent" pointerEvents="none" />
+          <rect width={width} height={HEIGHT} fill="transparent" pointerEvents="none" />
           <defs>
             <clipPath id={`${id}-plot`}>
-              <rect x={LEFT} y={TOP} width={RIGHT - LEFT} height={BOTTOM - TOP} />
+              <rect x={LEFT} y={TOP} width={right - LEFT} height={BOTTOM - TOP} />
             </clipPath>
           </defs>
           {[
@@ -181,7 +221,7 @@ export function ParametricEQGraph({
             <g key={db}>
               <line
                 x1={LEFT}
-                x2={RIGHT}
+                x2={right}
                 y1={y(db)}
                 y2={y(db)}
                 stroke="currentColor"
@@ -204,7 +244,8 @@ export function ParametricEQGraph({
               (hz, index, ticks) =>
                 hz <= maxHz &&
                 ticks.indexOf(hz) === index &&
-                (hz === maxHz || x(maxHz) - x(hz) > 30),
+                (hz === maxHz ||
+                  (x(maxHz) - x(hz) > 30 && (index === 0 || x(hz) - x(ticks[index - 1]) > 30))),
             )
             .map((hz) => (
               <text
@@ -223,7 +264,7 @@ export function ParametricEQGraph({
             Gain (dB)
           </text>
           <text
-            x={RIGHT}
+            x={right}
             y={HEIGHT - 8}
             textAnchor="end"
             fontSize="11"
@@ -246,7 +287,7 @@ export function ParametricEQGraph({
         </g>
         {bands.map((band) => {
           const hz = value(band, "FreqHz");
-          const gain = value(band, "GainDB");
+          const gain = isPass(band) ? 0 : value(band, "GainDB");
           const q = value(band, "Q");
           if (![hz, gain, q].every(Number.isFinite)) return null;
           return (
@@ -264,10 +305,11 @@ export function ParametricEQGraph({
                 tabIndex={disabled ? -1 : 0}
                 aria-label={`EQ band ${band}`}
                 aria-disabled={disabled}
-                aria-valuemin={-24}
-                aria-valuemax={24}
-                aria-valuenow={gain}
-                aria-valuetext={`${Math.round(hz)} Hz, ${gain.toFixed(1)} dB, Q ${q.toFixed(2)}, ${String(node.params[`band${band}Type`] ?? "")}`}
+                aria-orientation={isPass(band) ? "horizontal" : "vertical"}
+                aria-valuemin={isPass(band) ? parameter(band, "FreqHz")?.min : -24}
+                aria-valuemax={isPass(band) ? parameter(band, "FreqHz")?.max : 24}
+                aria-valuenow={isPass(band) ? hz : gain}
+                aria-valuetext={`${Math.round(hz)} Hz, ${isPass(band) ? "cutoff" : `${gain.toFixed(1)} dB`}, ${fixedQ(band) ? "Butterworth" : `Q ${q.toFixed(2)}`}, ${type(band)}, order ${order(band)}`}
                 aria-haspopup="menu"
                 aria-describedby={`${id}-help`}
                 onFocus={() => setSelected(band)}
@@ -293,6 +335,7 @@ export function ParametricEQGraph({
                       break;
                     case "ArrowUp":
                     case "ArrowDown":
+                      if (isPass(band)) return;
                       changes = [
                         [
                           parameter(band, "GainDB"),
@@ -303,9 +346,11 @@ export function ParametricEQGraph({
                     case "+":
                     case "=":
                     case "-":
+                      if (fixedQ(band)) return;
                       changes = [[parameter(band, "Q"), q * (event.key === "-" ? 1 / 1.1 : 1.1)]];
                       break;
                     case "Home":
+                      if (isPass(band)) return;
                       changes = [[parameter(band, "GainDB"), 0]];
                       break;
                     default:
@@ -365,7 +410,7 @@ export function ParametricEQGraph({
               }}
             >
               <Menu.RadioGroup
-                value={String(menuType ? node.params[menuType.id] : "")}
+                value={menu ? type(menu.band) : ""}
                 onValueChange={(type) => {
                   if (menuType && !disabled) onChange({ ...node.params, [menuType.id]: type });
                 }}
@@ -385,17 +430,36 @@ export function ParametricEQGraph({
           </Menu.Positioner>
         </Menu.Portal>
       </Menu.Root>
-      <p
-        className="studio-readout rounded border border-border/60 bg-background/50 px-2 py-1 text-xs tabular-nums"
-        aria-live="polite"
-      >
-        <span style={{ color: EQ_BAND_COLORS[activeBand - 1] }}>Band {activeBand}</span> ·{" "}
-        {formatHz(value(activeBand, "FreqHz"))} Hz · {value(activeBand, "GainDB").toFixed(1)} dB · Q{" "}
-        {value(activeBand, "Q").toFixed(2)}
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p
+          className="studio-readout min-w-0 flex-1 rounded border border-border/60 bg-background/50 px-2 py-1 text-xs tabular-nums"
+          aria-live="polite"
+        >
+          <span style={{ color: EQ_BAND_COLORS[activeBand - 1] }}>Band {activeBand}</span> ·{" "}
+          {formatHz(value(activeBand, "FreqHz"))} Hz ·{" "}
+          {isPass(activeBand) ? "Cutoff" : `${value(activeBand, "GainDB").toFixed(1)} dB`} ·{" "}
+          {fixedQ(activeBand) ? "Butterworth" : `Q ${value(activeBand, "Q").toFixed(2)}`} · Order{" "}
+          {order(activeBand)}
+        </p>
+        <label className="flex shrink-0 items-center gap-2 text-xs">
+          Bands
+          <select
+            className="studio-field min-w-14 border px-1.5 py-1 text-xs tabular-nums"
+            value={bandCount}
+            disabled={disabled}
+            onChange={(event) => onChange({ ...node.params, bands: Number(event.target.value) })}
+          >
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((count) => (
+              <option key={count} value={count}>
+                {count}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <p id={`${id}-help`} className="text-xs text-muted-foreground">
         Drag: frequency/gain · Right-click or Shift+F10: type · Arrows: frequency/gain · Shift: fine
-        · +/−: Q · Home: zero gain
+        · Wheel or +/−: Q/BW · Home: zero gain · Pass: no gain · Higher-order pass/shelf: fixed Q
       </p>
     </div>
   );

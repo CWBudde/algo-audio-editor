@@ -13,7 +13,16 @@ class TestPointerEvent extends MouseEvent {
     this.pointerId = options.pointerId ?? 1;
   }
 }
-beforeEach(() => vi.stubGlobal("PointerEvent", TestPointerEvent));
+beforeEach(() => {
+  vi.stubGlobal("PointerEvent", TestPointerEvent);
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -48,6 +57,7 @@ const descriptor: EffectDescriptor = {
       numeric(`band${index + 1}FreqHz`, (index + 1) * 1000, 20, 23520),
       numeric(`band${index + 1}GainDB`, 0, -24, 24),
       numeric(`band${index + 1}Q`, 1, 0.2, 8),
+      numeric(`band${index + 1}Order`, 2, 2, 12),
       {
         ...numeric(`band${index + 1}Type`, 0, 0, 0),
         type: "enum" as const,
@@ -56,6 +66,8 @@ const descriptor: EffectDescriptor = {
           { value: "peak", label: "Peak" },
           { value: "lowshelf", label: "Low shelf" },
           { value: "highshelf", label: "High shelf" },
+          { value: "highpass", label: "Highpass" },
+          { value: "lowpass", label: "Lowpass" },
         ],
       },
     ]).flat(),
@@ -227,4 +239,41 @@ it("limits the graph to the sample rate and retains hidden bands for later react
   expect(view.getByText("Band 1")).toBeTruthy();
   fireEvent.keyDown(view.getByRole("slider"), { key: "ArrowUp" });
   expect(onChange.mock.lastCall?.[0].band8FreqHz).toBe(8000);
+});
+
+it("moves pass-filter cutoff horizontally, retains stored gain and exposes both pass types", async () => {
+  const onChange = vi.fn();
+  const node = { ...initial, params: { ...initial.params, band1Type: "highpass", band1GainDB: 9 } };
+  const view = render(<ParametricEQGraph {...base} node={node} onChange={onChange} />);
+  const svg = setup(view.getByRole("group"));
+  const band = view.getByRole("slider", { name: "EQ band 1" });
+  expect(band.getAttribute("cy")).toBe("95");
+  expect(band.getAttribute("aria-valuetext")).toContain("cutoff");
+  fireEvent.pointerDown(band, { clientX: Number(band.getAttribute("cx")), clientY: 95 });
+  fireEvent.pointerMove(svg, { clientX: 300, clientY: 50 });
+  expect(onChange.mock.lastCall?.[0].band1GainDB).toBe(9);
+  expect(onChange.mock.lastCall?.[0].band1FreqHz).not.toBe(1000);
+  fireEvent.pointerUp(svg);
+  onChange.mockClear();
+  fireEvent.keyDown(band, { key: "ArrowUp" });
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.keyDown(band, { key: "+" });
+  expect(onChange.mock.lastCall?.[0].band1Q).toBe(1.1);
+  fireEvent.contextMenu(band);
+  expect(
+    (await view.findByRole("menuitemradio", { name: "Highpass" })).getAttribute("aria-checked"),
+  ).toBe("true");
+  fireEvent.click(view.getByRole("menuitemradio", { name: "Lowpass" }));
+  expect(onChange.mock.lastCall?.[0].band1Type).toBe("lowpass");
+  view.rerender(
+    <EffectParameters
+      descriptor={descriptor}
+      node={node}
+      sampleRate={48000}
+      disabled={false}
+      onChange={onChange}
+    />,
+  );
+  expect((view.getByLabelText("band1GainDB") as HTMLInputElement).disabled).toBe(true);
+  expect((view.getByLabelText("band2GainDB") as HTMLInputElement).disabled).toBe(false);
 });

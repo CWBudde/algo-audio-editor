@@ -2,10 +2,13 @@ import type { EffectDescriptor, EffectParameterDescriptor } from "@aae/protocol"
 import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import { DynamicsGraph } from "@/components/dynamics-graph";
 import { EffectKnob } from "@/components/effect-knob";
+import { FilterResponseGraph } from "@/components/filter-response-graph";
 import { GraphicEQGraph } from "@/components/graphic-eq-graph";
 import { EQ_BAND_COLORS, ParametricEQGraph } from "@/components/parametric-eq-graph";
 import type { KernelClient } from "@/kernel/client";
+import { isStandardFilter, isWeightingFilter } from "@/lib/effect-menu";
 import type { RackEffect } from "@/lib/effect-presets";
+import { filterFamilySupports, filterOrderOptions, filterParameters } from "@/lib/filter-controls";
 
 function NumericParameter({
   parameter,
@@ -166,7 +169,10 @@ function EffectCurve({
             );
           },
           (error) => {
-            if (active) setError(String(error));
+            if (active) {
+              setPoints([]);
+              setError(String(error));
+            }
           },
         );
     }, 20);
@@ -227,6 +233,20 @@ function EffectCurve({
         : {}),
     });
   };
+  if (isStandardFilter(descriptor.id) || isWeightingFilter(descriptor.id))
+    return (
+      <div>
+        <FilterResponseGraph
+          name={isWeightingFilter(descriptor.id) ? descriptor.name : "Filter"}
+          {...{ points, sampleRate }}
+        />
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
+      </div>
+    );
   if (descriptor.id === "eq-parametric")
     return (
       <div>
@@ -251,8 +271,17 @@ function EffectCurve({
     );
   if (descriptor.view === "dynamics")
     return (
-      <div className="mx-auto max-w-[40rem]">
-        <DynamicsGraph {...{ descriptor, node, points, disabled }} />
+      <div
+        className={
+          descriptor.id === "dyn-compressor"
+            ? "mx-auto w-full max-w-[22.5rem]"
+            : "mx-auto max-w-[40rem]"
+        }
+      >
+        <DynamicsGraph
+          {...{ descriptor, node, points, disabled }}
+          compact={descriptor.id === "dyn-compressor"}
+        />
         {error && (
           <p role="alert" className="text-xs text-destructive">
             {error}
@@ -323,18 +352,105 @@ export function EffectParameters({
   const nonlinearMoog =
     descriptor.id === "filter-moog" ||
     (descriptor.id.startsWith("filter") && node.params.family === "moog");
-  const parameters = descriptor.parameters.filter((parameter) => parameter.id !== "irIndex");
+  const standardFilter = isStandardFilter(descriptor.id);
+  const kind = String(node.params.kind ?? "lowpass");
+  const family = String(node.params.family ?? "rbj");
+  const orderMaximum =
+    descriptor.parameters.find((parameter) => parameter.id === "order")?.max ?? 12;
+  const parameters = (
+    standardFilter ? filterParameters(descriptor, node) : descriptor.parameters
+  ).filter((parameter) => parameter.id !== "irIndex");
+  const changeFilter = (field: string, value: string | number) => {
+    const params = { ...node.params, [field]: value };
+    const nextKind = String(params.kind ?? "lowpass");
+    if (!filterFamilySupports(nextKind, String(params.family ?? "rbj"))) params.family = "rbj";
+    if (field === "kind" || field === "family") {
+      const q = Number(
+        params.q ?? descriptor.parameters.find((parameter) => parameter.id === "q")?.default ?? 1,
+      );
+      params.q =
+        params.family === "moog" ? Math.max(0, Math.min(4, q)) : Math.max(0.2, Math.min(8, q));
+    }
+    const orders = filterOrderOptions(nextKind, String(params.family ?? "rbj"), orderMaximum);
+    if (orders.length && !orders.includes(Number(params.order)))
+      params.order =
+        params.family === "moog"
+          ? (orders.findLast((order) => order <= Number(params.order)) ?? orders[0])
+          : (orders.find((order) => order >= Number(params.order)) ?? orders.at(-1) ?? 2);
+    onChange(params);
+  };
   const control = (
     parameter: EffectParameterDescriptor,
     label = parameter.label,
     vertical = false,
   ) => {
     const field = `${id}-${parameter.id}`;
+    if (standardFilter && parameter.id === "order") {
+      const options = filterOrderOptions(kind, family, orderMaximum);
+      const selected =
+        family === "moog"
+          ? (options.findLast((order) => order <= Number(node.params.order)) ?? options[0])
+          : (options.find((order) => order >= Number(node.params.order)) ?? options.at(-1));
+      return (
+        <label key={parameter.id} className="min-w-0 space-y-1 text-xs">
+          <span className="block">{family === "moog" ? "Oversampling" : "Order"}</span>
+          <select
+            className="studio-field w-full border px-2 py-1.5 text-xs"
+            aria-label={family === "moog" ? "Oversampling" : "Order"}
+            value={selected}
+            disabled={disabled}
+            onChange={(event) => changeFilter("order", Number(event.target.value))}
+          >
+            {options.map((order, index) => (
+              <option key={order} value={order}>
+                {family === "moog" ? `${2 ** index}×` : order}
+              </option>
+            ))}
+          </select>
+        </label>
+      );
+    }
+    const gainBand = /^band(\d+)GainDB$/.exec(parameter.id)?.[1];
+    const passGain =
+      descriptor.id === "eq-parametric" &&
+      gainBand !== undefined &&
+      ["highpass", "lowpass"].includes(String(node.params[`band${gainBand}Type`]));
+    const qBand = /^band(\d+)Q$/.exec(parameter.id)?.[1];
+    const fixedQ =
+      descriptor.id === "eq-parametric" &&
+      qBand !== undefined &&
+      Number(node.params[`band${qBand}Order`] ?? 2) > 2 &&
+      String(node.params[`band${qBand}Type`] ?? "peak") !== "peak";
+    if (descriptor.id === "eq-parametric" && /^band\d+Order$/.test(parameter.id))
+      return (
+        <label key={parameter.id} className="flex shrink-0 items-center gap-2 text-xs">
+          Order
+          <select
+            aria-label={parameter.label}
+            className="studio-field min-w-14 border px-1.5 py-1 text-xs tabular-nums"
+            value={Number(node.params[parameter.id] ?? parameter.default)}
+            disabled={disabled}
+            onChange={(event) =>
+              onChange({ ...node.params, [parameter.id]: Number(event.target.value) })
+            }
+          >
+            {[2, 4, 6, 8, 10, 12].map((order) => (
+              <option key={order} value={order}>
+                {order}
+              </option>
+            ))}
+          </select>
+        </label>
+      );
     if (parameter.type === "enum")
       return (
         <div
           key={parameter.id}
-          className={label === "Type" ? "flex min-w-0 items-center gap-2" : "min-w-0 space-y-1"}
+          className={
+            label === "Type" && !standardFilter
+              ? "flex min-w-0 items-center gap-2"
+              : "min-w-0 space-y-1"
+          }
         >
           <label htmlFor={field} className="block text-xs">
             {label}
@@ -345,7 +461,11 @@ export function EffectParameters({
             className="studio-field w-full min-w-0 border px-1.5 py-1 text-xs"
             value={String(node.params[parameter.id])}
             disabled={disabled}
-            onChange={(event) => onChange({ ...node.params, [parameter.id]: event.target.value })}
+            onChange={(event) =>
+              standardFilter
+                ? changeFilter(parameter.id, event.target.value)
+                : onChange({ ...node.params, [parameter.id]: event.target.value })
+            }
           >
             {parameter.options?.map((option) => (
               <option key={option.value} value={option.value}>
@@ -372,39 +492,124 @@ export function EffectParameters({
     return (
       <NumericParameter
         key={parameter.id}
-        {...{ parameter, label, disabled, vertical }}
+        {...{ parameter, vertical }}
+        label={fixedQ ? "Q (fixed)" : label}
+        disabled={
+          disabled ||
+          passGain ||
+          fixedQ ||
+          (descriptor.id === "dyn-compressor" &&
+            parameter.id === "makeupGainDB" &&
+            Boolean(node.params.autoMakeup))
+        }
         value={Number(node.params[parameter.id])}
         onChange={(value) => onChange({ ...node.params, [parameter.id]: value })}
       />
     );
   };
+  if (descriptor.id === "dyn-compressor")
+    return (
+      <div className="grid items-center gap-5 min-[760px]:grid-cols-2">
+        <EffectCurve {...{ descriptor, node, disabled, client, sampleRate, onChange }} />
+        <div className="grid min-w-0 grid-cols-2 items-start gap-x-3 gap-y-5">
+          {["thresholdDB", "ratio", "kneeDB", "makeupGainDB", "attackMs", "releaseMs"]
+            .flatMap((field) => parameters.filter((parameter) => parameter.id === field))
+            .map((parameter) => (
+              <div key={parameter.id} className="min-w-0">
+                {control(
+                  parameter,
+                  (
+                    {
+                      thresholdDB: "Threshold",
+                      ratio: "Ratio",
+                      kneeDB: "Knee",
+                      makeupGainDB: "Makeup",
+                      attackMs: "Attack",
+                      releaseMs: "Release",
+                    } as Record<string, string>
+                  )[parameter.id],
+                )}
+                {parameter.id === "makeupGainDB" &&
+                  parameters
+                    .filter((entry) => entry.id === "autoMakeup")
+                    .map((entry) => (
+                      <div key={entry.id} className="mt-2 flex justify-center">
+                        {control(entry, "Auto gain")}
+                      </div>
+                    ))}
+              </div>
+            ))}
+          {parameters
+            .filter(
+              (parameter) =>
+                ![
+                  "thresholdDB",
+                  "ratio",
+                  "kneeDB",
+                  "makeupGainDB",
+                  "attackMs",
+                  "releaseMs",
+                  "autoMakeup",
+                ].includes(parameter.id),
+            )
+            .map((parameter) => control(parameter))}
+        </div>
+      </div>
+    );
   return (
     <div className="space-y-2.5">
-      {descriptor.view !== "generic" && !nonlinearMoog && (
-        <div
-          className={
-            descriptor.id === "eq-parametric"
-              ? "grid grid-cols-[minmax(0,1fr)_5rem] items-start gap-3"
-              : undefined
-          }
-        >
-          <EffectCurve {...{ descriptor, node, disabled, client, sampleRate, onChange }} />
-          {descriptor.id === "eq-parametric" && (
-            <div className="space-y-2.5">
-              {parameters
-                .filter((parameter) => !/^band\d/.test(parameter.id))
-                .map((parameter) => control(parameter))}
-            </div>
-          )}
-        </div>
+      {(descriptor.view !== "generic" || standardFilter) && !nonlinearMoog && (
+        <EffectCurve
+          key={descriptor.id}
+          {...{ descriptor, node, disabled, client, sampleRate, onChange }}
+        />
       )}
       {nonlinearMoog && (
         <p className="text-xs text-muted-foreground">
           Moog response depends on the input signal. Adjust its controls and use live preview.
         </p>
       )}
-      {descriptor.id === "eq-parametric" ? (
-        <div className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 min-[1000px]:grid-cols-4">
+      {standardFilter ? (
+        <div className="space-y-2.5">
+          <div className="flex flex-wrap items-end gap-3">
+            {["kind", "family", "order"]
+              .flatMap((field) => parameters.filter((parameter) => parameter.id === field))
+              .map((parameter) => (
+                <div
+                  key={parameter.id}
+                  className={parameter.id === "order" ? "w-24" : "min-w-36 flex-1"}
+                >
+                  {control(parameter)}
+                </div>
+              ))}
+          </div>
+          <div className="flex flex-wrap items-start gap-3">
+            {parameters
+              .filter((parameter) => !["kind", "family", "order"].includes(parameter.id))
+              .map((parameter) => (
+                <div key={parameter.id} className="w-24">
+                  {control(parameter)}
+                </div>
+              ))}
+          </div>
+          {family === "rbj" && (
+            <p className="text-xs text-muted-foreground">Single biquad (second order).</p>
+          )}
+          {kind === "allpass" && (
+            <p className="text-xs text-muted-foreground">
+              All-pass changes phase; the magnitude response stays flat.
+            </p>
+          )}
+          {family !== "rbj" && family !== "moog" && kind === "peak" && (
+            <p className="text-xs text-muted-foreground">
+              Order sets the prototype order; the peak uses twice as many poles.
+            </p>
+          )}
+        </div>
+      ) : descriptor.id === "eq-parametric" ? (
+        <div
+          className={`grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 ${Number(node.params.bands) === 6 ? "min-[1000px]:grid-cols-3" : "min-[1000px]:grid-cols-4"}`}
+        >
           {Array.from(
             { length: Math.max(1, Math.min(8, Math.round(Number(node.params.bands) || 4))) },
             (_, index) => {
@@ -423,12 +628,21 @@ export function EffectParameters({
                   >
                     Band {band}
                   </legend>
-                  {fields
-                    .filter((parameter) => parameter.type === "enum")
-                    .map((parameter) => control(parameter, "Type"))}
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      {fields
+                        .filter((parameter) => parameter.type === "enum")
+                        .map((parameter) => control(parameter, "Type"))}
+                    </div>
+                    {fields
+                      .filter((parameter) => parameter.id.endsWith("Order"))
+                      .map((parameter) => control(parameter))}
+                  </div>
                   <div className="mt-1.5 grid grid-cols-3 gap-2">
                     {fields
-                      .filter((parameter) => parameter.type !== "enum")
+                      .filter(
+                        (parameter) => parameter.type !== "enum" && !parameter.id.endsWith("Order"),
+                      )
                       .map((parameter) =>
                         control(
                           parameter,

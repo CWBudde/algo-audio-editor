@@ -49,13 +49,13 @@ it("plots supplied outputs without a frontend dynamics formula, with unity, thre
       .join(" "),
   );
   // Values below the visible axis are clipped by SVG, but retained verbatim for inspection.
-  fireEvent.change(ui.getByRole("slider"), { target: { value: "0" } });
+  fireEvent.keyDown(ui.getByRole("img"), { key: "Home" });
   expect(ui.getByRole("status").textContent).toBe(
     "Input -80.0 dB → Output -120.0 dB · Gain change -40.0 dB",
   );
 });
 
-it("inspects nearest kernel samples by pointer/touch or accessible slider without editing parameters", () => {
+it("inspects nearest kernel samples by pointer/touch or keyboard without editing parameters", () => {
   const ui = render(<DynamicsGraph {...props} />);
   const svg = ui.getByRole("img");
   vi.spyOn(svg, "getBoundingClientRect").mockReturnValue({
@@ -74,23 +74,21 @@ it("inspects nearest kernel samples by pointer/touch or accessible slider withou
     "Input -40.0 dB → Output -40.0 dB · Gain change 0.0 dB",
   );
   fireEvent.pointerMove(svg, { clientX: 101, clientY: 51 });
-  expect(ui.getByRole("slider").getAttribute("aria-valuetext")).toBe(
-    "-40.0 dB input, -40.0 dB output",
-  );
+  expect(ui.getByRole("status").textContent).toContain("Input -40.0 dB → Output -40.0 dB");
   fireEvent.pointerDown(svg, { clientX: 410, clientY: 100 });
   expect(ui.getByRole("status").textContent).toContain("Input 0.0 dB → Output -15.0 dB");
-  fireEvent.change(ui.getByLabelText("Read input level"), { target: { value: "2" } });
+  fireEvent.keyDown(svg, { key: "ArrowLeft" });
   expect(ui.getByRole("status").textContent).toContain("Input -20.0 dB → Output -20.0 dB");
   expect(node.params).toEqual({ thresholdDB: -20, kneeDB: 8 });
   ui.rerender(<DynamicsGraph {...props} disabled />);
-  expect(ui.getByRole("slider")).toHaveProperty("disabled", true);
+  expect(svg.getAttribute("tabindex")).toBe("-1");
   fireEvent.pointerMove(svg, { clientX: 410, clientY: 100 });
   expect(ui.getByRole("status").textContent).toContain("Input -20.0 dB");
 });
 
 it("retains the inspected input across response updates and handles hard knees, makeup gain and loading", () => {
   const ui = render(<DynamicsGraph {...props} />);
-  fireEvent.change(ui.getByRole("slider"), { target: { value: "3" } });
+  fireEvent.keyDown(ui.getByRole("img"), { key: "End" });
   ui.rerender(
     <DynamicsGraph
       {...props}
@@ -106,10 +104,11 @@ it("retains the inspected input across response updates and handles hard knees, 
   expect(ui.getByRole("status").textContent).toBe(
     "Input 0.0 dB → Output +12.0 dB · Gain change +12.0 dB",
   );
-  expect(ui.getByRole("slider")).toHaveProperty("value", "2");
+  expect(ui.queryByRole("slider")).toBeNull();
   ui.rerender(<DynamicsGraph {...props} points={[]} />);
   expect(ui.getByRole("status").textContent).toBe("Loading transfer curve…");
-  expect(ui.getByRole("slider")).toHaveProperty("disabled", true);
+  fireEvent.keyDown(ui.getByRole("img"), { key: "End" });
+  expect(ui.getByRole("status").textContent).toBe("Loading transfer curve…");
 });
 
 it("requests binary transfer data and replaces it after parameter changes, ignoring obsolete replies", async () => {
@@ -148,7 +147,7 @@ it("requests binary transfer data and replaces it after parameter changes, ignor
     />,
   );
   await act(async () => vi.advanceTimersByTime(25));
-  fireEvent.change(ui.getByLabelText("Read input level"), { target: { value: "1" } });
+  fireEvent.keyDown(ui.getByRole("img"), { key: "End" });
   expect(ui.getByRole("status").textContent).toContain("Output -10.0 dB");
   const current = ui.getByTestId("effect-response-path").getAttribute("d");
   await act(async () => resolveOld({ count: 2, data: new Float64Array([-80, 0, 0, 24]).buffer }));

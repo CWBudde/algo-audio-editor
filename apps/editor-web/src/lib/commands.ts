@@ -1,5 +1,5 @@
 import type { ClipboardInfo, DocumentInfoResult, SelectionRange } from "@aae/protocol";
-import { effectMenuCategory } from "@/lib/effect-menu";
+import { effectMenuCategory, effectMenuEntries } from "@/lib/effect-menu";
 import { stereoSelection } from "@/lib/effect-rack";
 import { desktopBridge } from "@/platform";
 
@@ -696,7 +696,7 @@ export function resolveCommands(
   platform: ShortcutPlatform,
   actions: CommandActions,
 ): ResolvedCommand[] {
-  const catalogue: Definition[] = (context.effects ?? []).map((effect) => ({
+  const catalogue: Definition[] = effectMenuEntries(context.effects ?? []).map((effect) => ({
     id: `effects.${effect.id}`,
     label: `${effect.name}…`,
     menu: "Effects",
