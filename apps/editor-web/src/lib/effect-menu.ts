@@ -22,6 +22,12 @@ export function isWeightingFilter(id: string): boolean {
   return id === "filter-a-weighting" || id === "filter-c-weighting";
 }
 
+export function isCompactDynamics(id: string): boolean {
+  return ["dyn-compressor", "dyn-expander", "dyn-gate", "dyn-limiter", "dyn-lookahead"].includes(
+    id,
+  );
+}
+
 /** Consolidate UI entry points while retaining the original DSP catalogue and saved node types. */
 export function effectMenuEntries<T extends { id: string; name: string }>(
   effects: readonly T[],

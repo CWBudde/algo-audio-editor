@@ -3,7 +3,12 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { EffectParameters } from "@/components/effect-parameters";
 import type { EffectsView } from "@/hooks/use-effects";
 import type { KernelClient } from "@/kernel/client";
-import { effectMenuEntries, isStandardFilter, isWeightingFilter } from "@/lib/effect-menu";
+import {
+  effectMenuEntries,
+  isCompactDynamics,
+  isStandardFilter,
+  isWeightingFilter,
+} from "@/lib/effect-menu";
 import type { EffectPreset, RackEffect } from "@/lib/effect-presets";
 import { createRackEffect, stereoSelection, validRack } from "@/lib/effect-rack";
 
@@ -80,7 +85,7 @@ export function EffectsDialog(props: Props) {
   return (
     <dialog
       ref={dialog}
-      className={`studio-dialog m-auto max-h-[calc(100dvh-2rem)] ${isStandardFilter(singleType) || isWeightingFilter(singleType) || singleType === "dyn-compressor" ? "w-[min(51.2rem,calc(100vw-2rem))]" : "w-[min(64rem,calc(100vw-2rem))]"} overflow-y-auto border p-4 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]`}
+      className={`studio-dialog m-auto max-h-[calc(100dvh-2rem)] ${isStandardFilter(singleType) || isWeightingFilter(singleType) || isCompactDynamics(singleType) || singleType === "dyn-multiband" ? "w-[min(51.2rem,calc(100vw-2rem))]" : "w-[min(64rem,calc(100vw-2rem))]"} overflow-y-auto border p-4 text-popover-foreground backdrop:bg-background/75 backdrop:backdrop-blur-[2px]`}
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-help`}
       onCancel={(event) => {

@@ -84,12 +84,32 @@ representative text, focus, fields, knobs and traces.
   retaining the viewport margins on narrow screens. Butterworth and Chebyshev
   orders extend to 20; Bessel stays at 10 and elliptic at 12. Existing node IDs
   stay readable in saved presets and automation.
-- **Compressor:** its 51.2 rem dialog places a square transfer plot beside two
-  columns of knobs in three rows (threshold/ratio, knee/makeup, attack/release).
-  Auto gain sits below Makeup and disables its manual control without losing
+- **Compressor, expander, gate and limiters:** their 51.2 rem dialogs place a square
+  transfer plot beside two columns of knobs. Compressor uses three rows
+  (threshold/ratio, knee/makeup, attack/release); expander replaces Makeup with
+  Range and groups RMS window, topology and detector below. Limiter keeps
+  Threshold/Release together; lookahead limiter adds Lookahead below them.
+  Gate uses the expander's three main rows with Hold and Topology below.
+  Compressor Auto gain sits below Makeup and disables its manual control without losing
   the stored value. Below 760 px wide, plot and controls stack. The input-level
   inspection slider and help paragraph are removed; curve inspection retains
   pointer/touch and Left/Right/Home/End keyboard access, with a compact readout.
+  Topology dropdowns expose Feedforward/Feedback for compressor, gate, expander
+  and multiband compressor. Multiband applies the choice to all bands. Topology
+  changes detector behavior during processing; the static transfer plot can
+  stay unchanged. Existing presets default to Feedforward.
+- **Multiband compressor:** follows the row organization of the
+  [Fast Multiband Compressor reference](https://www.pcjv.de/wordpress/wp-content/uploads/2008/11/fast-multiband-compressor.png)
+  using the common knobs. The header contains Bands (2–4), Topology, Crossover
+  order and one to three crossover knobs. Each band row has Attack, Release,
+  Threshold, Ratio, Soft knee and Makeup, followed by a small kernel-computed
+  transfer graph and its own Auto gain checkbox. Auto gain disables only that
+  band's manual Makeup and keeps its stored value. The default is three bands;
+  hidden band settings survive count changes. Narrow screens wrap controls.
+  `algo-dsp v0.12.3` provides independent per-band controls and response inspection.
+  Existing shared envelope/makeup settings stay authoritative until the first
+  band edit materializes them into independent values. The two-band high range
+  retains the old `mid` parameter mapping, preserving saved presets.
 
 ## Layout limits
 

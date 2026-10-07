@@ -4,9 +4,10 @@ import { DynamicsGraph } from "@/components/dynamics-graph";
 import { EffectKnob } from "@/components/effect-knob";
 import { FilterResponseGraph } from "@/components/filter-response-graph";
 import { GraphicEQGraph } from "@/components/graphic-eq-graph";
+import { MultibandParameters } from "@/components/multiband-parameters";
 import { EQ_BAND_COLORS, ParametricEQGraph } from "@/components/parametric-eq-graph";
 import type { KernelClient } from "@/kernel/client";
-import { isStandardFilter, isWeightingFilter } from "@/lib/effect-menu";
+import { isCompactDynamics, isStandardFilter, isWeightingFilter } from "@/lib/effect-menu";
 import type { RackEffect } from "@/lib/effect-presets";
 import { filterFamilySupports, filterOrderOptions, filterParameters } from "@/lib/filter-controls";
 
@@ -133,6 +134,8 @@ function EffectCurve({
   client,
   disabled,
   onChange,
+  thumbnail = false,
+  graphNode,
 }: {
   descriptor: EffectDescriptor;
   node: RackEffect;
@@ -140,6 +143,8 @@ function EffectCurve({
   client?: KernelClient;
   disabled: boolean;
   onChange(params: RackEffect["params"]): void;
+  thumbnail?: boolean;
+  graphNode?: RackEffect;
 }) {
   const [points, setPoints] = useState<[number, number][]>([]);
   const [error, setError] = useState<string>();
@@ -273,14 +278,17 @@ function EffectCurve({
     return (
       <div
         className={
-          descriptor.id === "dyn-compressor"
-            ? "mx-auto w-full max-w-[22.5rem]"
-            : "mx-auto max-w-[40rem]"
+          thumbnail
+            ? "w-full"
+            : isCompactDynamics(descriptor.id)
+              ? "mx-auto w-full max-w-[22.5rem]"
+              : "mx-auto max-w-[40rem]"
         }
       >
         <DynamicsGraph
-          {...{ descriptor, node, points, disabled }}
-          compact={descriptor.id === "dyn-compressor"}
+          {...{ descriptor, points, disabled, thumbnail }}
+          node={graphNode ?? node}
+          compact={isCompactDynamics(descriptor.id)}
         />
         {error && (
           <p role="alert" className="text-xs text-destructive">
@@ -507,12 +515,40 @@ export function EffectParameters({
       />
     );
   };
-  if (descriptor.id === "dyn-compressor")
+  if (descriptor.id === "dyn-multiband")
+    return (
+      <MultibandParameters
+        {...{ descriptor, node, disabled, onChange }}
+        numeric={(props) => <NumericParameter {...props} />}
+        curve={(index, name, params) => (
+          <EffectCurve
+            descriptor={{ ...descriptor, name: `${name} band`, view: "dynamics" }}
+            node={{ ...node, params: { ...node.params, responseBand: index } }}
+            graphNode={{ ...node, params }}
+            {...{ disabled, client, sampleRate, onChange }}
+            thumbnail
+          />
+        )}
+      />
+    );
+  if (isCompactDynamics(descriptor.id)) {
+    const fields = [
+      "thresholdDB",
+      "ratio",
+      "kneeDB",
+      "makeupGainDB",
+      "rangeDB",
+      "attackMs",
+      "releaseMs",
+      "holdMs",
+      ...(descriptor.id === "dyn-gate" ? ["topology"] : []),
+      "lookaheadMs",
+    ];
     return (
       <div className="grid items-center gap-5 min-[760px]:grid-cols-2">
         <EffectCurve {...{ descriptor, node, disabled, client, sampleRate, onChange }} />
         <div className="grid min-w-0 grid-cols-2 items-start gap-x-3 gap-y-5">
-          {["thresholdDB", "ratio", "kneeDB", "makeupGainDB", "attackMs", "releaseMs"]
+          {fields
             .flatMap((field) => parameters.filter((parameter) => parameter.id === field))
             .map((parameter) => (
               <div key={parameter.id} className="min-w-0">
@@ -524,8 +560,12 @@ export function EffectParameters({
                       ratio: "Ratio",
                       kneeDB: "Knee",
                       makeupGainDB: "Makeup",
+                      rangeDB: "Range",
                       attackMs: "Attack",
                       releaseMs: "Release",
+                      holdMs: "Hold",
+                      topology: "Topology",
+                      lookaheadMs: "Lookahead",
                     } as Record<string, string>
                   )[parameter.id],
                 )}
@@ -539,23 +579,24 @@ export function EffectParameters({
                     ))}
               </div>
             ))}
-          {parameters
-            .filter(
-              (parameter) =>
-                ![
-                  "thresholdDB",
-                  "ratio",
-                  "kneeDB",
-                  "makeupGainDB",
-                  "attackMs",
-                  "releaseMs",
-                  "autoMakeup",
-                ].includes(parameter.id),
-            )
-            .map((parameter) => control(parameter))}
+          <div className="col-span-2 flex flex-wrap items-start gap-3 empty:hidden">
+            {parameters
+              .filter(
+                (parameter) => !fields.includes(parameter.id) && parameter.id !== "autoMakeup",
+              )
+              .map((parameter) => (
+                <div key={parameter.id} className="min-w-0 flex-1 basis-20">
+                  {control(
+                    parameter,
+                    parameter.id === "rmsWindowMs" ? "RMS window" : parameter.label,
+                  )}
+                </div>
+              ))}
+          </div>
         </div>
       </div>
     );
+  }
   return (
     <div className="space-y-2.5">
       {(descriptor.view !== "generic" || standardFilter) && !nonlinearMoog && (

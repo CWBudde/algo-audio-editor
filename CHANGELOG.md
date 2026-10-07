@@ -42,6 +42,15 @@ All notable changes to this project are documented here. The format follows
   extends Butterworth/Chebyshev filter orders through 20. Compressor controls
   use three rows beside a square transfer plot, with kernel automatic makeup
   gain and no redundant inspection slider or help paragraph.
+  Expander, Gate, Limiter and Lookahead limiter share the narrower square-plot
+  layout, with compact paired knobs, gate Hold and retained expander
+  detector/topology controls.
+  Feedforward/Feedback topology is exposed for compressor, gate, expander and
+  multiband compressor, with actual runtime configuration from algo-dsp v0.12.2.
+  Multiband now has a crossover header and a row per band with six common knobs,
+  an actual band transfer graph and independent Auto gain. algo-dsp v0.12.3
+  supports 2–4 bands and independent envelope/makeup controls while preserving
+  existing shared settings and presets.
 - Output peak/RMS/true-peak and loudness meters, loudness range, stereo correlation
   and goniometer; selection/live spectra, progressive spectrograms, statistics,
   pitch tracking and optional clipping markers.

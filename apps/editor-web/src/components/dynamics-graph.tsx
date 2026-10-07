@@ -18,19 +18,21 @@ export function DynamicsGraph({
   points,
   disabled,
   compact = false,
+  thumbnail = false,
 }: {
   descriptor: EffectDescriptor;
   node: RackEffect;
   points: [number, number][];
   disabled: boolean;
   compact?: boolean;
+  thumbnail?: boolean;
 }) {
-  const WIDTH = compact ? 360 : 640;
-  const HEIGHT = compact ? 360 : 320;
-  const LEFT = compact ? 56 : 64;
-  const RIGHT = compact ? 336 : 620;
-  const TOP = compact ? 24 : 28;
-  const BOTTOM = compact ? 304 : 264;
+  const WIDTH = thumbnail ? 160 : compact ? 360 : 640;
+  const HEIGHT = thumbnail ? 100 : compact ? 360 : 320;
+  const LEFT = thumbnail ? 8 : compact ? 56 : 64;
+  const RIGHT = thumbnail ? 152 : compact ? 336 : 620;
+  const TOP = thumbnail ? 8 : compact ? 24 : 28;
+  const BOTTOM = thumbnail ? 92 : compact ? 304 : 264;
   const x = (db: number) => LEFT + ((db - MIN_INPUT) * (RIGHT - LEFT)) / (MAX_INPUT - MIN_INPUT);
   const y = (db: number) => TOP + ((MAX_OUTPUT - db) * (BOTTOM - TOP)) / (MAX_OUTPUT - MIN_OUTPUT);
   const id = useId();
@@ -107,16 +109,18 @@ export function DynamicsGraph({
         {[-80, -60, -40, -20, 0].map((db) => (
           <g key={`input-${db}`}>
             <line x1={x(db)} x2={x(db)} y1={TOP} y2={BOTTOM} stroke="currentColor" opacity="0.12" />
-            <text
-              x={x(db)}
-              y={BOTTOM + 18}
-              textAnchor="middle"
-              fontSize="11"
-              fill="currentColor"
-              className="text-muted-foreground"
-            >
-              {db}
-            </text>
+            {!thumbnail && (
+              <text
+                x={x(db)}
+                y={BOTTOM + 18}
+                textAnchor="middle"
+                fontSize="11"
+                fill="currentColor"
+                className="text-muted-foreground"
+              >
+                {db}
+              </text>
+            )}
           </g>
         ))}
         {[-80, -60, -40, -20, 0, 24].map((db) => (
@@ -129,31 +133,43 @@ export function DynamicsGraph({
               stroke="currentColor"
               opacity={db === 0 ? 0.3 : 0.12}
             />
+            {!thumbnail && (
+              <text
+                x={LEFT - 8}
+                y={y(db) + 4}
+                textAnchor="end"
+                fontSize="11"
+                fill="currentColor"
+                className="text-muted-foreground"
+              >
+                {db > 0 ? `+${db}` : db}
+              </text>
+            )}
+          </g>
+        ))}
+        {!thumbnail && (
+          <>
             <text
-              x={LEFT - 8}
-              y={y(db) + 4}
+              x={LEFT}
+              y="16"
+              fontSize="11"
+              fill="currentColor"
+              className="text-muted-foreground"
+            >
+              Output (dB)
+            </text>
+            <text
+              x={RIGHT}
+              y={HEIGHT - 8}
               textAnchor="end"
               fontSize="11"
               fill="currentColor"
               className="text-muted-foreground"
             >
-              {db > 0 ? `+${db}` : db}
+              Input (dB)
             </text>
-          </g>
-        ))}
-        <text x={LEFT} y="16" fontSize="11" fill="currentColor" className="text-muted-foreground">
-          Output (dB)
-        </text>
-        <text
-          x={RIGHT}
-          y={HEIGHT - 8}
-          textAnchor="end"
-          fontSize="11"
-          fill="currentColor"
-          className="text-muted-foreground"
-        >
-          Input (dB)
-        </text>
+          </>
+        )}
         <g clipPath={`url(#${id}-plot)`}>
           {Number.isFinite(threshold) && Number.isFinite(knee) && knee > 0 && (
             <rect
@@ -220,7 +236,7 @@ export function DynamicsGraph({
           )}
         </g>
       </svg>
-      {!compact && (
+      {!compact && !thumbnail && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span className="text-waveform-peak">Transfer curve</span>
           <span>Dashed: unity (1:1)</span>
@@ -234,7 +250,11 @@ export function DynamicsGraph({
       )}
       <output
         id={`${id}-readout`}
-        className="studio-readout block rounded border border-border/60 bg-background/50 px-2 py-1.5 text-xs tabular-nums"
+        className={
+          thumbnail
+            ? "sr-only"
+            : "studio-readout block rounded border border-border/60 bg-background/50 px-2 py-1.5 text-xs tabular-nums"
+        }
         aria-live="polite"
       >
         {selected
