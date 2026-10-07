@@ -111,6 +111,22 @@ representative text, focus, fields, knobs and traces.
   band edit materializes them into independent values. The two-band high range
   retains the old `mid` parameter mapping, preserving saved presets.
 
+- **Dynamic EQ:** three peak bands by default, at 120 Hz, 1 kHz and 8 kHz;
+  lower sample rates compress their logarithmic span. The full-width graph
+  shares Parametric EQ's frequency/gain dragging, right-click Type menu and
+  Q/BW wheel and keyboard gestures. Its band-count dropdown supports 1–8 and
+  retains hidden settings. Each horizontal band row pairs Type/Mode selectors
+  and nine common knobs (Frequency, Gain, Q, Threshold, Ratio, Knee, Range,
+  Attack, Release) with a right-aligned 128 px square I/O graph. The 160 px tall
+  upper frequency chart and compact rows fit the default three-band dialog on
+  Full HD without scrolling. Controls wrap on
+  narrow screens; labels match the node colors. The upper frequency curve is
+  the initial static-gain response, while each I/O curve describes steady-state
+  detector level versus nominal band-frequency output, including static gain,
+  dynamics mode and range limiting. Neither plot predicts the current envelope
+  during playback. `algo-dsp v0.12.4` exposes each actual band gain computer;
+  the frontend queries it through `effects.response`, without modeling DSP in JS.
+
 ## Layout limits
 
 Keep these guarded behaviors when changing layout:

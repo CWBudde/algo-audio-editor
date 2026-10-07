@@ -214,7 +214,7 @@ License: Apache-2.0
    limitations under the License.
 
 ========================================================================
-github.com/cwbudde/algo-dsp v0.12.3 (go)
+github.com/cwbudde/algo-dsp v0.12.4 (go)
 License: MIT
 
 --- LICENSE ---

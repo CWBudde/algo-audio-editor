@@ -1,5 +1,6 @@
 import type { EffectDescriptor, EffectParameterDescriptor } from "@aae/protocol";
 import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
+import { DynamicEQParameters } from "@/components/dynamic-eq-parameters";
 import { DynamicsGraph } from "@/components/dynamics-graph";
 import { EffectKnob } from "@/components/effect-knob";
 import { FilterResponseGraph } from "@/components/filter-response-graph";
@@ -135,6 +136,7 @@ function EffectCurve({
   disabled,
   onChange,
   thumbnail = false,
+  band = false,
   graphNode,
 }: {
   descriptor: EffectDescriptor;
@@ -144,6 +146,7 @@ function EffectCurve({
   disabled: boolean;
   onChange(params: RackEffect["params"]): void;
   thumbnail?: boolean;
+  band?: boolean;
   graphNode?: RackEffect;
 }) {
   const [points, setPoints] = useState<[number, number][]>([]);
@@ -252,7 +255,7 @@ function EffectCurve({
         )}
       </div>
     );
-  if (descriptor.id === "eq-parametric")
+  if (descriptor.view === "eq" && (descriptor.id === "eq-parametric" || descriptor.id === "dyn-eq"))
     return (
       <div>
         <ParametricEQGraph {...{ descriptor, node, points, sampleRate, disabled, onChange }} />
@@ -278,15 +281,17 @@ function EffectCurve({
     return (
       <div
         className={
-          thumbnail
-            ? "w-full"
-            : isCompactDynamics(descriptor.id)
-              ? "mx-auto w-full max-w-[22.5rem]"
-              : "mx-auto max-w-[40rem]"
+          band
+            ? "w-full max-w-[12.5rem]"
+            : thumbnail
+              ? "w-full"
+              : isCompactDynamics(descriptor.id)
+                ? "mx-auto w-full max-w-[22.5rem]"
+                : "mx-auto max-w-[40rem]"
         }
       >
         <DynamicsGraph
-          {...{ descriptor, points, disabled, thumbnail }}
+          {...{ descriptor, points, disabled, thumbnail, band }}
           node={graphNode ?? node}
           compact={isCompactDynamics(descriptor.id)}
         />
@@ -455,7 +460,7 @@ export function EffectParameters({
         <div
           key={parameter.id}
           className={
-            label === "Type" && !standardFilter
+            label === "Type" && descriptor.id === "eq-parametric"
               ? "flex min-w-0 items-center gap-2"
               : "min-w-0 space-y-1"
           }
@@ -515,6 +520,25 @@ export function EffectParameters({
       />
     );
   };
+  if (descriptor.id === "dyn-eq")
+    return (
+      <DynamicEQParameters
+        {...{ descriptor, node }}
+        control={control}
+        frequency={
+          <EffectCurve {...{ descriptor, node, disabled, client, sampleRate, onChange }} />
+        }
+        curve={(index, params) => (
+          <EffectCurve
+            descriptor={{ ...descriptor, name: `Band ${index + 1} dynamics`, view: "dynamics" }}
+            node={{ ...node, params: { ...node.params, responseBand: index } }}
+            graphNode={{ ...node, params }}
+            {...{ disabled, client, sampleRate, onChange }}
+            band
+          />
+        )}
+      />
+    );
   if (descriptor.id === "dyn-multiband")
     return (
       <MultibandParameters

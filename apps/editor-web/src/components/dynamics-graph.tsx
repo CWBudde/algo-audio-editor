@@ -19,6 +19,7 @@ export function DynamicsGraph({
   disabled,
   compact = false,
   thumbnail = false,
+  band = false,
 }: {
   descriptor: EffectDescriptor;
   node: RackEffect;
@@ -26,13 +27,14 @@ export function DynamicsGraph({
   disabled: boolean;
   compact?: boolean;
   thumbnail?: boolean;
+  band?: boolean;
 }) {
-  const WIDTH = thumbnail ? 160 : compact ? 360 : 640;
-  const HEIGHT = thumbnail ? 100 : compact ? 360 : 320;
-  const LEFT = thumbnail ? 8 : compact ? 56 : 64;
-  const RIGHT = thumbnail ? 152 : compact ? 336 : 620;
-  const TOP = thumbnail ? 8 : compact ? 24 : 28;
-  const BOTTOM = thumbnail ? 92 : compact ? 304 : 264;
+  const WIDTH = band ? 128 : thumbnail ? 160 : compact ? 360 : 640;
+  const HEIGHT = band ? 128 : thumbnail ? 100 : compact ? 360 : 320;
+  const LEFT = band ? 28 : thumbnail ? 8 : compact ? 56 : 64;
+  const RIGHT = band ? 118 : thumbnail ? 152 : compact ? 336 : 620;
+  const TOP = band ? 16 : thumbnail ? 8 : compact ? 24 : 28;
+  const BOTTOM = band ? 106 : thumbnail ? 92 : compact ? 304 : 264;
   const x = (db: number) => LEFT + ((db - MIN_INPUT) * (RIGHT - LEFT)) / (MAX_INPUT - MIN_INPUT);
   const y = (db: number) => TOP + ((MAX_OUTPUT - db) * (BOTTOM - TOP)) / (MAX_OUTPUT - MIN_OUTPUT);
   const id = useId();
@@ -64,7 +66,7 @@ export function DynamicsGraph({
     setInput(MIN_INPUT + ((px - LEFT) * (MAX_INPUT - MIN_INPUT)) / (RIGHT - LEFT));
   };
   return (
-    <div className="space-y-2">
+    <div className={band ? undefined : "space-y-2"}>
       <svg
         ref={svg}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
@@ -106,15 +108,15 @@ export function DynamicsGraph({
             <rect x={LEFT} y={TOP} width={RIGHT - LEFT} height={BOTTOM - TOP} />
           </clipPath>
         </defs>
-        {[-80, -60, -40, -20, 0].map((db) => (
+        {(band ? [-80, -40, 0] : [-80, -60, -40, -20, 0]).map((db) => (
           <g key={`input-${db}`}>
             <line x1={x(db)} x2={x(db)} y1={TOP} y2={BOTTOM} stroke="currentColor" opacity="0.12" />
             {!thumbnail && (
               <text
                 x={x(db)}
-                y={BOTTOM + 18}
+                y={BOTTOM + (band ? 11 : 18)}
                 textAnchor="middle"
-                fontSize="11"
+                fontSize={band ? 9 : 11}
                 fill="currentColor"
                 className="text-muted-foreground"
               >
@@ -123,7 +125,7 @@ export function DynamicsGraph({
             )}
           </g>
         ))}
-        {[-80, -60, -40, -20, 0, 24].map((db) => (
+        {(band ? [-80, -40, 0, 24] : [-80, -60, -40, -20, 0, 24]).map((db) => (
           <g key={`output-${db}`}>
             <line
               x1={LEFT}
@@ -135,10 +137,10 @@ export function DynamicsGraph({
             />
             {!thumbnail && (
               <text
-                x={LEFT - 8}
+                x={LEFT - (band ? 4 : 8)}
                 y={y(db) + 4}
                 textAnchor="end"
-                fontSize="11"
+                fontSize={band ? 9 : 11}
                 fill="currentColor"
                 className="text-muted-foreground"
               >
@@ -151,8 +153,8 @@ export function DynamicsGraph({
           <>
             <text
               x={LEFT}
-              y="16"
-              fontSize="11"
+              y={band ? 10 : 16}
+              fontSize={band ? 9 : 11}
               fill="currentColor"
               className="text-muted-foreground"
             >
@@ -160,9 +162,9 @@ export function DynamicsGraph({
             </text>
             <text
               x={RIGHT}
-              y={HEIGHT - 8}
+              y={HEIGHT - (band ? 3 : 8)}
               textAnchor="end"
-              fontSize="11"
+              fontSize={band ? 9 : 11}
               fill="currentColor"
               className="text-muted-foreground"
             >
@@ -231,12 +233,17 @@ export function DynamicsGraph({
                 stroke="currentColor"
                 opacity="0.4"
               />
-              <circle cx={x(selected[0])} cy={y(selected[1])} r="4" fill="currentColor" />
+              <circle
+                cx={x(selected[0])}
+                cy={y(selected[1])}
+                r={band ? 2.5 : 4}
+                fill="currentColor"
+              />
             </g>
           )}
         </g>
       </svg>
-      {!compact && !thumbnail && (
+      {!compact && !thumbnail && !band && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span className="text-waveform-peak">Transfer curve</span>
           <span>Dashed: unity (1:1)</span>
@@ -251,7 +258,7 @@ export function DynamicsGraph({
       <output
         id={`${id}-readout`}
         className={
-          thumbnail
+          thumbnail || band
             ? "sr-only"
             : "studio-readout block rounded border border-border/60 bg-background/50 px-2 py-1.5 text-xs tabular-nums"
         }

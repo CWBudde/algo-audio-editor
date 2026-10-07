@@ -51,6 +51,11 @@ All notable changes to this project are documented here. The format follows
   an actual band transfer graph and independent Auto gain. algo-dsp v0.12.3
   supports 2–4 bands and independent envelope/makeup controls while preserving
   existing shared settings and presets.
+  Dynamic EQ defaults to three peak bands at 120 Hz, 1 kHz and 8 kHz, with the
+  same draggable/type-selectable/Q-wheel frequency graph as Parametric EQ.
+  Each horizontal band row has all nine unit-labeled knobs, Type and Mode
+  selectors, and a square I/O graph on the right. algo-dsp v0.12.4 supplies
+  the actual per-band dynamics curves, including static gain and range limits.
 - Output peak/RMS/true-peak and loudness meters, loudness range, stereo correlation
   and goniometer; selection/live spectra, progressive spectrograms, statistics,
   pitch tracking and optional clipping markers.

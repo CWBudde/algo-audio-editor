@@ -6,8 +6,8 @@
     "apps/editor-web/package.json": "d10e16a05f6558dbfc6793678e2e1ed3edab88e8851b1c407a406fdd6620bf82",
     "apps/desktop/package.json": "ec0cd1c34f3a65ad91fbd559b891ee98094c144154e6bdb7dfb2ec29533f2aa9",
     "packages/protocol/package.json": "dd482e57c1c5c66f2d26e7c06fdc101e23f8ecc6f5ba5b8fdb74db774391dc85",
-    "packages/kernel/go.mod": "68079e5864a6a34292917a0303f2048fd150b2ae1e884e3158cfddea108a9bb3",
-    "packages/kernel/go.sum": "04b7b3a1774055ea0c21decfe2229eb71129d3e28a1c083f76f1e768062d9bea",
+    "packages/kernel/go.mod": "2ca9f4e739dacbe834d2455af11c16ce8d571bc0eb6cfab5ac02e32c139429a0",
+    "packages/kernel/go.sum": "8fd77e946128252b6ea644ee4c5c361360823710eee4934363d054dbc8f2926e",
     "docs/licenses/policy.json": "3094a01235f64e901a60d4ccbe3fc66a241ed3ecc5277b977887ac2ea3206c5c",
     "scripts/generate-licenses.mjs": "e70e6ade205607e9bc50ebe51ccb9bc76bbac8637a699fe8b0c3e5fce3aaf72b",
     "scripts/license-policy.mjs": "edf12a19ed65448f1aaa4dbbc4f216ab350262594c041afe3acec5f8bd5b8415",
@@ -95,7 +95,7 @@
     {
       "ecosystem": "go",
       "name": "github.com/cwbudde/algo-dsp",
-      "version": "v0.12.3",
+      "version": "v0.12.4",
       "license": "MIT",
       "scope": "runtime",
       "texts": [
@@ -106,7 +106,7 @@
         }
       ],
       "source": "https://github.com/cwbudde/algo-dsp",
-      "integrity": "h1:EZm2AW8IL36J1TgIOO8fg1Y+RkmqIv7Wc53G4oc//CU="
+      "integrity": "h1:hCN9DyyRt3CWpU/NJrbAHhbfcaOL4521GnjWSCNleas="
     },
     {
       "ecosystem": "go",

@@ -3,10 +3,8 @@ import { Menu } from "@base-ui/react/menu";
 import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import type { RackEffect } from "@/lib/effect-presets";
 
-const HEIGHT = 220;
 const LEFT = 52;
 const TOP = 20;
-const BOTTOM = 170;
 // Band colors identify physical EQ bands; selected controls use the interaction role.
 export const EQ_BAND_COLORS = [
   "var(--editor-band-1)",
@@ -38,6 +36,8 @@ export function ParametricEQGraph({
   disabled: boolean;
   onChange(params: RackEffect["params"]): void;
 }) {
+  const HEIGHT = descriptor.id === "dyn-eq" ? 160 : 220;
+  const BOTTOM = HEIGHT - 50;
   const id = useId();
   const svg = useRef<SVGSVGElement>(null);
   const wheelHandler = useRef<((event: WheelEvent) => void) | undefined>(undefined);
@@ -148,9 +148,10 @@ export function ParametricEQGraph({
         ref={svg}
         viewBox={`0 0 ${width} ${HEIGHT}`}
         preserveAspectRatio="none"
-        className="effect-graph h-[220px] w-full touch-none select-none border"
+        className="effect-graph w-full touch-none select-none border"
+        style={{ height: HEIGHT }}
         role="group"
-        aria-label="Parametric EQ frequency graph"
+        aria-label={`${descriptor.name} frequency graph`}
         aria-describedby={`${id}-help`}
         onContextMenu={(event) => {
           if (disabled) return;
@@ -309,7 +310,7 @@ export function ParametricEQGraph({
                 aria-valuemin={isPass(band) ? parameter(band, "FreqHz")?.min : -24}
                 aria-valuemax={isPass(band) ? parameter(band, "FreqHz")?.max : 24}
                 aria-valuenow={isPass(band) ? hz : gain}
-                aria-valuetext={`${Math.round(hz)} Hz, ${isPass(band) ? "cutoff" : `${gain.toFixed(1)} dB`}, ${fixedQ(band) ? "Butterworth" : `Q ${q.toFixed(2)}`}, ${type(band)}, order ${order(band)}`}
+                aria-valuetext={`${Math.round(hz)} Hz, ${isPass(band) ? "cutoff" : `${gain.toFixed(1)} dB`}, ${fixedQ(band) ? "Butterworth" : `Q ${q.toFixed(2)}`}, ${type(band)}${parameter(band, "Order") ? `, order ${order(band)}` : ""}`}
                 aria-haspopup="menu"
                 aria-describedby={`${id}-help`}
                 onFocus={() => setSelected(band)}
@@ -438,8 +439,8 @@ export function ParametricEQGraph({
           <span style={{ color: EQ_BAND_COLORS[activeBand - 1] }}>Band {activeBand}</span> ·{" "}
           {formatHz(value(activeBand, "FreqHz"))} Hz ·{" "}
           {isPass(activeBand) ? "Cutoff" : `${value(activeBand, "GainDB").toFixed(1)} dB`} ·{" "}
-          {fixedQ(activeBand) ? "Butterworth" : `Q ${value(activeBand, "Q").toFixed(2)}`} · Order{" "}
-          {order(activeBand)}
+          {fixedQ(activeBand) ? "Butterworth" : `Q ${value(activeBand, "Q").toFixed(2)}`}
+          {parameter(activeBand, "Order") && ` · Order ${order(activeBand)}`}
         </p>
         <label className="flex shrink-0 items-center gap-2 text-xs">
           Bands
@@ -457,9 +458,13 @@ export function ParametricEQGraph({
           </select>
         </label>
       </div>
-      <p id={`${id}-help`} className="text-xs text-muted-foreground">
+      <p
+        id={`${id}-help`}
+        className={descriptor.id === "dyn-eq" ? "sr-only" : "text-xs text-muted-foreground"}
+      >
         Drag: frequency/gain · Right-click or Shift+F10: type · Arrows: frequency/gain · Shift: fine
-        · Wheel or +/−: Q/BW · Home: zero gain · Pass: no gain · Higher-order pass/shelf: fixed Q
+        · Wheel or +/−: Q/BW · Home: zero gain
+        {descriptor.id === "eq-parametric" && " · Pass: no gain · Higher-order pass/shelf: fixed Q"}
       </p>
     </div>
   );
