@@ -1,0 +1,130 @@
+name: Build desktop
+
+# Builds the Electron app on Linux, Windows and macOS and uploads the portable
+# zips, installers and updater metadata as workflow artifacts. It never
+# publishes: release.yml calls it for a release-please release after its
+# gates pass and attaches the artifacts there. A manual dispatch produces
+# unsigned, reviewable artifacts for any ref.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to build; defaults to the calling workflow's commit.
+        type: string
+        default: ""
+      version:
+        description: Release version without "v" (e.g. 0.1.0); stamped into the desktop manifest.
+        type: string
+        required: true
+      signed:
+        description: Require Windows/macOS code signing and macOS notarization.
+        type: boolean
+        default: false
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+jobs:
+  build:
+    name: Desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            args: --linux AppImage deb zip --x64
+          - os: windows-latest
+            args: --win nsis zip --x64
+          # macos-latest is arm64; electron-builder packages the x64 app from
+          # the downloaded x64 Electron distribution (no native modules).
+          - os: macos-latest
+            args: --mac dmg zip --arm64 --x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0 # `git describe` stamps the kernel version
+      - uses: ./.github/actions/setup
+      - name: Verify license inventory and bundled notices
+        shell: bash
+        run: just check-licenses
+      - name: Build web and desktop
+        shell: bash
+        run: |
+          just build desktop-build
+          bun run --cwd apps/desktop install-electron
+      # package.json versions are hashed license-inventory inputs and stay at
+      # 0.0.0 in git; the release version is injected only into this build.
+      - name: Stamp release version
+        if: inputs.version != ''
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const version = process.env.VERSION;
+          if (!/^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$/.test(version)) throw new Error("Invalid release version");
+          const file = "apps/desktop/package.json";
+          const data = JSON.parse(fs.readFileSync(file, "utf8"));
+          data.version = version;
+          fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+          NODE
+      - name: Verify signing credentials
+        if: inputs.signed && runner.os != 'Linux'
+        shell: bash
+        env:
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK || runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
+          fi
+      - name: Package signed
+        if: inputs.signed
+        shell: bash
+        env:
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK || runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TARGETS: ${{ matrix.args }}
+        run: |
+          read -ra args <<<"$TARGETS"
+          if [[ "$RUNNER_OS" != "Linux" ]]; then args+=(--config.forceCodeSigning=true); fi
+          bun run --cwd apps/desktop package "${args[@]}"
+      # Development builds (0.x releases and manual dispatches) are unsigned:
+      # no certificate discovery and no notarization.
+      - name: Package unsigned
+        if: ${{ !inputs.signed }}
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          TARGETS: ${{ matrix.args }}
+        run: |
+          read -ra args <<<"$TARGETS"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then args+=(--config.mac.notarize=false); fi
+          bun run --cwd apps/desktop package "${args[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-${{ runner.os }}
+          path: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest*.yml
+          if-no-files-found: error

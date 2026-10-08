@@ -284,8 +284,8 @@ Plans: [Go replacements](docs/licenses/go-replacements.md), [npm replacements](d
 - [ ] **Electron spectrogram timeout:** the `d1c8caf` CI run failed `analysis…progressive spectrogram` with a 5 s predicate timeout. Decide whether it is a flake or a regression once Phase 29 lets e2e run again.
 - [ ] Add `govulncheck` and Dependabot (or Renovate) for Go modules, npm and GitHub Actions; `dep-drift.yml` only covers the `algo-*` family.
 - [ ] Machine-generated evidence over 200 KB goes to CI artifacts or release assets, with only a summary `.md` in `docs/benchmarks/`. Example: the 2.4 MB `go-math-reach-2026-10-06.json`. Benchmark reports hold evidence, not open checkboxes, so move the open items in `processing-2026-10-03.md` here or to Phase 16.
-- [ ] Let `desktop-release.yml` build an explicitly marked unsigned development release (it currently forces signing for every tag), keeping signing mandatory for 1.0 tags.
-- [ ] Tag the **`v0.1.0` development release** once the critical path above is done, with dependency checks and green CI on the release commit. The tag also establishes the `check-unreleased` baseline. [First release](docs/releasing.md#first-release).
+- [x] release-please release pipeline (`release.yml`): the release PR's merge creates a draft release that publishes only after green CI, browser/Electron E2E and the strict license policy on the release commit, with unsigned 0.x desktop zips/installers and `aae`/`aae-mcp` zips for six targets plus `SHA256SUMS.txt`. 1.0+ requires signing. E2E no longer runs on ordinary pushes and PRs (only release-please PRs, the `e2e` label and manual runs). The first real run is still to come.
+- [ ] Merge the release-please **`v0.1.0` development release** PR once the critical path above is done, with dependency checks and green CI on the release commit. The tag also establishes the `check-unreleased` baseline. [First release](docs/releasing.md#first-release).
 
 ---
 
