@@ -168,17 +168,17 @@ test("copy shortcuts retain playback while audio-changing shortcuts stop it", as
     .toBeGreaterThan(0);
   const before = await info(page);
   const played = Number(await page.getByTestId("frames-played").textContent());
-  await page.keyboard.press("Control+c");
+  await page.keyboard.press("ControlOrMeta+c");
   await expect.poll(async () => (await clipboard(page)).frames).toBe(24_000);
   expect((await info(page)).documentId).toBe(before.documentId);
   await expect(page.getByTestId("stop")).toBeEnabled();
   await expect
     .poll(async () => Number(await page.getByTestId("frames-played").textContent()))
     .toBeGreaterThan(played);
-  await page.keyboard.press("Control+x");
+  await page.keyboard.press("ControlOrMeta+x");
   await expect(page.getByTestId("document-details")).toContainText("· 24000 frames");
   await expect(page.getByTestId("stop")).toBeDisabled();
-  await page.keyboard.press("Control+v");
+  await page.keyboard.press("ControlOrMeta+v");
   await expect(page.getByTestId("document-details")).toContainText("· 48000 frames");
   expect(await samples(page)).toEqual([Array(48_000).fill(0.125), Array(48_000).fill(-0.25)]);
 });
@@ -191,13 +191,13 @@ test("keyboard edits cannot capture a pointer preview before pointerup", async (
   await page.mouse.move(bounds.x + bounds.width / 4, y);
   await page.mouse.down();
   await page.mouse.move(bounds.x + (bounds.width * 3) / 4, y, { steps: 3 });
-  await page.keyboard.press("Control+c");
+  await page.keyboard.press("ControlOrMeta+c");
   // A probe after the key sees all previously queued worker calls.
   expect((await clipboard(page)).available).toBe(false);
   await page.mouse.up();
   await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "2");
   await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "6");
-  await page.keyboard.press("Control+c");
+  await page.keyboard.press("ControlOrMeta+c");
   await expect.poll(async () => (await clipboard(page)).frames).toBe(4);
 });
 

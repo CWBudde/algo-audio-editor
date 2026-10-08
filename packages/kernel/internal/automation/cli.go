@@ -84,20 +84,17 @@ func RunCLI(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 			base = strings.TrimSuffix(base, filepath.Ext(base))
 			outputs[i] = filepath.Join(*outputDir, base+*suffix+"."+*format)
 		}
-		if _, _, _, err := policy.destination(outputs[i]); err != nil {
+		_, _, absolute, canonical, err := policy.destination(outputs[i])
+		if err != nil {
 			return err
 		}
-		absolute, err := filepath.Abs(outputs[i])
-		if err != nil {
-			return fmt.Errorf("aae: output path: %w", err)
-		}
 		if runtime.GOOS == "windows" {
-			absolute = strings.ToLower(absolute)
+			canonical = strings.ToLower(canonical)
 		}
-		if seen[absolute] {
+		if seen[canonical] {
 			return fmt.Errorf("aae: duplicate output path %q; rename inputs or choose separate batches", absolute)
 		}
-		seen[absolute] = true
+		seen[canonical] = true
 	}
 	params := protocol.DocumentExportParams{Format: *format, BitDepth: *depth, Float: *float, Dither: *dither}
 	failed := 0

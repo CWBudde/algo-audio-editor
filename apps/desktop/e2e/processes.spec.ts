@@ -48,7 +48,7 @@ test("Phase 3.2 processors preserve exact samples, history and isolated extracti
     ]);
     expect((await history(page)).entries).toHaveLength(source.entries.length + 1);
     await page.getByTestId("document-details").click();
-    await page.keyboard.press("Control+z");
+    await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(async () => samples(page)).toEqual([LEFT, RIGHT]);
 
     dialog = await process(page, "stereo-to-mono");
@@ -67,7 +67,7 @@ test("Phase 3.2 processors preserve exact samples, history and isolated extracti
     await expect(dialog).not.toBeVisible();
     expect(await info(page)).toMatchObject({ sampleRate: 24000, channels: 2, frames: 4 });
     await page.getByTestId("document-details").click();
-    await page.keyboard.press("Control+z");
+    await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(async () => samples(page)).toEqual([LEFT, RIGHT]);
     expect((await info(page)).sampleRate).toBe(48000);
 
@@ -81,7 +81,7 @@ test("Phase 3.2 processors preserve exact samples, history and isolated extracti
       [-1, -0.875, 0, 0, 0, 0, -0.25, -0.125],
     ]);
     await page.getByTestId("document-details").click();
-    await page.keyboard.press("Control+z");
+    await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(async () => samples(page)).toEqual([LEFT, RIGHT]);
 
     const beforeExtract = await history(page);

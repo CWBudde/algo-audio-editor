@@ -18,7 +18,13 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   timeout: 90_000,
   expect: { timeout: 30_000 },
-  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
+  reporter: process.env.CI
+    ? [
+        ["github"],
+        ["html", { open: "never" }],
+        ["json", { outputFile: "playwright-json/pages.json" }],
+      ]
+    : "list",
   use: {
     ...devices["Desktop Chrome"],
     baseURL: remote ?? `http://localhost:${port}/algo-audio-editor/`,

@@ -40,7 +40,14 @@ func TestProcessJobWireGolden(t *testing.T) {
 	lufs.PlanningSteps, lufs.InputPeak = 2, 0.25
 	input, predicted, output, target := -18.0, -23.0, -23.0000001, -23.0
 	lufs.InputLUFS, lufs.PredictedLUFS, lufs.OutputLUFS, lufs.Target = &input, &predicted, &output, &target
-	encoded, err := json.Marshal([]protocol.ProcessJobResult{base, peak, lufs})
+	assertWireGolden(t, processWireGolden, []protocol.ProcessJobResult{base, peak, lufs})
+}
+
+// assertWireGolden compares Go's encoding of value with a golden file that the
+// TypeScript parity test parses against the declared payload types.
+func assertWireGolden(t *testing.T, golden []byte, value any) {
+	t.Helper()
+	encoded, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,10 +55,10 @@ func TestProcessJobWireGolden(t *testing.T) {
 	if err := json.Unmarshal(encoded, &got); err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(processWireGolden, &want); err != nil {
+	if err := json.Unmarshal(golden, &want); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Go process wire differs from shared TypeScript golden:\n got: %s\nwant: %s", encoded, processWireGolden)
+		t.Fatalf("Go wire differs from shared TypeScript golden:\n got: %s\nwant: %s", encoded, golden)
 	}
 }

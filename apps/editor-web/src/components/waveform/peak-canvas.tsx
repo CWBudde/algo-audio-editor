@@ -8,8 +8,8 @@ import { drawSampleWaveform, drawWaveform, resizeCanvas } from "@/lib/waveform-d
 import {
   clampVerticalZoom,
   type FrameRange,
-  generateTimeTicks,
   generateTimeSubTicks,
+  generateTimeTicks,
   type TimeFormat,
 } from "@/lib/waveform-geometry";
 import { type SampleDisplayMode, sampleViewportRange } from "@/lib/waveform-samples";

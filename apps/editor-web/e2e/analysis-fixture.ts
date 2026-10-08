@@ -61,7 +61,7 @@ export async function statisticsAndClipping(page: Page) {
   });
   expect(markers).toHaveLength(2);
   await page.getByTestId("document-details").click();
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect
     .poll(async () => (await sourceState(page)).history.currentStateId)
     .toBe(selected.history.currentStateId);

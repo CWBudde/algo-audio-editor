@@ -62,7 +62,7 @@ export async function spectralClickRepair(page: Page) {
   expect(10 * Math.log10(energy / clean.length)).toBeLessThan(-80);
   await expect(page.getByTestId("spectral-selection-0")).not.toHaveAttribute("data-start-frame");
   await page.getByTestId("document-details").click();
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => await samples(page)).toEqual(original);
 }
 export async function stretchInShell(page: Page) {
@@ -79,7 +79,7 @@ export async function stretchInShell(page: Page) {
   }
   expect(Math.abs((crossings * 48000) / 9999 - 440)).toBeLessThan(6);
   await page.getByTestId("document-details").click();
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await info(page)).frames).toBe(12000);
   expect(await samples(page)).toEqual([left, right]);
 }

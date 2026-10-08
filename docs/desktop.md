@@ -126,16 +126,17 @@ Restart uses the normal application quit flow, including every window's unsaved
 work guard, and installation runs only after all windows actually close. There
 are no renderer-supplied feeds, automatic downloads, or development update checks.
 
-The tag-triggered `desktop-release.yml` builds on Linux, Windows and macOS, uploads
-installer artifacts, and publishes the complete platform set to the tag's GitHub
-release only after every build succeeds. A tag must resolve to a commit on `main`
-with a successful CI run for that exact commit. `workflow_dispatch` also requires
-successful CI for its commit and produces reviewable
-build artifacts without publishing. Update metadata (`latest*.yml`),
-blockmaps and the macOS zip must accompany the installers. The workflow uses
-`GITHUB_TOKEN` for the final GitHub release upload; no token is embedded in the app.
+`build-desktop.yml` builds on Linux, Windows and macOS: portable zips for every
+OS, plus the NSIS installer, DMGs (arm64 and x64), AppImage and deb, blockmaps and
+`latest*.yml` update metadata. `release.yml` calls it after a release-please
+release passes its CI, E2E and license gates and attaches the complete set to the
+GitHub release before publishing it; see [releasing](releasing.md#releases). A
+manual dispatch produces unsigned, reviewable build artifacts without publishing.
+The workflows use `GITHUB_TOKEN` for the GitHub release upload; no token is
+embedded in the app.
 
-Configure these GitHub Actions secrets before a signed tag build:
+0.x releases are unsigned development builds. Configure these GitHub Actions
+secrets before the first 1.0 release, which requires signing:
 
 - `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`: exported Developer ID Application
   certificate (`.p12`, base64 or supported certificate URL) and password.
@@ -145,8 +146,10 @@ Configure these GitHub Actions secrets before a signed tag build:
 - `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`: Windows Authenticode signing certificate
   and password. Signature verification for NSIS updates retains the updater default.
 
-Tagged Windows/macOS builds fail if signing credentials are missing, and request
-`forceCodeSigning`. Linux local artifacts are unsigned; Linux distribution signing
+Signed (1.0+) Windows/macOS builds fail if signing credentials are missing, and
+request `forceCodeSigning`. Unsigned macOS builds keep the ad-hoc signature that
+the fuse hardening step resets on arm64, so they launch once the quarantine
+attribute is removed; `electron-updater` cannot install updates into them. Linux local artifacts are unsigned; Linux distribution signing
 requires a separately configured signing key and release policy. macOS signing,
 notarization/stapling, Windows installation/signature verification, Linux package
 signature policy, and an actual old-version-to-new-version update on each OS are

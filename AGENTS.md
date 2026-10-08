@@ -132,10 +132,19 @@ are separate opt-in checks; a successful local gate does not claim those passed.
 Keep commits focused, with bodies describing the behavior and meaningful
 validation. Contributor PRs should have a green `CI` workflow before merging;
 follow an explicit user instruction to commit directly to `main` when provided.
-Report the actual checks run, including skipped platform or hardware gates;
+Never push onto a red `main`: fix it forward first. Never skip hooks
+(`--no-verify`, `LEFTHOOK=0`) to commit or push on `main`; `just install` sets up
+the pre-commit/pre-push hooks and `just check` warns when they are missing.
+Interactive design and polish sessions work on a branch that merges only when CI
+is green. Report the actual checks run, including skipped platform or hardware gates;
 place detailed timing evidence in `docs/benchmarks/` and link it from PLAN.md.
-Release tags additionally require the roadmap's release prerequisites and the
-signed/installed platform acceptance in `docs/desktop.md`.
+Releases come only from merging the release-please PR (`release.yml`), which
+is a publishing action; never push `v*` tags by hand. A release additionally
+requires the roadmap's release prerequisites; 1.0 also requires the
+signed/installed platform acceptance in `docs/desktop.md`. Commit subjects of
+`feat`/`fix`/`perf` commits become the generated `CHANGELOG.md` lines. E2E runs
+in CI only for release PRs and the `e2e` label, so run `just e2e` locally for
+UI changes.
 `just check-license-policy` must pass before a release; known license policy or
 missing-grant findings remain explicit in `docs/licenses/README.md`.
 See [docs/releasing.md](docs/releasing.md) for publishing gates and remaining

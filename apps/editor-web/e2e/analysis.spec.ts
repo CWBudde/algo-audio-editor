@@ -131,7 +131,7 @@ test("spectrogram shares zoom, progressively paints and invalidates same-length 
   await complete();
   await expect.poll(pixels).not.toEqual(original);
   await page.getByTestId("document-details").click();
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect(canvas).toHaveAttribute("data-history-state", state);
   await complete();
   await expect.poll(pixels).toEqual(original);

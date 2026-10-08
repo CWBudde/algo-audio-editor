@@ -68,35 +68,41 @@ After the tag: Phases 32, 33 and 16, then 19 (1.0 gate), 24, 25, 26, with 20, 21
 
 *New (review 2026-10-07).* **Acceptance:** CI is green on the head of `main` and on each of the next 10 pushes. `just test` passes on macOS. `just check` fails locally on everything CI's lint job fails on.
 
-- [ ] Fix forward the failures that have kept `main` red since `d1c8caf`:
-  - treefmt `--fail-on-change`
-  - Biome: two `useExhaustiveDependencies` errors and one import sort
-  - Vitest: `waveform-view.test.tsx` "4× vertical"/geometry; `waveform/lane-layout.test.ts` expects 695, receives 719
-  - Triage the Electron `analysis…progressive spectrogram` timeout from the `d1c8caf` run. E2E has not run since, because it needs lint and unit to pass.
-- [ ] **macOS write-root bug:** `NewFilePolicy` resolves roots with `EvalSymlinks`, but `destination()` only applies `filepath.Abs` (`internal/automation/files.go`). On macOS, `--allow-write /tmp` therefore rejects `/tmp/x.wav`. Fix: canonicalize the destination's existing parent directory before the `Rel` check, keeping `os.Root` confinement. Add a symlinked-root regression test. This fixes 4 failing tests on macOS: three in automation and `TestMCPCLIAndUIProtocolParity`.
-- [ ] Add a `macos-latest` and `windows-latest` `go test` job; CI is currently Linux-only.
-- [ ] Align local hooks with CI:
+- [x] Fix forward the failures that have kept `main` red since `d1c8caf`: import sort, two justified `useExhaustiveDependencies` reset effects, and stale `lane-layout`/`waveform-view` expectations after `c8ebc6e`'s header and guide changes. Local `just check` passes on macOS; the first remote run after merging confirms it.
+  - The Electron `analysis…progressive spectrogram` timeout is classified as a flake: it is 1 failure in 26 Electron runs, it stalls in the cold first-launch `load()` (a `doc.info` that never answered), not in the spectrogram, and `d1c8caf` changed only tooling. If it recurs, capture an Electron context trace and console output in `apps/desktop/e2e/launch.ts` before changing any timing. The probe's 5 s per-request timer currently equals the whole poll budget.
+- [x] **macOS write-root bug:** `NewFilePolicy` resolves roots with `EvalSymlinks`, but `destination()` only applies `filepath.Abs` (`internal/automation/files.go`). On macOS, `--allow-write /tmp` therefore rejects `/tmp/x.wav`. Fix: canonicalize the destination's existing parent directory before the `Rel` check, keeping `os.Root` confinement. Add a symlinked-root regression test. This fixes 4 failing tests on macOS: three in automation and `TestMCPCLIAndUIProtocolParity`.
+- [x] Add a `macos-latest` and `windows-latest` `go test` job (2026-10-08) — the `go-native` matrix in `test-unit.yml` passed on both in PR #3 (CI run 37819657110), the first hosted Windows run, including the automation write-root tests.
+- [x] Make the browser and Electron e2e suites pass on macOS (2026-10-08) — fixtures press `ControlOrMeta`; only the deliberate Ctrl probe in `commands.spec.ts`, the Linux/Windows-only Ctrl+Y redo and Ctrl+wheel zoom stay `Control`. Also fixed:
+  - Stale effects/vertical-zoom expectations after the editor redesign and `c8ebc6e`'s time guides; these failed on Linux too.
+  - macOS lifecycle and `/private/var` temp paths in `native.spec.ts`, Chromium's `system-ui` font serialization, and a `metadata.spec` undo race.
+  - No app bugs found, no `fixme`, no limits relaxed. On macOS `just e2e` gives 172 passed (baseline: 56 failed); `just e2e-desktop` gives 24 passed and 1 skipped (baseline: 8 failed).
+- [x] Re-cover the consolidated filter variants (2026-10-08) — a browser e2e test reaches every `filter-*` and weighting variant through the Filter "Type"/"Family" and "Weighting" selects, with preview, one undoable apply and distinct kernel output per path. It found that choosing the Moog family kept standard-filter parameters (`stopbandDB`), so the kernel rejected preview and apply. The dialog now sends only the parameters the node's own type declares (covered by a unit test). `just e2e`: 173 passed.
+- [ ] Run E2E on pull requests that touch `apps/editor-web/src`, `apps/desktop/src` or the e2e specs, not only on release PRs and the `e2e` label. Three editor-redesign commits left five stale specs unnoticed.
+- [x] Align local hooks with CI:
   - `just lint-web` runs `biome ci`, as CI does, instead of `biome lint`.
   - `just check` warns when the lefthook hooks are not installed.
   - Add a `pre-push` hook (`biome ci` plus related Vitest).
-- [ ] Process rule in AGENTS.md: never push onto a red `main`. Interactive design sessions work on a branch and merge only when green.
+- [x] Process rule in AGENTS.md: never push onto a red `main`. Interactive design sessions work on a branch and merge only when green.
 - [ ] Configure required CI checks and branch protection for `main`. Keep an explicit admin bypass for the authorized direct-main workflow. The branch protection API currently reports `Branch not protected`; this item moved here from Phase 28.
-- [ ] Enforce the per-package coverage targets in [testing](docs/testing.md) with a `go tool cover -func` threshold check. `automation` is at 58% and `process` at 88.8%.
-- [ ] Surface Playwright `flaky` (retried) results in the CI step summary, and record each one in Phase 28.
+- [x] Enforce the per-package coverage targets in [testing](docs/testing.md) (2026-10-08) — `scripts/check-coverage.mjs` (`just check-coverage`, in `check`/`ci` and the CI Go job) fails below 90% for `audiobuf`, `process` and `effects` and below 80% for the kernel total, and writes the table to the job summary. New `process` tests for the `MaterializedBytes` reservations and for verifying unity-gain loudness candidates raise it from 88.8% to 90.3%. Local run: total 88.1%, audiobuf 97.7%, effects 91.2%. `automation` (77.5%) has no gate yet.
+- [x] Surface Playwright `flaky` (retried) results in the CI step summary, and record each one in Phase 28 (2026-10-08) — the browser and Pages configs write JSON reports in CI, and `scripts/playwright-flaky-summary.mjs` (an `if: always()` step in `test-e2e.yml`) lists the flaky tests in the job summary and as warning annotations. Checked against a real Playwright report with a retry-passed test and by `just test-scripts`; the first hosted run is still to come. The Electron suite has no retries, so its flakes still fail the job.
 - [ ] Pin local tools as CI does:
   - Go `tool` directives for gofumpt, gci and golangci-lint.
-  - `"packageManager": "bun@1.4.2"`.
+  - `"packageManager": "bun@1.4.2"`. The root `package.json` is a hashed license-inventory input, so add the pin together with a `just licenses` run on Linux; regenerating on macOS drops the Electron binary evidence.
   - `dep-drift.yml` uses `go.mod`'s toolchain instead of `stable`.
-- [ ] Protocol parity v2:
+- [x] Protocol parity v2 (2026-10-08):
   - Compare field kind, optionality (`omitempty` vs `?`) and nullability (pointer vs `| null`), not only names.
   - Fail when the schema hash changes without a `protocol.Version` / `PROTOCOL_VERSION` bump.
   - Extend the shared Go-marshals/TS-parses golden files beyond process jobs.
+  - Done: `scripts/protocol-schema.go` emits each field's kind, optionality and nullability plus a schema hash. `protocol-parity.test.ts` compares them; its two-entry `tsDiffers` allowlist fails once an entry is stale. `TestSchemaHashPinsVersion` pins the hash to `protocol.Version` in `testdata/schema-hash.json`; re-pin with `-update-schema-hash`. New document, analysis and effects golden files are checked on both sides. Scratch edits proved both checks: an optional `TimelineMarker.name` fails parity, and a new Go field without a version bump fails the hash pin.
+- [ ] `engine/binary_document.go:29` passes `metadata.Tags` unguarded, so a nil map would send `"tags": null` where TypeScript declares `Record<string, string>`. `metadata.go` already guards this. Nil slices and maps are outside the pointer-only nullability check.
 
 ### Phase 30: Data Safety & v0.1 Basics
 
 *New (review 2026-10-07).* **Acceptance:** closing a tab or window with unsaved changes asks first. File → New, Preferences, the shortcut list and Copy diagnostics work in the browser and Electron, each covered by e2e.
 
-- [ ] Browser `beforeunload` guard while any document is dirty. Electron already has a guarded close.
+- [x] Browser `beforeunload` guard while any document is dirty. Electron already has a guarded close.
+- [ ] Browser open/import over a dirty document asks first. `confirmReplace` in `use-document.ts` runs only in Electron.
 - [ ] File → New: chosen sample rate, channel count and optional silent length. `file.new` is currently disabled in `lib/commands.ts`.
 - [ ] Minimal persisted preferences: default export format and dither, time format, snapping. There is currently no settings store.
 - [ ] Help → Keyboard shortcuts, generated from the command registry. Help → Copy diagnostics, reusing About's diagnostics.
@@ -282,11 +288,12 @@ Plans: [Go replacements](docs/licenses/go-replacements.md), [npm replacements](d
 
 - [ ] **Allocation flake:** `internal/effects/stream_test.go` (`AllocsPerRun`, "prepared auto-wah render+reset allocate 1") failed in 1 of 6 local `-race` runs. Find the stray allocation or make the measurement robust before it reddens CI. Later isolated and full-catalogue repetitions passed; process-global allocation counters are a suspected, unconfirmed source. [Evidence](docs/benchmarks/r1-ci-2026-10-05.md#allocation-flake).
 - [ ] **Short-file EOF snapshot flake:** one parallel `transport.spec.ts` run reported frame 13 instead of 31. Repetitions with passive DOM/output-clock/shared-counter diagnostics pass; the cause is open. Keep the exact 31-frame, zero-underrun and replay assertions. [Evidence](docs/benchmarks/r1-ci-2026-10-05.md#short-file-eof-flake).
+- [ ] **Electron security-spec timeout:** on macOS, 2026-10-08, `security.spec.ts` "only app audio permission and explicit external links are allowed" hit the 30 s test timeout and then a worker teardown timeout in one full `just e2e-desktop` run. The rerun was green, and the spec was unchanged.
 - [ ] **Electron spectrogram timeout:** the `d1c8caf` CI run failed `analysis…progressive spectrogram` with a 5 s predicate timeout. Decide whether it is a flake or a regression once Phase 29 lets e2e run again.
 - [ ] Add `govulncheck` and Dependabot (or Renovate) for Go modules, npm and GitHub Actions; `dep-drift.yml` only covers the `algo-*` family.
 - [ ] Machine-generated evidence over 200 KB goes to CI artifacts or release assets, with only a summary `.md` in `docs/benchmarks/`. Example: the 2.4 MB `go-math-reach-2026-10-06.json`. Benchmark reports hold evidence, not open checkboxes, so move the open items in `processing-2026-10-03.md` here or to Phase 16.
-- [ ] Let `desktop-release.yml` build an explicitly marked unsigned development release (it currently forces signing for every tag), keeping signing mandatory for 1.0 tags.
-- [ ] Tag the **`v0.1.0` development release** once the critical path above is done, with dependency checks and green CI on the release commit. The tag also establishes the `check-unreleased` baseline. [First release](docs/releasing.md#first-release).
+- [x] release-please release pipeline (`release.yml`): the release PR's merge creates a draft release that publishes only after green CI, browser/Electron E2E and the strict license policy on the release commit, with unsigned 0.x desktop zips/installers and `aae`/`aae-mcp` zips for six targets plus `SHA256SUMS.txt`. 1.0+ requires signing. E2E no longer runs on ordinary pushes and PRs (only release-please PRs, the `e2e` label and manual runs). The first real run is still to come.
+- [ ] Merge the release-please **`v0.1.0` development release** PR once the critical path above is done, with dependency checks and green CI on the release commit. The tag also establishes the `check-unreleased` baseline. [First release](docs/releasing.md#first-release).
 
 ---
 

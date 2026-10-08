@@ -1,0 +1,124 @@
+{
+  "DocumentInfoResult": [
+    {
+      "format": "wav",
+      "documentId": "doc-1",
+      "name": "take.wav",
+      "sampleRate": 48000,
+      "channels": 2,
+      "frames": 96000,
+      "bitDepth": 24,
+      "float": false
+    },
+    {
+      "format": "",
+      "documentId": "doc-2",
+      "name": "Untitled",
+      "sampleRate": 44100,
+      "channels": 1,
+      "frames": 0,
+      "bitDepth": 32,
+      "float": true
+    }
+  ],
+  "EditResult": [
+    {
+      "document": {
+        "format": "wav",
+        "documentId": "doc-1",
+        "name": "take.wav",
+        "sampleRate": 48000,
+        "channels": 2,
+        "frames": 96000,
+        "bitDepth": 24,
+        "float": false
+      },
+      "selection": {
+        "documentId": "doc-1",
+        "start": 480,
+        "end": 9600,
+        "channelMask": 3
+      },
+      "timeline": {
+        "documentId": "doc-1",
+        "markers": [
+          {
+            "id": 1,
+            "frame": 4800,
+            "name": "Intro",
+            "color": "#f59e0b"
+          }
+        ],
+        "regions": [
+          {
+            "id": 2,
+            "start": 9600,
+            "end": 19200,
+            "name": "Chorus",
+            "color": ""
+          }
+        ]
+      },
+      "clipboard": {
+        "version": "clip-1",
+        "available": true,
+        "sampleRate": 48000,
+        "channels": 2,
+        "frames": 9120
+      },
+      "changed": true,
+      "history": {
+        "documentId": "doc-1",
+        "currentStateId": "state-2",
+        "savedStateId": "state-1",
+        "dirty": true,
+        "canUndo": true,
+        "canRedo": false,
+        "entries": [
+          {
+            "stateId": "state-1",
+            "label": "Open"
+          },
+          {
+            "stateId": "state-2",
+            "label": "Cut"
+          }
+        ],
+        "maxEntries": 100,
+        "maxBytes": 1073741824,
+        "retainedBytes": 768000
+      }
+    }
+  ],
+  "MetadataResult": [
+    {
+      "documentId": "doc-1",
+      "stateId": "state-2",
+      "tags": {
+        "title": "Take"
+      },
+      "preservedBytes": 64,
+      "chunks": ["bext"]
+    }
+  ],
+  "TimelineMutationResult": [
+    {
+      "documentId": "doc-2",
+      "markers": [],
+      "regions": [],
+      "history": {
+        "documentId": "doc-2",
+        "currentStateId": "",
+        "savedStateId": "",
+        "dirty": false,
+        "canUndo": false,
+        "canRedo": false,
+        "entries": [],
+        "maxEntries": 100,
+        "maxBytes": 0,
+        "retainedBytes": 0
+      },
+      "changed": false
+    }
+  ]
+}

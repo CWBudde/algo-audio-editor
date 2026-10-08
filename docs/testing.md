@@ -24,8 +24,24 @@ Run everything through `just` (see AGENTS.md for the recipe list).
 
 ## Coverage targets
 
-- ≥ 90 % for `internal/audiobuf` and the processing packages
-- ≥ 80 % for the kernel overall
+- ≥ 90 % for `internal/audiobuf` and the processing packages `internal/process`
+  and `internal/effects`
+- ≥ 80 % for the kernel overall (every package, including `cmd/`)
+
+`just check-coverage` enforces these on the statement profile that
+`just test-go-race` writes; `just check`, `just ci` and the CI Go job run it and
+fail below a target. The targets live in `scripts/check-coverage.mjs`. Raise
+coverage with tests rather than lowering a target.
+
+Protocol parity compares every payload field's kind, optionality and nullability
+between Go and TypeScript and checks shared golden files on both sides.
+`TestSchemaHashPinsVersion` pins the schema hash to `protocol.Version`: after a
+shape change, bump both versions and re-pin from `packages/kernel` with
+`go test ./internal/protocol -run '^TestSchemaHashPinsVersion$' -update-schema-hash`.
+
+CI retries failed browser tests once (Pages tests twice). A test that passes only
+on retry is reported in the E2E job summary and as a warning annotation; record
+it in PLAN Phase 28 rather than relying on the retry.
 
 ## Reporting verification
 

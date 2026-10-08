@@ -141,15 +141,15 @@ test("keyboard opens a fenced modal without a chooser, disables cursor range and
   const before = await sourceState(page);
   const opener = page.getByLabel("Selection start", { exact: true });
   await opener.focus();
-  await page.keyboard.press("Control+Shift+E");
+  await page.keyboard.press("ControlOrMeta+Shift+E");
   const dialog = page.getByRole("dialog", { name: "Export audio" });
   await expect(dialog).toBeVisible();
   await expect(
     dialog.getByRole("option", { name: "Selection (selected channels)" }),
   ).toBeDisabled();
-  await page.keyboard.press("Control+s");
-  await page.keyboard.press("Control+z");
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("ControlOrMeta+s");
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByRole("dialog", { name: "Command palette" })).not.toBeVisible();
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();

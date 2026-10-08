@@ -17,15 +17,32 @@ jobs:
         with:
           bun: "false"
       - run: just test-go-race
-      - name: Coverage summary
+      # Writes the per-package table to the job summary and fails below target.
+      - name: Coverage targets (docs/testing.md)
+        run: just check-coverage
+      - run: just test-scripts
+
+  # The native CLI and MCP server ship for macOS and Windows too; their path
+  # handling (symlinked temp roots, volumes, case, 8.3 names) differs from Linux.
+  go-native:
+    name: Go native (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      # Windows runners default to core.autocrlf=true; keep fixtures byte-exact.
+      - name: Disable line-ending conversion
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          bun: "false"
+      - name: go test (native)
         working-directory: packages/kernel
-        run: |
-          {
-            echo "### Kernel coverage"
-            echo '```'
-            go tool cover -func=coverage.out | tail -1
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: go test ./...
 
   wasm:
     name: Go under js/wasm (bridge, golden vectors in V8)

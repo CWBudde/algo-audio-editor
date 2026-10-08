@@ -1,0 +1,190 @@
+name: Release
+
+# release-please keeps a release PR (version.txt, CHANGELOG.md) up to date on
+# every push to main. Merging that PR creates a draft GitHub release and its
+# tag. This workflow then gates the release commit (green CI, browser and
+# Electron E2E, strict license policy), builds the desktop apps and the native
+# CLI/MCP binaries, attaches them with SHA256SUMS and publishes the draft. A
+# failed gate or build leaves the draft unpublished: fix forward and rerun.
+#
+# Everything here uses GITHUB_TOKEN, so the release PR and tag trigger no other
+# workflows; the E2E and CI gates therefore run from this workflow.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release-please
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      major: ${{ steps.release.outputs.major }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Every job below uses the tagged commit (the merged release PR), not
+  # github.sha: a queued run can be replaced by a later push. CI for that
+  # commit's push runs format, lint, unit and fuzz; poll until it succeeds.
+  ci:
+    name: CI passed
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Wait for CI on the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ needs.release-please.outputs.sha }}
+        run: |
+          deadline=$((SECONDS + 50 * 60))
+          while :; do
+            runs=$(gh run list --workflow ci.yml --commit "$SHA" --event push --json databaseId,status,conclusion)
+            if jq -e 'any(.[]; .conclusion == "success")' <<<"$runs" > /dev/null; then
+              echo "CI passed for $SHA"
+              exit 0
+            fi
+            pending=$(jq -r '[.[] | select(.status != "completed")][0].databaseId // empty' <<<"$runs")
+            if [[ -z "$pending" && $(jq length <<<"$runs") -gt 0 ]]; then
+              echo "::error::CI finished without success for $SHA; refusing to release"
+              exit 1
+            fi
+            if ((SECONDS >= deadline)); then
+              echo "::error::No successful CI run for $SHA within 50 minutes; refusing to release"
+              exit 1
+            fi
+            if [[ -n "$pending" ]]; then
+              echo "Waiting for CI run $pending on $SHA"
+              gh run watch "$pending" --interval 30 > /dev/null || true
+            else
+              echo "No CI run registered for $SHA yet; polling"
+              sleep 30
+            fi
+          done
+
+  e2e:
+    name: E2E
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    uses: ./.github/workflows/test-e2e.yml
+    with:
+      ref: ${{ needs.release-please.outputs.sha }}
+
+  license-policy:
+    name: License policy
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+      - uses: ./.github/actions/setup
+        with:
+          go: "false"
+      - run: just check-license-policy
+
+  desktop:
+    name: Desktop
+    needs: [release-please, ci, e2e, license-policy]
+    uses: ./.github/workflows/build-desktop.yml
+    with:
+      ref: ${{ needs.release-please.outputs.sha }}
+      version: ${{ needs.release-please.outputs.version }}
+      # 0.x releases are unsigned development builds; 1.0+ requires signing.
+      signed: ${{ needs.release-please.outputs.major != '0' }}
+    secrets: inherit
+
+  cli:
+    name: CLI (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: [release-please, ci, e2e, license-policy]
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+      - uses: ./.github/actions/setup
+        with:
+          bun: "false"
+      - name: Build aae and aae-mcp
+        working-directory: packages/kernel
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          buildinfo=github.com/cwbudde/algo-audio-editor/packages/kernel/internal/buildinfo
+          ldflags="-s -w -X ${buildinfo}.Version=${TAG} -X ${buildinfo}.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          go build -trimpath -ldflags "$ldflags" -o "$RUNNER_TEMP/bin/" ./cmd/aae ./cmd/aae-mcp
+      - name: Package zip
+        env:
+          NAME: aae-${{ needs.release-please.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}
+        run: |
+          stage="$RUNNER_TEMP/$NAME"
+          mkdir -p "$stage" dist
+          cp "$RUNNER_TEMP"/bin/* "$stage/"
+          cp LICENSE "$stage/LICENSE.txt"
+          cp apps/editor-web/public/third-party-notices.txt "$stage/"
+          cp docs/mcp.md "$stage/README-mcp.md"
+          (cd "$RUNNER_TEMP" && zip -qr "$GITHUB_WORKSPACE/dist/$NAME.zip" "$NAME")
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: [release-please, desktop, cli]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: "{desktop,cli}-*"
+          merge-multiple: true
+          path: assets
+      - name: Checksums
+        working-directory: assets
+        run: sha256sum -- * > SHA256SUMS.txt
+      - name: Attach assets and publish the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          gh release upload "$TAG" assets/* --clobber
+          gh release edit "$TAG" --draft=false

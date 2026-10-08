@@ -330,3 +330,70 @@ func TestNormalizerCertificateOnlyVerificationWithExplicitInjectedStatus(t *test
 		})
 	}
 }
+
+// A loudness candidate whose resolved gain is exactly unity keeps the source
+// storage, yet production still measures it: verification rescans the unchanged
+// candidate with the reset, independent analyzer instead of trusting the plan.
+func TestNormalizerUnityLoudnessCandidateIsStillMeasured(t *testing.T) {
+	input := normalizeTone(19200, .5)
+	document := fixture(t, input)
+	measured := measureNormalized(t, document, 1)
+	for _, kind := range []string{"on target", "off target"} {
+		t.Run(kind, func(t *testing.T) {
+			target := measured
+			if kind == "off target" {
+				target--
+			}
+			normalizer, err := NewNormalizer(document, ops.Range{End: 19200, ChannelMask: 1}, "normalize-loudness", target, Limits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for normalizer.progress.FramesDone < normalizer.progress.FramesTotal {
+				if _, err := normalizer.Step(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Resolve unity exactly as the end of analysis does for a loudness plan.
+			normalizer.verifyInput = true
+			normalizer.verification = normalizer.analyzer
+			normalizer.verification.Reset()
+			if _, err := normalizer.startBuilder(0, 1); err != nil {
+				t.Fatal(err)
+			}
+			if !normalizer.Identity() || normalizer.observedOutput {
+				t.Fatal("unity gain did not produce an unobserved identity candidate")
+			}
+			scanned := false
+			for attempts := 0; attempts < 1000; attempts++ {
+				progress, err := normalizer.Step(context.Background())
+				if kind == "off target" && err != nil {
+					if !strings.Contains(err.Error(), "deviates") || !scanned {
+						t.Fatal("unity candidate failed without an actual verification scan", err)
+					}
+					assertNormalizerReleased(t, normalizer, nil)
+					assertBits(t, samples(t, document, 0), input)
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if normalizer.status.Phase == protocol.PhaseVerifying && progress.FramesDone > 0 {
+					scanned = true
+				}
+				if progress.Done {
+					break
+				}
+			}
+			if kind == "off target" || !scanned {
+				t.Fatal("unity candidate was accepted without measuring it against the target")
+			}
+			result, err := normalizer.Result()
+			if err != nil || !reflect.DeepEqual(result, document) {
+				t.Fatal("unity candidate did not preserve exact source storage", err)
+			}
+			if output := normalizer.Status().OutputLUFS; output == nil || math.Abs(*output-measured) > .01 {
+				t.Fatal("verification did not report the measured output loudness", output)
+			}
+		})
+	}
+}

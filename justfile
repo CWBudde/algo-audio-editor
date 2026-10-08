@@ -17,6 +17,26 @@ install:
     bun install
     bun run --cwd {{desktop}} install-electron
     bunx lefthook install
+    @just check-hooks
+
+# Warn (never fail) when this checkout's lefthook pre-commit/pre-push hooks are missing.
+# `--git-path hooks` honors core.hooksPath and resolves a worktree's shared hooks.
+check-hooks:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    [[ -n "${CI:-}" ]] && exit 0
+    hooks="$(git rev-parse --git-path hooks 2>/dev/null)" || exit 0
+    missing=()
+    for hook in pre-commit pre-push; do
+        grep -qs lefthook "$hooks/$hook" || missing+=("$hook")
+    done
+    [[ ${#missing[@]} -eq 0 ]] && exit 0
+    {
+        printf '\n\033[1;33m%s\033[0m\n' '!!! WARNING: lefthook git hooks are NOT installed (or outdated) !!!'
+        printf '    missing in %s: %s\n' "$hooks" "${missing[*]}"
+        printf '    Commits and pushes skip the checks CI runs. Run `just install`\n'
+        printf '    (or `bunx lefthook install`) in this checkout.\n\n'
+    } >&2
 
 # ── Kernel (Go → WASM) ───────────────────────────────────────────────────────
 
@@ -84,6 +104,14 @@ test-go:
 
 test-go-race:
     cd {{kernel}} && go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+# Enforce docs/testing.md coverage targets on the profile `test-go-race` wrote.
+check-coverage:
+    node scripts/check-coverage.mjs {{kernel}}/coverage.out
+
+# Unit tests for the CI helper scripts (coverage gate, flaky-test summary).
+test-scripts:
+    node --test scripts/check-coverage.test.mjs scripts/playwright-flaky-summary.test.mjs
 
 # Verify native golden vectors and immutable storage under the actual WASM build.
 test-go-wasm:
@@ -222,11 +250,13 @@ bench-analysis-hour-wasm:
 lint: lint-go lint-web
 
 lint-go:
+    cd {{kernel}} && go vet ./... && GOOS=js GOARCH=wasm go vet ./...
     cd {{kernel}} && golangci-lint run ./...
     cd {{kernel}} && GOOS=js GOARCH=wasm golangci-lint run ./...
 
+# Same commands as CI's web lint job: `biome ci` fails on lint, format and import order.
 lint-web:
-    bunx biome lint apps packages/protocol
+    bunx biome ci apps packages/protocol
     bun run --bun --cwd {{web}} typecheck
     bun run --bun --cwd {{desktop}} typecheck
 
@@ -282,11 +312,13 @@ check-unreleased:
 # ── Aggregate ────────────────────────────────────────────────────────────────
 
 # Fast local gate: formatting, lint, unit tests and the production build.
-check: check-formatted check-licenses lint test-go-race test-web test-desktop check-tidy build
+# The hook warning prints first and again after the long test output.
+check: check-hooks check-formatted check-licenses lint test-go-race check-coverage test-scripts test-web test-desktop check-tidy build
+    @just check-hooks
 
 # Electron e2e needs a display; headless, run `xvfb-run --auto-servernum just ci`.
 # Everything CI runs (.github/workflows/ci.yml and the test-*.yml it calls), in one recipe.
-ci: check-formatted check-licenses lint test-go-race test-go-wasm fuzz-wav fuzz-codecs fuzz-export test-web test-desktop check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
+ci: check-hooks check-formatted check-licenses lint test-go-race check-coverage test-scripts test-go-wasm fuzz-wav fuzz-codecs fuzz-export test-web test-desktop check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
 
 clean:
     rm -rf {{kernel}}/bin

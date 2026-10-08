@@ -37,6 +37,7 @@ async function colorsAt(canvas: Locator, x: number, y: number) {
         actual,
         peakNearby,
         background: role("--editor-waveform-background"),
+        grid: role("--editor-waveform-grid"),
         rms: role("--editor-waveform-rms"),
       };
     },
@@ -112,8 +113,11 @@ for (const dpr of [1, 2]) {
       // This physical column is fully painted at either DPR, avoiding fractional
       // interior bucket edges. Repeated raster fills can round one RGB byte
       // at DPR 2; peak-only and blank paint remain far outside that tolerance.
+      // The same column carries the major time guide at frame 0, which is
+      // painted beneath the waveform, so unpainted plot pixels there show the
+      // grid color rather than the background.
       const initial = await colorsAt(canvas, 0, 0.35);
-      expect(initial.actual).toEqual(initial.background);
+      expect(initial.actual).toEqual(initial.grid);
       const zoom = await revealControl(page.getByLabel("Vertical zoom", { exact: true }));
       await zoom.selectOption("4");
       await zoom.press("Escape");
@@ -125,7 +129,7 @@ for (const dpr of [1, 2]) {
         })
         .toBe(true);
       const above = await colorsAt(canvas, 0, 0.2);
-      expect(above.actual).toEqual(above.background);
+      expect(above.actual).toEqual(above.grid);
       await expect(
         page.getByTestId("waveform-amplitude-ruler-0").getByText("0.25", { exact: true }),
       ).toBeVisible();
@@ -149,7 +153,7 @@ for (const dpr of [1, 2]) {
       await expect
         .poll(async () => {
           const painted = await colorsAt(canvas, 0, 0.35);
-          return painted.actual.every((value, index) => value === painted.background[index]);
+          return painted.actual.every((value, index) => value === painted.grid[index]);
         })
         .toBe(true);
       expect(await page.evaluate(() => window.__aaeTest?.peakCalls?.length)).toBe(calls);

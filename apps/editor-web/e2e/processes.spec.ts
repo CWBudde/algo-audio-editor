@@ -39,7 +39,7 @@ async function apply(page: Page, dialog: Locator) {
 
 async function undo(page: Page, source = [LEFT, RIGHT]) {
   await page.getByTestId("document-details").click();
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => samples(page)).toEqual(source);
 }
 

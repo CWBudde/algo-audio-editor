@@ -7,7 +7,7 @@ import { playbackWAV } from "./playback-fixture.ts";
 import { revealControl } from "./ui-disclosures.ts";
 
 async function command(page: Page, id: string, query: string) {
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("ControlOrMeta+k");
   const palette = page.getByRole("dialog", { name: "Command palette" });
   await palette.getByRole("combobox").fill(query);
   await palette.locator(`[data-command-id="${id}"]`).click();

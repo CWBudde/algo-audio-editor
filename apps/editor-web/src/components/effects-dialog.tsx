@@ -373,15 +373,25 @@ export function EffectsDialog(props: Props) {
                     client={props.client}
                     sampleRate={view.info.sampleRate}
                     disabled={Boolean(working)}
-                    onChange={(params) =>
+                    onChange={(params) => {
+                      const type =
+                        isStandardFilter(descriptor.id) && params.family === "moog"
+                          ? "filter-moog"
+                          : descriptor.id;
+                      // The shared Filter editor carries every family's fields; a node may
+                      // only send the parameters its own type declares to the kernel.
+                      const declared = descriptors.find((entry) => entry.id === type)?.parameters;
                       changeNode(index, {
-                        type:
-                          isStandardFilter(descriptor.id) && params.family === "moog"
-                            ? "filter-moog"
-                            : descriptor.id,
-                        params,
-                      })
-                    }
+                        type,
+                        params: declared
+                          ? Object.fromEntries(
+                              Object.entries(params).filter(([key]) =>
+                                declared.some((parameter) => parameter.id === key),
+                              ),
+                            )
+                          : params,
+                      });
+                    }}
                   />
                 </li>
               );

@@ -14,6 +14,12 @@ async function metadata(page: Page) {
     })) as MetadataResult;
   });
 }
+/** History navigation mints a new document identity; wait for it before probing metadata. */
+async function navigate(page: Page, action: () => Promise<unknown>) {
+  const previous = (await info(page)).documentId;
+  await action();
+  await expect.poll(async () => (await info(page)).documentId).not.toBe(previous);
+}
 function chunk(id: string, data: Buffer) {
   const bytes = Buffer.alloc(8 + data.length + (data.length % 2));
   bytes.write(id);
@@ -59,7 +65,7 @@ test("metadata edits, modal shortcuts, undo/redo and actual WAV export preserve 
   await expect(dialog.getByLabel("Title", { exact: true })).toHaveValue("Imported title");
   await expect(dialog).toContainText("bext");
   await dialog.getByLabel("Title", { exact: true }).fill("Edited 🎵");
-  await dialog.getByLabel("Title", { exact: true }).press("Control+z");
+  await dialog.getByLabel("Title", { exact: true }).press("ControlOrMeta+z");
   expect((await sourceState(page)).history).toEqual(before.history);
   await dialog.getByLabel("Title", { exact: true }).fill("Edited 🎵");
   await dialog.getByLabel("Artist", { exact: true }).fill("Artist");
@@ -73,11 +79,11 @@ test("metadata edits, modal shortcuts, undo/redo and actual WAV export preserve 
   expect(after.history.entries).toHaveLength(before.history.entries.length + 1);
   expect(await samples(page)).toEqual([LEFT, RIGHT]);
   expect((await metadata(page)).tags).toEqual({ title: "Edited 🎵", artist: "Artist" });
-  await runCommand(page, "edit.undo", "Edit");
-  await expect.poll(async () => (await metadata(page)).tags.title).toBe("Imported title");
+  await navigate(page, () => runCommand(page, "edit.undo", "Edit"));
+  expect((await metadata(page)).tags.title).toBe("Imported title");
   await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
-  await runCommand(page, "edit.redo", "Edit");
-  await expect.poll(async () => (await metadata(page)).tags.title).toBe("Edited 🎵");
+  await navigate(page, () => runCommand(page, "edit.redo", "Edit"));
+  expect((await metadata(page)).tags.title).toBe("Edited 🎵");
   await openExport(page);
   const exported = await exportDownload(page);
   expect(parseWAV(exported.bytes).data).toEqual(parseWAV(input.bytes).data);

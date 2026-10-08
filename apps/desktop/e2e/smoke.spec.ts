@@ -125,10 +125,10 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await page.getByRole("button", { name: "Save region", exact: true }).click();
     await expect(page.getByTestId("region-row-1")).toContainText("Desktop region edited");
     await expect(page.getByTestId("region-row-1").getByLabel("Color #abcdef")).toBeVisible();
-    await page.keyboard.press("Control+z");
+    await page.keyboard.press("ControlOrMeta+z");
     await expect(page.getByTestId("region-row-1")).toContainText("Desktop region");
     await expect(page.getByTestId("region-row-1").getByLabel("Color #123456")).toBeVisible();
-    await page.keyboard.press("Control+Shift+z");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
     await expect(page.getByTestId("region-row-1")).toContainText("Desktop region edited");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
@@ -146,12 +146,12 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
     await expect(page.getByTestId("timeline-region-1")).toHaveCount(0);
     await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
-    await page.keyboard.press("Control+z");
+    await page.keyboard.press("ControlOrMeta+z");
     await expect(page.getByTestId("document-details")).toContainText("· 12 frames");
-    await page.keyboard.press("Control+Shift+z");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
     await expect(page.getByTestId("document-details")).toContainText("· 16 frames");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
-    await page.keyboard.press("Control+k");
+    await page.keyboard.press("ControlOrMeta+k");
     const palette = page.getByRole("dialog", { name: "Command palette" });
     await expect(palette).toBeVisible();
     const search = palette.getByRole("combobox", { name: "Search commands" });
@@ -232,11 +232,11 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     expect(normalizedWaveforms[0]).not.toEqual(sourceWaveforms[0]);
     expect(normalizedWaveforms[1]).not.toEqual(sourceWaveforms[1]);
     await page.getByTestId("document-details").click();
-    await page.keyboard.press("Control+z");
+    await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(waveforms).toEqual(sourceWaveforms);
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-start", "4");
     await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
-    await page.keyboard.press("Control+Shift+z");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
     await expect.poll(waveforms).toEqual(normalizedWaveforms);
 
     // A full 2-second source gives genuine complete loudness windows. Assert
@@ -276,7 +276,7 @@ test("loads the editor over app:// with cross-origin isolation", async () => {
     await expect(page.locator('[data-testid^="history-state-"]')).toHaveCount(lufsStates + 1);
     await expect.poll(waveforms).not.toEqual(lufsSourceWaveforms);
     await page.getByTestId("document-details").click();
-    await page.keyboard.press("Control+z");
+    await page.keyboard.press("ControlOrMeta+z");
     await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
     await expect(page.getByTestId("waveform-view")).not.toHaveAttribute(
       "data-document-id",

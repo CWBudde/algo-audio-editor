@@ -1,0 +1,127 @@
+{
+  "AnalysisJobResult": [
+    {
+      "documentId": "doc-1",
+      "start": 0,
+      "end": 48000,
+      "channelMask": 3,
+      "jobId": "job-1",
+      "kind": "statistics",
+      "state": "ready",
+      "processedFrames": 48000,
+      "totalFrames": 48000,
+      "sampleRate": 48000,
+      "dataBytes": 0,
+      "channels": [0, 1],
+      "statistics": [
+        {
+          "channel": 0,
+          "peak": 0.5,
+          "rms": 0.25,
+          "dc": 0.001,
+          "crestDB": 6.0206,
+          "zeroCrossings": 120,
+          "clippedSamples": 2
+        },
+        {
+          "channel": 1,
+          "peak": 0,
+          "rms": 0,
+          "dc": 0,
+          "crestDB": null,
+          "zeroCrossings": 0,
+          "clippedSamples": 0
+        }
+      ],
+      "integratedLUFS": -23
+    },
+    {
+      "documentId": "doc-1",
+      "start": 0,
+      "end": 48000,
+      "channelMask": 3,
+      "jobId": "job-1",
+      "kind": "spectrum",
+      "state": "running",
+      "processedFrames": 12000,
+      "totalFrames": 48000,
+      "sampleRate": 48000,
+      "dataBytes": 0,
+      "channels": [0, 1],
+      "fftSize": 4096,
+      "bins": 2049,
+      "integratedLUFS": null
+    },
+    {
+      "documentId": "doc-1",
+      "start": 0,
+      "end": 48000,
+      "channelMask": 1,
+      "jobId": "job-1",
+      "kind": "spectrogram",
+      "state": "running",
+      "processedFrames": 12000,
+      "totalFrames": 48000,
+      "sampleRate": 48000,
+      "dataBytes": 0,
+      "channels": [0],
+      "fftSize": 2048,
+      "width": 128,
+      "height": 256,
+      "completedColumns": 32,
+      "integratedLUFS": null
+    },
+    {
+      "documentId": "doc-1",
+      "start": 0,
+      "end": 48000,
+      "channelMask": 3,
+      "jobId": "job-1",
+      "kind": "pitch",
+      "state": "ready",
+      "processedFrames": 48000,
+      "totalFrames": 48000,
+      "sampleRate": 48000,
+      "dataBytes": 384,
+      "channels": [0, 1],
+      "records": 12,
+      "integratedLUFS": null
+    },
+    {
+      "documentId": "doc-1",
+      "start": 0,
+      "end": 48000,
+      "channelMask": 3,
+      "jobId": "job-1",
+      "kind": "clipping",
+      "state": "cancelled",
+      "processedFrames": 24000,
+      "totalFrames": 48000,
+      "sampleRate": 48000,
+      "dataBytes": 0,
+      "channels": [0, 1],
+      "integratedLUFS": null,
+      "markerCount": 3
+    }
+  ],
+  "AnalysisSpectrumResult": [
+    {
+      "documentId": "doc-1",
+      "jobId": "live-1",
+      "state": "running",
+      "source": "playback",
+      "sampleRate": 48000,
+      "channels": 2,
+      "fftSize": 4096,
+      "bins": 2049,
+      "dataBytes": 0
+    }
+  ],
+  "MetersConfigureResult": [
+    {
+      "enabled": true,
+      "byteLength": 1536,
+      "version": 1
+    }
+  ]
+}

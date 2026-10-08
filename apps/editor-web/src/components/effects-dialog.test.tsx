@@ -170,3 +170,58 @@ it("allows Escape during bounded offline render but fences cancellation during a
   expect(actions.onCancel).toHaveBeenCalledOnce();
   expect((ui.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
 });
+it("switching the Filter family to Moog keeps only parameters the Moog node declares", () => {
+  const parameter = (id: string, label: string, options?: string[]) => ({
+    id,
+    label,
+    unit: "",
+    type: options ? ("enum" as const) : ("number" as const),
+    min: 0,
+    max: options ? 0 : 20000,
+    default: options ? 0 : 1000,
+    defaultString: options?.[0],
+    scale: "lin" as const,
+    step: options ? 0 : 1,
+    options: options?.map((value) => ({ value, label: value })),
+  });
+  const shared = [
+    parameter("kind", "Kind", ["lowpass", "highpass"]),
+    parameter("family", "Family", ["rbj", "chebyshev2", "moog"]),
+    parameter("freq", "Cutoff"),
+    parameter("q", "Q"),
+    parameter("order", "Order"),
+  ];
+  const filter: EffectDescriptor = {
+    id: "filter",
+    name: "Filter",
+    category: "EQ",
+    channelMode: "mono",
+    view: "generic",
+    parameters: [...shared, parameter("stopbandDB", "Stopband"), parameter("rippleDB", "Ripple")],
+    presets: [],
+  };
+  const moog: EffectDescriptor = { ...filter, id: "filter-moog", name: "Moog", parameters: shared };
+  const actions = callbacks();
+  const params = {
+    kind: "lowpass",
+    family: "chebyshev2",
+    freq: 1000,
+    q: 1,
+    order: 4,
+    stopbandDB: 40,
+    rippleDB: 1,
+  };
+  const ui = render(
+    <EffectsDialog
+      view={{ ...view, rack: [{ id: "fx-1", type: "filter", params }] }}
+      descriptors={[filter, moog]}
+      presets={[]}
+      {...actions}
+    />,
+  );
+  fireEvent.change(ui.getByLabelText("Family"), { target: { value: "moog" } });
+  const node = actions.onChange.mock.lastCall?.[0].rack[0];
+  expect(node.type).toBe("filter-moog");
+  expect(Object.keys(node.params).sort()).toEqual(["family", "freq", "kind", "order", "q"]);
+  expect(node.params.family).toBe("moog");
+});

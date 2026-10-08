@@ -5,7 +5,7 @@ export async function commandItem(page: Page, id: string, menu: string) {
   if (
     await page.evaluate(() => Boolean((window as Window & { aaeDesktop?: unknown }).aaeDesktop))
   ) {
-    await page.keyboard.press("Control+k");
+    await page.keyboard.press("ControlOrMeta+k");
     const palette = page.getByRole("dialog", { name: "Command palette" });
     await expect(palette).toBeVisible();
     return palette.locator(`[role="option"][data-command-id="${id}"]`);

@@ -181,14 +181,14 @@ test("anchors wheel zoom at the pointer, scrolls, and exposes menu and shortcut 
   await page.getByRole("menuitem", { name: "View", exact: true }).click();
   await page.getByRole("menuitem", { name: /^Zoom to Fit/ }).click();
   await expect.poll(() => viewport(page)).toEqual({ start: 0, end: FRAMES });
-  await page.keyboard.press("Control+=");
+  await page.keyboard.press("ControlOrMeta+=");
   await expect
     .poll(async () => {
       const range = await viewport(page);
       return range.end - range.start;
     })
     .toBeLessThan(FRAMES);
-  await page.keyboard.press("Control+0");
+  await page.keyboard.press("ControlOrMeta+0");
   await expect.poll(() => viewport(page)).toEqual({ start: 0, end: FRAMES });
 });
 

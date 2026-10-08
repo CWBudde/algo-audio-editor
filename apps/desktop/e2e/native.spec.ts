@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
@@ -213,12 +213,20 @@ test("normal window bounds survive relaunch", async () => {
         app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getNormalBounds()),
       )
       .toMatchObject({ width: 1000, height: 650 });
-    // Closing the only window quits the app, which flushes the state file
-    // before exiting. Wait for that exit rather than racing it.
+    // Closing the only window quits the app on Windows/Linux, which flushes the
+    // state file before exiting. macOS keeps a windowless app running, so quit
+    // it as Cmd+Q would once the window is gone. Wait for that exit rather than
+    // racing it.
     const exited = app.waitForEvent("close");
     await app
       .evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close())
       .catch(() => {});
+    if (process.platform === "darwin") {
+      await expect
+        .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length))
+        .toBe(0);
+      await app.evaluate(({ app }) => app.quit()).catch(() => {});
+    }
     await exited;
     expect(
       JSON.parse(await readFile(path.join(directory, "window-state.json"), "utf8")),
@@ -235,7 +243,9 @@ test("normal window bounds survive relaunch", async () => {
 });
 
 test("a second process routes open-with to the existing window and records successful OS recents", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "aae-instance-"));
+  // The second process resolves its argument against the canonical cwd
+  // (macOS reports /var/folders/… as /private/var/folders/…).
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), "aae-instance-")));
   await writeFile(path.join(directory, "second.wav"), fixture([[0, 0.5, -0.5, 0]]));
   const app = await launchEditor({ args: [path.join(__dirname, "..")] });
   try {

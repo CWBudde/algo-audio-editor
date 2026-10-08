@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import type { EffectDescriptor } from "@aae/protocol";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
+import { effectMenuEntries, isStandardFilter, isWeightingFilter } from "../src/lib/effect-menu.js";
 import { fixture, LEFT, load, RIGHT, samples, select } from "./edit-fixture.ts";
 import { showEffectMenuItem } from "./effect-menu.ts";
 import { sourceState } from "./export-fixture.ts";
@@ -15,15 +16,20 @@ async function catalogue(page: Page) {
       },
   );
 }
+/** Single standard and weighting filters open dedicated editors titled after the filter. */
+function effectDialogTitle(id: string) {
+  if (isStandardFilter(id)) return "Filter";
+  if (isWeightingFilter(id)) return "Weighting filters";
+  return "Effects rack";
+}
 async function openEffect(page: Page, id = "rack") {
   await (await showEffectMenuItem(page, id)).click();
-  const dialog = page.getByRole("dialog", { name: "Effects rack" });
+  const dialog = page.getByRole("dialog", { name: effectDialogTitle(id), exact: true });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByTestId("effects-status")).toHaveText("Ready");
   return dialog;
 }
-async function apply(page: Page) {
-  const dialog = page.getByRole("dialog", { name: "Effects rack" });
+async function apply(dialog: Locator) {
   await dialog.getByRole("button", { name: "Apply rack", exact: true }).click();
   await expect
     .poll(async () => {
@@ -79,9 +85,12 @@ test("every default registry effect has accessible real controls, live preview a
   test.setTimeout(300_000);
   const { effects } = await catalogue(page);
   expect(effects.length).toBeGreaterThanOrEqual(50);
+  // Filter variants share the consolidated Filter and Weighting filters editors; every
+  // remaining menu entry opens its own editor.
+  const entries = new Set(effectMenuEntries(effects).map((effect) => effect.id));
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  for (const descriptor of effects)
+  for (const descriptor of effects.filter((effect) => entries.has(effect.id)))
     await test.step(descriptor.name, async () => {
       const pitch = descriptor.id.startsWith("pitch-");
       const source = Array.from({ length: pitch ? 96000 : 512 }, (_, index) =>
@@ -121,7 +130,7 @@ test("every default registry effect has accessible real controls, live preview a
       expect(await sourceState(page)).toEqual(before);
       await dialog.getByRole("button", { name: "Stop preview", exact: true }).click();
       await expect(dialog.getByTestId("effects-status")).toHaveText("Ready");
-      await apply(page);
+      await apply(dialog);
       const after = await sourceState(page);
       expect(after.document).toMatchObject({
         sampleRate: 48000,
@@ -133,9 +142,86 @@ test("every default registry effect has accessible real controls, live preview a
       expect(rendered.every(Number.isFinite)).toBe(true);
       if (pitch) expect(rendered.some((sample) => Math.abs(sample) > 0.001)).toBe(true);
       await page.getByTestId("document-details").click();
-      await page.keyboard.press("Control+z");
+      await page.keyboard.press("ControlOrMeta+z");
       await expect.poll(() => samples(page)).toEqual([source, source]);
     });
+  expect(errors).toEqual([]);
+});
+test("consolidated Filter and Weighting editors reach every filter variant with preview and one undoable apply", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const { effects } = await catalogue(page);
+  const filter = effects.find((effect) => effect.id === "filter");
+  if (!filter) throw new Error("Standard filter descriptor missing");
+  const kind = filter.parameters.find((parameter) => parameter.id === "kind");
+  if (!kind?.options) throw new Error("Filter type parameter missing");
+  // The catalogue-wide test opens only menu entries; these variants are reached
+  // through the shared editors' Type/Family and Weighting selects instead.
+  const entries = new Set(effectMenuEntries(effects).map((effect) => effect.id));
+  // A-weighting is the Weighting menu entry; it is kept as the C-weighting reference.
+  const variants = effects
+    .map((effect) => effect.id)
+    .filter(
+      (id) =>
+        (isStandardFilter(id) || isWeightingFilter(id)) &&
+        (!entries.has(id) || id === "filter-a-weighting"),
+    );
+  expect(variants).toEqual(
+    expect.arrayContaining(["filter-lowpass", "filter-moog", "filter-c-weighting"]),
+  );
+  const source = Array.from({ length: 512 }, (_, index) => ((index % 32) - 16) / 64);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const outputs = new Map<string, number[]>();
+  for (const id of variants)
+    await test.step(id, async () => {
+      await load(page, [source, source]);
+      const before = await sourceState(page);
+      const weighting = isWeightingFilter(id);
+      const dialog = await openEffect(page, weighting ? "filter-a-weighting" : "filter");
+      if (weighting) {
+        await dialog.getByLabel("Weighting", { exact: true }).selectOption(id);
+        await expect(dialog.locator(`[data-effect-id="${id}"]`)).toBeVisible();
+      } else if (id === "filter-moog") {
+        await dialog.getByLabel("Family", { exact: true }).selectOption("moog");
+        await expect(dialog).toContainText("Moog response depends on the input signal");
+      } else {
+        const value = id.slice("filter-".length);
+        expect(kind.options?.map((option) => option.value)).toContain(value);
+        const type = dialog.getByLabel("Type", { exact: true });
+        await type.selectOption(value);
+        await expect(type).toHaveValue(value);
+        await expect(
+          dialog
+            .getByRole("img", { name: /response curve/ })
+            .locator("path[data-testid=effect-response-path]"),
+        ).toHaveAttribute("d", /^M\S+/);
+      }
+      await expect(dialog.getByRole("alert")).toHaveCount(0);
+      await dialog.getByRole("button", { name: "Preview", exact: true }).click();
+      await expect(dialog.getByTestId("effects-status")).toHaveText("Previewing live effects");
+      expect(await sourceState(page)).toEqual(before);
+      await dialog.getByRole("button", { name: "Stop preview", exact: true }).click();
+      await expect(dialog.getByTestId("effects-status")).toHaveText("Ready");
+      await apply(dialog);
+      const after = await sourceState(page);
+      expect(after.history.entries).toHaveLength(before.history.entries.length + 1);
+      const rendered = (await samples(page))[0];
+      expect(rendered.every(Number.isFinite)).toBe(true);
+      outputs.set(id, rendered);
+      await page.getByTestId("document-details").click();
+      await page.keyboard.press("ControlOrMeta+z");
+      await expect.poll(() => samples(page)).toEqual([source, source]);
+    });
+  // Distinct kernel paths, not one default filter applied under several names.
+  for (const [a, b] of [
+    ["filter-lowpass", "filter-highpass"],
+    ["filter-lowpass", "filter-moog"],
+    ["filter-a-weighting", "filter-c-weighting"],
+  ] as const)
+    if (outputs.has(a) && outputs.has(b))
+      expect(outputs.get(a), `${a} vs ${b}`).not.toEqual(outputs.get(b));
   expect(errors).toEqual([]);
 });
 test("rack reordering, selected channels and wet/bypass preserve source until one final commit", async ({
@@ -170,7 +256,7 @@ test("rack reordering, selected channels and wet/bypass preserve source until on
   expect(await sourceState(page)).toEqual(before);
   const reopened = await openEffect(page, "distortion");
   await reopened.getByLabel("Output", { exact: true }).fill("0");
-  await apply(page);
+  await apply(reopened);
   expect(await samples(page)).toEqual([
     LEFT,
     RIGHT.map((value, index) => (index >= 2 && index < 6 ? value * 0 : value)),
@@ -266,13 +352,13 @@ test("custom EQ and dynamics curves come from the kernel and EQ pointer editing 
       .getByRole("img", { name: /response curve/ })
       .locator("path[data-testid=effect-response-path]"),
   ).not.toHaveAttribute("d", "");
-  await expect(dialog).toContainText("dB input");
+  await expect(dialog).toContainText("Input (dB)");
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   dialog = await openEffect(page, "filter");
   await dialog.getByLabel("Family", { exact: true }).selectOption("moog");
   await expect(dialog.getByRole("img", { name: /response curve/ })).toHaveCount(0);
   await expect(dialog).toContainText("Moog response depends on the input signal");
-  await expect(dialog.getByRole("spinbutton", { name: "Freq (Hz)", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("spinbutton", { name: "Cutoff (Hz)", exact: true })).toBeVisible();
   await expect(dialog.getByRole("alert")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
 });
@@ -295,60 +381,63 @@ test("parametric EQ has labeled axes, persistent draggable bands and keyboard co
       exact: true,
     });
   };
+  const bands = dialog.getByRole("combobox", { name: "Bands", exact: true });
   const path = graph.getByTestId("effect-response-path");
   await expect(path).toHaveAttribute("d", /^M\S+/);
   await expect(graph.getByText("Frequency (Hz)")).toBeVisible();
   await expect(graph.getByText("Gain (dB)")).toBeVisible();
-  await expect(graph.getByRole("slider")).toHaveCount(4);
-  await expect(field("band5FreqHz")).toHaveCount(0);
+  await expect(graph.getByRole("slider")).toHaveCount(6);
+  await expect(field("band7FreqHz")).toHaveCount(0);
   const initialPath = await path.getAttribute("d");
-  const first = graph.getByRole("slider", { name: "EQ band 1", exact: true });
-  await first.focus();
-  await first.press("ArrowUp");
-  await expect(field("band1GainDB")).toHaveValue("0.5");
+  // Band 1 defaults to a highpass whose gain is inactive; band 3 is the peak default peak band.
+  const peak = graph.getByRole("slider", { name: "EQ band 3", exact: true });
+  await peak.focus();
+  await peak.press("ArrowUp");
+  await expect(field("band3GainDB")).toHaveValue("0.5");
   await expect(path).not.toHaveAttribute("d", initialPath ?? "");
-  await first.press("+");
-  await expect(field("band1Q")).toHaveValue("1.1");
-  await first.click({ button: "right" });
-  const types = dialog.getByRole("menu", { name: "Band 1 filter type" });
+  await peak.press("+");
+  await expect(field("band3Q")).toHaveValue("1.1");
+  await peak.click({ button: "right" });
+  const types = dialog.getByRole("menu", { name: "Band 3 filter type" });
   await expect(types).toBeVisible();
   const shelf = descriptor.parameters
-    .find((parameter) => parameter.id === "band1Type")
+    .find((parameter) => parameter.id === "band3Type")
     ?.options?.find((option) => option.value === "lowshelf");
   if (!shelf) throw new Error("Low shelf type missing");
   await types.getByRole("menuitemradio", { name: shelf.label }).click();
-  await expect(field("band1Type")).toHaveValue("lowshelf");
-  await expect(field("band1GainDB")).toHaveValue("0.5");
-  await first.focus();
-  await first.press("Shift+F10");
+  await expect(field("band3Type")).toHaveValue("lowshelf");
+  await expect(field("band3GainDB")).toHaveValue("0.5");
+  await peak.focus();
+  await peak.press("Shift+F10");
   await expect(types).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(types).not.toBeVisible();
   await expect(dialog).toBeVisible();
-  await expect(first).toBeFocused();
+  await expect(peak).toBeFocused();
   const secondFrequency = await field("band2FreqHz").inputValue();
   const box = await graph.boundingBox();
-  const handle = await first.boundingBox();
+  const handle = await peak.boundingBox();
   if (!box || !handle) throw new Error("EQ geometry missing");
   await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
   await page.mouse.down();
+  // The plot spans x 52…width-20 (20 Hz…20 kHz, log) and y 20…170 of 220 (+24…-24 dB).
   await page.mouse.move(
-    box.x + (box.width * (52 + (568 * Math.log(5000 / 20)) / Math.log(1000))) / 640,
+    box.x + 52 + ((box.width - 72) * Math.log(5000 / 20)) / Math.log(1000),
     box.y + (box.height * 57.5) / 220,
     { steps: 12 },
   );
   await page.mouse.up();
   await expect
-    .poll(async () => Number(await field("band1FreqHz").inputValue()))
+    .poll(async () => Number(await field("band3FreqHz").inputValue()))
     .toBeCloseTo(5000, -1);
-  await expect.poll(async () => Number(await field("band1GainDB").inputValue())).toBeCloseTo(12, 0);
+  await expect.poll(async () => Number(await field("band3GainDB").inputValue())).toBeCloseTo(12, 0);
   await expect(field("band2FreqHz")).toHaveValue(secondFrequency);
   expect(await sourceState(page)).toEqual(before);
   await testInfo.attach("parametric-eq-desktop", {
     body: await graph.screenshot({ path: testInfo.outputPath("parametric-eq-desktop.png") }),
     contentType: "image/png",
   });
-  await field("bands").fill("8");
+  await bands.selectOption("8");
   await expect(graph.getByRole("slider")).toHaveCount(8);
   await dialog.screenshot({ path: testInfo.outputPath("parametric-eq-full-hd-dialog.png") });
   const layout = await dialog.evaluate((element) => ({
@@ -366,24 +455,24 @@ test("parametric EQ has labeled axes, persistent draggable bands and keyboard co
   expect(layout.clientHeight).toBeLessThan(1000);
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   const gainKnob = dialog.getByRole("slider", {
-    name: `${descriptor.parameters.find((parameter) => parameter.id === "band1GainDB")?.label} knob`,
+    name: `${descriptor.parameters.find((parameter) => parameter.id === "band3GainDB")?.label} knob`,
     exact: true,
   });
-  const gainBeforeKnob = Number(await field("band1GainDB").inputValue());
+  const gainBeforeKnob = Number(await field("band3GainDB").inputValue());
   await gainKnob.focus();
   await gainKnob.press("ArrowDown");
   await expect
-    .poll(async () => Number(await field("band1GainDB").inputValue()))
+    .poll(async () => Number(await field("band3GainDB").inputValue()))
     .toBeLessThan(gainBeforeKnob);
   const knobBox = await gainKnob.boundingBox();
   if (!knobBox) throw new Error("Gain knob geometry missing");
-  const beforeDrag = Number(await field("band1GainDB").inputValue());
+  const beforeDrag = Number(await field("band3GainDB").inputValue());
   await page.mouse.move(knobBox.x + knobBox.width / 2, knobBox.y + knobBox.height / 2);
   await page.mouse.down();
   await page.mouse.move(knobBox.x + knobBox.width / 2, knobBox.y + knobBox.height / 2 + 12);
   await page.mouse.up();
   await expect
-    .poll(async () => Number(await field("band1GainDB").inputValue()))
+    .poll(async () => Number(await field("band3GainDB").inputValue()))
     .toBeLessThan(beforeDrag);
   await testInfo.attach("parametric-eq-full-hd-dialog", {
     body: await dialog.screenshot({
@@ -391,10 +480,10 @@ test("parametric EQ has labeled axes, persistent draggable bands and keyboard co
     }),
     contentType: "image/png",
   });
-  await field("bands").fill("1");
+  await bands.selectOption("1");
   await expect(graph.getByRole("slider")).toHaveCount(1);
   await page.setViewportSize({ width: 640, height: 720 });
-  await field("bands").fill("8");
+  await bands.selectOption("8");
   await expect(graph.getByRole("slider")).toHaveCount(8);
   await graph.scrollIntoViewIfNeeded();
   await expect(graph).toBeVisible();
@@ -432,14 +521,14 @@ test("dynamics graphs expose kernel I/O samples, guides and keyboard readouts wi
     await expect(graph.getByTestId("dynamics-unity")).toBeVisible();
     const threshold = descriptor.parameters.find((parameter) => parameter.id === "thresholdDB");
     if (!threshold) throw new Error("Threshold parameter missing");
+    // Compact dynamics plots map -80…0 dB input onto x 56…336 of a 360×360 view box.
     await expect(graph.getByTestId("dynamics-threshold")).toHaveAttribute(
       "x1",
-      String(64 + ((threshold.default + 80) * 556) / 80),
+      String(56 + ((threshold.default + 80) * 280) / 80),
     );
-    const reader = dialog.getByRole("slider", { name: "Read input level", exact: true });
     const readout = dialog.locator("output[aria-live=polite]");
-    await reader.focus();
-    await reader.press("End");
+    await graph.focus();
+    await graph.press("End");
     const output = await page.evaluate(async (effect) => {
       const response = (await window.__aaeTest?.request("effects.response", {
         effectId: effect.id,
@@ -458,12 +547,12 @@ test("dynamics graphs expose kernel I/O samples, guides and keyboard readouts wi
     const db = `${output > 0 ? "+" : ""}${output.toFixed(1)} dB`;
     await expect(readout).toHaveText(`Input 0.0 dB → Output ${db} · Gain change ${db}`);
     const initialReadout = await readout.textContent();
-    await reader.press("ArrowLeft");
+    await graph.press("ArrowLeft");
     await expect(readout).not.toHaveText(initialReadout ?? "");
     await graph.scrollIntoViewIfNeeded();
     const box = await graph.boundingBox();
     if (!box) throw new Error("Dynamics geometry missing");
-    await page.mouse.move(box.x + (box.width * 342) / 640, box.y + (box.height * 100) / 320);
+    await page.mouse.move(box.x + (box.width * 196) / 360, box.y + (box.height * 100) / 360);
     await expect
       .poll(async () => Number(/Input ([\d.-]+)/.exec((await readout.textContent()) ?? "")?.[1]))
       .toBeCloseTo(-40, 0);
@@ -476,7 +565,7 @@ test("dynamics graphs expose kernel I/O samples, guides and keyboard readouts wi
     const oldPath = await path.getAttribute("d");
     await field.fill("-10");
     await expect(path).not.toHaveAttribute("d", oldPath ?? "");
-    await expect(graph.getByTestId("dynamics-threshold")).toHaveAttribute("x1", "550.5");
+    await expect(graph.getByTestId("dynamics-threshold")).toHaveAttribute("x1", "301");
     expect(await sourceState(page)).toEqual(before);
     if (descriptor.id === "dyn-compressor") {
       await testInfo.attach("dynamics-desktop", {
