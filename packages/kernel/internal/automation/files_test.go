@@ -137,3 +137,87 @@ func TestCLIRejectsUnauthorizedOutputBeforeReadingInput(t *testing.T) {
 		t.Fatal("CLI did not reject unauthorized export first", err)
 	}
 }
+
+// Roots and destinations are canonicalized alike, so a root or destination
+// spelled through a directory symlink (macOS /tmp -> /private/tmp) is accepted,
+// while links that leave the root are still rejected.
+func TestWritePolicyCanonicalizesSymlinkedRootsAndDestinations(t *testing.T) {
+	base := t.TempDir()
+	actual := filepath.Join(base, "real")
+	outside := filepath.Join(base, "outside")
+	for _, directory := range []string{actual, filepath.Join(actual, "sub"), outside} {
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := filepath.Join(outside, "target.wav")
+	writeFixture(t, target, []byte("outside"))
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(actual, link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skip("creating symlinks requires Developer Mode or elevation:", err)
+		}
+		t.Fatal(err)
+	}
+	for _, symlink := range []struct{ name, target string }{
+		{"escape", outside},
+		{"dangling", filepath.Join(base, "missing")},
+		{"leaf.wav", target},
+	} {
+		if err := os.Symlink(symlink.target, filepath.Join(actual, symlink.name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name, root, path, written string
+		overwrite, wantErr        bool
+	}{
+		{name: "symlinked root, new file", root: link, path: filepath.Join(link, "new.wav"), written: filepath.Join(actual, "new.wav")},
+		{name: "symlinked root, subdirectory", root: link, path: filepath.Join(link, "sub", "new.wav"), written: filepath.Join(actual, "sub", "new.wav")},
+		{name: "symlinked root, actual destination", root: link, path: filepath.Join(actual, "direct.wav"), written: filepath.Join(actual, "direct.wav")},
+		{name: "actual root, symlinked destination", root: actual, path: filepath.Join(link, "via-link.wav"), written: filepath.Join(actual, "via-link.wav")},
+		{name: "actual root, symlinked subdirectory", root: actual, path: filepath.Join(link, "sub", "via-link.wav"), written: filepath.Join(actual, "sub", "via-link.wav")},
+		{name: "leaf symlink is replaced, not followed", root: link, path: filepath.Join(link, "leaf.wav"), written: filepath.Join(actual, "leaf.wav"), overwrite: true},
+		{name: "symlink escape", root: link, path: filepath.Join(link, "escape", "x.wav"), wantErr: true},
+		{name: "symlink escape from actual root", root: actual, path: filepath.Join(link, "escape", "x.wav"), wantErr: true},
+		{name: "dangling symlink escape", root: link, path: filepath.Join(link, "dangling", "x.wav"), wantErr: true},
+		{name: "dot-dot escape", root: link, path: filepath.Join(link, "..", "outside", "x.wav"), wantErr: true},
+		{name: "root itself via symlink", root: actual, path: link + string(filepath.Separator), wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			policy, err := NewFilePolicy([]string{tc.root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer policy.Close()
+			reported, err := policy.Write(tc.path, []byte("written"), tc.overwrite)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("write escaped allowed root", tc.path)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if absolute, _ := filepath.Abs(tc.path); reported != absolute {
+				t.Fatalf("reported %q, want caller spelling %q", reported, absolute)
+			}
+			info, err := os.Lstat(tc.written)
+			if err != nil || !info.Mode().IsRegular() {
+				t.Fatal("destination is not a regular file", info, err)
+			}
+			if data, err := os.ReadFile(tc.written); err != nil || string(data) != "written" {
+				t.Fatal("unexpected destination content", string(data), err)
+			}
+		})
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "outside" {
+		t.Fatal("write followed a symlink out of the root", string(data), err)
+	}
+	for _, path := range []string{filepath.Join(outside, "x.wav"), filepath.Join(base, "missing")} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatal("escaped write created", path, err)
+		}
+	}
+}
