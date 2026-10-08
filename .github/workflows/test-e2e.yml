@@ -30,6 +30,13 @@ jobs:
         env:
           VITE_BASE: /algo-audio-editor/
         run: just e2e-pages
+      # Retries keep a flaky test green; surface each one instead (PLAN Phase 28).
+      - name: Flaky test summary
+        if: always()
+        run: >-
+          node scripts/playwright-flaky-summary.mjs apps/editor-web/e2e
+          apps/editor-web/playwright-json/browser.json
+          apps/editor-web/playwright-json/pages.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
