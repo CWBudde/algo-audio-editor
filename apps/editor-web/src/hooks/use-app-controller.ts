@@ -27,6 +27,7 @@ import { useKernel } from "@/hooks/use-kernel";
 import { useMetadata } from "@/hooks/use-metadata";
 import { useProcess } from "@/hooks/use-process";
 import { useSelection } from "@/hooks/use-selection";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import { DEFAULT_SPECTRAL_SETTINGS, type SpectralSettings } from "@/lib/analysis-settings";
 import {
   cancelExtractionWindow,
@@ -635,12 +636,14 @@ export function useAppController() {
       ?.call("meters.configure", { reset: true })
       .catch(reportError("Could not reset meters"));
   }, [client]);
+  const dirty = Boolean(
+    doc.info && (history.history?.documentId !== doc.info.documentId || history.history.dirty),
+  );
+  useUnsavedChangesGuard(dirty);
   const desktop = useDesktop({
     commands,
     execute,
-    dirty: Boolean(
-      doc.info && (history.history?.documentId !== doc.info.documentId || history.history.dirty),
-    ),
+    dirty,
     busy:
       busy ||
       Boolean(
