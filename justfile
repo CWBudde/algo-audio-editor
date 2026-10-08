@@ -109,9 +109,9 @@ test-go-race:
 check-coverage:
     node scripts/check-coverage.mjs {{kernel}}/coverage.out
 
-# Unit tests for the CI helper scripts (coverage gate, flaky-test summary).
+# Unit tests for the CI helper scripts (coverage gate, E2E path filter, flaky-test summary).
 test-scripts:
-    node --test scripts/check-coverage.test.mjs scripts/playwright-flaky-summary.test.mjs
+    node --test scripts/check-coverage.test.mjs scripts/e2e-changed-paths.test.mjs scripts/playwright-flaky-summary.test.mjs
 
 # Verify native golden vectors and immutable storage under the actual WASM build.
 test-go-wasm:
