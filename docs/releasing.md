@@ -12,7 +12,9 @@ acceptance.
 
 Use a branch and pull request for normal contributions. An explicit request to
 commit directly to `main` takes precedence for an agent's authorized work;
-committing does not imply permission to push or publish. Run checks appropriate
+committing does not imply permission to push or publish. Never push onto a red
+`main` or bypass the lefthook pre-commit/pre-push hooks there; interactive design
+sessions use a branch that merges only once CI is green. Run checks appropriate
 to the change through `just`; `just check` is the fast local gate, and `just ci`
 also runs V8/WASM, fuzz, browser, Pages, Electron and packaged Linux checks.
 Headless Linux needs a display wrapper:
