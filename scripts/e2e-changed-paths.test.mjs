@@ -19,6 +19,10 @@ test("editor and desktop sources, specs, configs and the e2e workflow need E2E",
     "apps/editor-web/playwright.pages.config.ts",
     "apps/desktop/playwright.config.ts",
     ".github/workflows/test-e2e.yml",
+    // Cross-origin isolation (AGENTS.md rule 7), checked only by e2e-pages.
+    "apps/editor-web/vite.config.ts",
+    "apps/editor-web/index.html",
+    "apps/editor-web/public/coi-serviceworker.js",
   ])
     assert.equal(needsE2E(["README.md", file]), true, file);
 });

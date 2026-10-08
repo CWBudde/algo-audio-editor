@@ -60,7 +60,8 @@ jobs:
           | node scripts/e2e-changed-paths.mjs
 
   # The browser and Electron suites are the slow part. They run only for PRs
-  # that change editor/desktop sources, e2e specs or Playwright configs, for
+  # that change editor/desktop sources, e2e specs, Playwright configs or the
+  # cross-origin isolation files (Vite config, index.html, public/), for
   # release-please PRs, PRs labeled `e2e` and manual runs, after lint and unit
   # tests pass; release.yml runs them again on the release commit before
   # anything is published. A skipped job counts as passed for required checks.

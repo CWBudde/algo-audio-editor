@@ -6,15 +6,21 @@ import { fileURLToPath } from "node:url";
 // what those suites exercise: editor and desktop sources, the specs and their
 // fixtures, the Playwright configs, and the e2e workflow itself. Three editor
 // redesign commits once left five specs stale because E2E never ran on them.
+// The Vite config, index.html and public/ (coi-serviceworker.js) carry the
+// cross-origin isolation SharedArrayBuffer needs (AGENTS.md rule 7); only
+// e2e-pages checks it.
 const prefixes = [
   "apps/editor-web/src/",
   "apps/editor-web/e2e/",
+  "apps/editor-web/public/",
   "apps/desktop/src/",
   "apps/desktop/e2e/",
 ];
 const files = new Set([
   "apps/editor-web/playwright.config.ts",
   "apps/editor-web/playwright.pages.config.ts",
+  "apps/editor-web/vite.config.ts",
+  "apps/editor-web/index.html",
   "apps/desktop/playwright.config.ts",
   ".github/workflows/test-e2e.yml",
 ]);
