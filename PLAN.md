@@ -76,7 +76,7 @@ After the tag: Phases 32, 33 and 16, then 19 (1.0 gate), 24, 25, 26, with 20, 21
   - Stale effects/vertical-zoom expectations after the editor redesign and `c8ebc6e`'s time guides; these failed on Linux too.
   - macOS lifecycle and `/private/var` temp paths in `native.spec.ts`, Chromium's `system-ui` font serialization, and a `metadata.spec` undo race.
   - No app bugs found, no `fixme`, no limits relaxed. On macOS `just e2e` gives 172 passed (baseline: 56 failed); `just e2e-desktop` gives 24 passed and 1 skipped (baseline: 8 failed).
-- [ ] Re-cover the consolidated filter variants in the browser every-effect test: it now opens only menu entries, so `filter-*` and weighting variants are reached only through the Filter "Type"/"Family" and "Weighting" selects.
+- [x] Re-cover the consolidated filter variants (2026-10-08) — a browser e2e test reaches every `filter-*` and weighting variant through the Filter "Type"/"Family" and "Weighting" selects, with preview, one undoable apply and distinct kernel output per path. It found that choosing the Moog family kept standard-filter parameters (`stopbandDB`), so the kernel rejected preview and apply. The dialog now sends only the parameters the node's own type declares (covered by a unit test). `just e2e`: 173 passed.
 - [ ] Run E2E on pull requests that touch `apps/editor-web/src`, `apps/desktop/src` or the e2e specs, not only on release PRs and the `e2e` label. Three editor-redesign commits left five stale specs unnoticed.
 - [x] Align local hooks with CI:
   - `just lint-web` runs `biome ci`, as CI does, instead of `biome lint`.

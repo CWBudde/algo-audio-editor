@@ -147,6 +147,83 @@ test("every default registry effect has accessible real controls, live preview a
     });
   expect(errors).toEqual([]);
 });
+test("consolidated Filter and Weighting editors reach every filter variant with preview and one undoable apply", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const { effects } = await catalogue(page);
+  const filter = effects.find((effect) => effect.id === "filter");
+  if (!filter) throw new Error("Standard filter descriptor missing");
+  const kind = filter.parameters.find((parameter) => parameter.id === "kind");
+  if (!kind?.options) throw new Error("Filter type parameter missing");
+  // The catalogue-wide test opens only menu entries; these variants are reached
+  // through the shared editors' Type/Family and Weighting selects instead.
+  const entries = new Set(effectMenuEntries(effects).map((effect) => effect.id));
+  // A-weighting is the Weighting menu entry; it is kept as the C-weighting reference.
+  const variants = effects
+    .map((effect) => effect.id)
+    .filter(
+      (id) =>
+        (isStandardFilter(id) || isWeightingFilter(id)) &&
+        (!entries.has(id) || id === "filter-a-weighting"),
+    );
+  expect(variants).toEqual(
+    expect.arrayContaining(["filter-lowpass", "filter-moog", "filter-c-weighting"]),
+  );
+  const source = Array.from({ length: 512 }, (_, index) => ((index % 32) - 16) / 64);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const outputs = new Map<string, number[]>();
+  for (const id of variants)
+    await test.step(id, async () => {
+      await load(page, [source, source]);
+      const before = await sourceState(page);
+      const weighting = isWeightingFilter(id);
+      const dialog = await openEffect(page, weighting ? "filter-a-weighting" : "filter");
+      if (weighting) {
+        await dialog.getByLabel("Weighting", { exact: true }).selectOption(id);
+        await expect(dialog.locator(`[data-effect-id="${id}"]`)).toBeVisible();
+      } else if (id === "filter-moog") {
+        await dialog.getByLabel("Family", { exact: true }).selectOption("moog");
+        await expect(dialog).toContainText("Moog response depends on the input signal");
+      } else {
+        const value = id.slice("filter-".length);
+        expect(kind.options?.map((option) => option.value)).toContain(value);
+        const type = dialog.getByLabel("Type", { exact: true });
+        await type.selectOption(value);
+        await expect(type).toHaveValue(value);
+        await expect(
+          dialog
+            .getByRole("img", { name: /response curve/ })
+            .locator("path[data-testid=effect-response-path]"),
+        ).toHaveAttribute("d", /^M\S+/);
+      }
+      await expect(dialog.getByRole("alert")).toHaveCount(0);
+      await dialog.getByRole("button", { name: "Preview", exact: true }).click();
+      await expect(dialog.getByTestId("effects-status")).toHaveText("Previewing live effects");
+      expect(await sourceState(page)).toEqual(before);
+      await dialog.getByRole("button", { name: "Stop preview", exact: true }).click();
+      await expect(dialog.getByTestId("effects-status")).toHaveText("Ready");
+      await apply(dialog);
+      const after = await sourceState(page);
+      expect(after.history.entries).toHaveLength(before.history.entries.length + 1);
+      const rendered = (await samples(page))[0];
+      expect(rendered.every(Number.isFinite)).toBe(true);
+      outputs.set(id, rendered);
+      await page.getByTestId("document-details").click();
+      await page.keyboard.press("ControlOrMeta+z");
+      await expect.poll(() => samples(page)).toEqual([source, source]);
+    });
+  // Distinct kernel paths, not one default filter applied under several names.
+  for (const [a, b] of [
+    ["filter-lowpass", "filter-highpass"],
+    ["filter-lowpass", "filter-moog"],
+    ["filter-a-weighting", "filter-c-weighting"],
+  ] as const)
+    if (outputs.has(a) && outputs.has(b))
+      expect(outputs.get(a), `${a} vs ${b}`).not.toEqual(outputs.get(b));
+  expect(errors).toEqual([]);
+});
 test("rack reordering, selected channels and wet/bypass preserve source until one final commit", async ({
   page,
 }) => {
