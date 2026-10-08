@@ -249,10 +249,11 @@ bench-analysis-hour-wasm:
 
 lint: lint-go lint-web
 
+# golangci-lint comes from tools/go.mod, at the version CI's lint job uses.
 lint-go:
     cd {{kernel}} && go vet ./... && GOOS=js GOARCH=wasm go vet ./...
-    cd {{kernel}} && golangci-lint run ./...
-    cd {{kernel}} && GOOS=js GOARCH=wasm golangci-lint run ./...
+    cd {{kernel}} && ../../scripts/go-tool.sh golangci-lint run ./...
+    cd {{kernel}} && GOOS=js GOARCH=wasm ../../scripts/go-tool.sh golangci-lint run ./...
 
 # Same commands as CI's web lint job: `biome ci` fails on lint, format and import order.
 lint-web:
@@ -268,6 +269,7 @@ check-formatted:
 
 check-tidy:
     cd {{kernel}} && go mod tidy -diff
+    cd tools && go mod tidy -diff
 
 # ── Family hygiene (see AGENTS.md) ───────────────────────────────────────────
 
