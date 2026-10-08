@@ -68,24 +68,22 @@ After the tag: Phases 32, 33 and 16, then 19 (1.0 gate), 24, 25, 26, with 20, 21
 
 *New (review 2026-10-07).* **Acceptance:** CI is green on the head of `main` and on each of the next 10 pushes. `just test` passes on macOS. `just check` fails locally on everything CI's lint job fails on.
 
-- [ ] Fix forward the failures that have kept `main` red since `d1c8caf`:
-  - treefmt `--fail-on-change`
-  - Biome: two `useExhaustiveDependencies` errors and one import sort
-  - Vitest: `waveform-view.test.tsx` "4× vertical"/geometry; `waveform/lane-layout.test.ts` expects 695, receives 719
-  - Triage the Electron `analysis…progressive spectrogram` timeout from the `d1c8caf` run. E2E has not run since, because it needs lint and unit to pass.
-- [ ] **macOS write-root bug:** `NewFilePolicy` resolves roots with `EvalSymlinks`, but `destination()` only applies `filepath.Abs` (`internal/automation/files.go`). On macOS, `--allow-write /tmp` therefore rejects `/tmp/x.wav`. Fix: canonicalize the destination's existing parent directory before the `Rel` check, keeping `os.Root` confinement. Add a symlinked-root regression test. This fixes 4 failing tests on macOS: three in automation and `TestMCPCLIAndUIProtocolParity`.
-- [ ] Add a `macos-latest` and `windows-latest` `go test` job; CI is currently Linux-only.
-- [ ] Align local hooks with CI:
+- [x] Fix forward the failures that have kept `main` red since `d1c8caf`: import sort, two justified `useExhaustiveDependencies` reset effects, and stale `lane-layout`/`waveform-view` expectations after `c8ebc6e`'s header and guide changes. Local `just check` passes on macOS; the first remote run after merging confirms it.
+  - The Electron `analysis…progressive spectrogram` timeout is classified as a flake: it is 1 failure in 26 Electron runs, it stalls in the cold first-launch `load()` (a `doc.info` that never answered), not in the spectrogram, and `d1c8caf` changed only tooling. If it recurs, capture an Electron context trace and console output in `apps/desktop/e2e/launch.ts` before changing any timing. The probe's 5 s per-request timer currently equals the whole poll budget.
+- [x] **macOS write-root bug:** `NewFilePolicy` resolves roots with `EvalSymlinks`, but `destination()` only applies `filepath.Abs` (`internal/automation/files.go`). On macOS, `--allow-write /tmp` therefore rejects `/tmp/x.wav`. Fix: canonicalize the destination's existing parent directory before the `Rel` check, keeping `os.Root` confinement. Add a symlinked-root regression test. This fixes 4 failing tests on macOS: three in automation and `TestMCPCLIAndUIProtocolParity`.
+- [ ] Add a `macos-latest` and `windows-latest` `go test` job; CI is currently Linux-only. The `go-native` matrix in `test-unit.yml` exists; close this item after its first green Windows run (`os.Root` link/rename and 8.3 short paths are unverified there).
+- [ ] Make the browser and Electron e2e suites pass on macOS: 55 browser specs fail there before any change, because fixtures press `Control+…` while the app maps `mod` to Cmd. Use `ControlOrMeta` except where a spec deliberately probes Ctrl on macOS (`commands.spec.ts`).
+- [x] Align local hooks with CI:
   - `just lint-web` runs `biome ci`, as CI does, instead of `biome lint`.
   - `just check` warns when the lefthook hooks are not installed.
   - Add a `pre-push` hook (`biome ci` plus related Vitest).
-- [ ] Process rule in AGENTS.md: never push onto a red `main`. Interactive design sessions work on a branch and merge only when green.
+- [x] Process rule in AGENTS.md: never push onto a red `main`. Interactive design sessions work on a branch and merge only when green.
 - [ ] Configure required CI checks and branch protection for `main`. Keep an explicit admin bypass for the authorized direct-main workflow. The branch protection API currently reports `Branch not protected`; this item moved here from Phase 28.
 - [ ] Enforce the per-package coverage targets in [testing](docs/testing.md) with a `go tool cover -func` threshold check. `automation` is at 58% and `process` at 88.8%.
 - [ ] Surface Playwright `flaky` (retried) results in the CI step summary, and record each one in Phase 28.
 - [ ] Pin local tools as CI does:
   - Go `tool` directives for gofumpt, gci and golangci-lint.
-  - `"packageManager": "bun@1.4.2"`.
+  - `"packageManager": "bun@1.4.2"`. The root `package.json` is a hashed license-inventory input, so add the pin together with a `just licenses` run on Linux; regenerating on macOS drops the Electron binary evidence.
   - `dep-drift.yml` uses `go.mod`'s toolchain instead of `stable`.
 - [ ] Protocol parity v2:
   - Compare field kind, optionality (`omitempty` vs `?`) and nullability (pointer vs `| null`), not only names.
@@ -96,7 +94,8 @@ After the tag: Phases 32, 33 and 16, then 19 (1.0 gate), 24, 25, 26, with 20, 21
 
 *New (review 2026-10-07).* **Acceptance:** closing a tab or window with unsaved changes asks first. File → New, Preferences, the shortcut list and Copy diagnostics work in the browser and Electron, each covered by e2e.
 
-- [ ] Browser `beforeunload` guard while any document is dirty. Electron already has a guarded close.
+- [x] Browser `beforeunload` guard while any document is dirty. Electron already has a guarded close.
+- [ ] Browser open/import over a dirty document asks first. `confirmReplace` in `use-document.ts` runs only in Electron.
 - [ ] File → New: chosen sample rate, channel count and optional silent length. `file.new` is currently disabled in `lib/commands.ts`.
 - [ ] Minimal persisted preferences: default export format and dither, time format, snapping. There is currently no settings store.
 - [ ] Help → Keyboard shortcuts, generated from the command registry. Help → Copy diagnostics, reusing About's diagnostics.
