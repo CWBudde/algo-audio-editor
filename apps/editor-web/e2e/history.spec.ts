@@ -130,7 +130,7 @@ for (const operation of [
     expect((await history(page)).currentStateId).toBe(beforeHistory.currentStateId);
     expect((await history(page)).dirty).toBe(true);
     await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
-    await navigate(page, () => page.keyboard.press("Control+Shift+z"));
+    await navigate(page, () => page.keyboard.press("ControlOrMeta+Shift+z"));
     expect(await samples(page)).toEqual(changed);
     expect(await editorState(page)).toEqual(after);
     expect(await clipboard(page)).toEqual(copied);
@@ -168,7 +168,7 @@ test("history rows jump both directions, branching removes redo, and input undo 
   expect((await history(page)).currentStateId).toBe(muted);
   const input = page.getByLabel("Selection start", { exact: true });
   await input.focus();
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   expect((await history(page)).currentStateId).toBe(muted);
   await select(page, 4, 5);
   await edit(page, "Mute", 8);
@@ -197,15 +197,18 @@ test("saving acknowledges only the written state and undo/redo tracks its save p
   await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
   expect((await history(page)).savedStateId).toBe(savingState);
   await expect(page).toHaveTitle("edit-48000.wav — algo-audio-editor");
-  await navigate(page, () => page.keyboard.press("Control+z"));
+  await navigate(page, () => page.keyboard.press("ControlOrMeta+z"));
   await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
   await expect(page).toHaveTitle("* edit-48000.wav — algo-audio-editor");
-  await navigate(page, () => page.keyboard.press("Control+y"));
+  // Ctrl+Y is the Windows/Linux redo alias; macOS has no Cmd+Y redo, only Cmd+Shift+Z.
+  await navigate(page, () =>
+    page.keyboard.press(process.platform === "darwin" ? "Meta+Shift+z" : "Control+y"),
+  );
   expect(await samples(page)).toEqual(savedSamples);
   await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
   await select(page, 0, 1);
   await edit(page, "Mute", 8);
-  await navigate(page, () => page.keyboard.press("Control+z"));
+  await navigate(page, () => page.keyboard.press("ControlOrMeta+z"));
   expect((await history(page)).dirty).toBe(false);
 });
 
@@ -268,8 +271,8 @@ test("undo and redo stop active playback before publishing restored audio", asyn
   const muted = await samples(page);
   await page.getByLabel("Loop", { exact: true }).check();
   for (const [shortcut, expected] of [
-    ["Control+z", original],
-    ["Control+Shift+z", muted],
+    ["ControlOrMeta+z", original],
+    ["ControlOrMeta+Shift+z", muted],
   ] as const) {
     await page.getByTestId("play").click();
     await expect
@@ -300,10 +303,10 @@ test("converted paste is one undoable edit and redo preserves its exact converte
   await expect(page.getByTestId("document-details")).toContainText("· 48000 frames");
   const converted = await samples(page);
   expect((await history(page)).entries).toHaveLength(2);
-  await navigate(page, () => page.keyboard.press("Control+z"));
+  await navigate(page, () => page.keyboard.press("ControlOrMeta+z"));
   expect(await samples(page)).toEqual(original);
   expect((await history(page)).dirty).toBe(false);
-  await navigate(page, () => page.keyboard.press("Control+Shift+z"));
+  await navigate(page, () => page.keyboard.press("ControlOrMeta+Shift+z"));
   expect(await samples(page)).toEqual(converted);
   expect(await clipboard(page)).toEqual(copied);
 });

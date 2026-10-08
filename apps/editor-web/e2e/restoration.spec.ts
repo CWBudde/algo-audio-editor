@@ -98,7 +98,7 @@ test("automatic click and clip repair improve damaged fixtures and retain exact 
   const clickedOut = (await samples(page))[0];
   expect(Math.abs(clickedOut[6000] - clean[6000])).toBeLessThan(1e-4);
   await page.getByTestId("document-details").click();
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => samples(page)).toEqual(original);
   const clipped = clean.map((x) => Math.max(-0.25, Math.min(0.25, x)));
   await load(page, [clipped]);

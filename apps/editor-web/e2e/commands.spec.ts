@@ -86,10 +86,10 @@ test("select-all and silence palette commands use the live channel mask and exac
   ).click();
   const silence = await revealControl(page.getByLabel("Silence frames", { exact: true }));
   await silence.fill("3");
-  await silence.press("Control+a");
+  await silence.press("ControlOrMeta+a");
   await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "0");
   await page.getByTestId("document-details").click();
-  await page.keyboard.press("Control+a");
+  await page.keyboard.press("ControlOrMeta+a");
   await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-selection-end", "8");
   await expect(page.getByTestId("waveform-view")).toHaveAttribute("data-channel-mask", "2");
   const { search } = await palette(page, "insert silence");

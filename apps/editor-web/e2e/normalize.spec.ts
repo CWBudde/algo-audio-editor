@@ -75,9 +75,9 @@ test("peak normalization has independent subset output goldens and exact undo/re
   expect((await info(page)).documentId).not.toBe(before.documentId);
   expect((await history(page)).entries).toHaveLength(saved.entries.length + 1);
   await page.getByTestId("document-details").click();
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => samples(page)).toEqual([LEFT, RIGHT]);
-  await page.keyboard.press("Control+Shift+z");
+  await page.keyboard.press("ControlOrMeta+Shift+z");
   await expect.poll(() => samples(page)).toEqual(golden);
 });
 

@@ -233,7 +233,7 @@ test("pointer focuses a waveform without changing channel targeting and shortcut
   await select(page, 1_000, 1_000);
   await surface.focus();
   const fenced = await range(page);
-  await page.keyboard.press("Control+ArrowRight");
+  await page.keyboard.press("ControlOrMeta+ArrowRight");
   await page.keyboard.press("Alt+ArrowLeft");
   expect(await range(page)).toEqual(fenced);
   const input = page.getByLabel("Selection start", { exact: true });
@@ -242,7 +242,7 @@ test("pointer focuses a waveform without changing channel targeting and shortcut
   await page.keyboard.press("End");
   await page.keyboard.press("ArrowLeft");
   expect(await range(page)).toEqual(fenced);
-  await page.keyboard.press("Control+Shift+E");
+  await page.keyboard.press("ControlOrMeta+Shift+E");
   const dialog = page.getByRole("dialog", { name: "Export audio" });
   await expect(dialog).toBeVisible();
   await page.keyboard.press("Home");

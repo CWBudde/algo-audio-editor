@@ -58,7 +58,7 @@ test("desktop Export dialog writes selected channel WAV and quality encodings wi
     const before = await sourceState(page);
     const opener = page.getByLabel("Selection start", { exact: true });
     await opener.focus();
-    await page.keyboard.press("Control+Shift+E");
+    await page.keyboard.press("ControlOrMeta+Shift+E");
     let dialog = page.getByRole("dialog", { name: "Export audio" });
     await expect(dialog).toBeVisible();
     await page.keyboard.press("Escape");

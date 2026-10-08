@@ -46,7 +46,7 @@ test("Electron effects rack preview, one-step apply and durable IR presets use t
       before.history.entries.length + 1,
     );
     await page.getByTestId("document-details").click();
-    await page.keyboard.press("Control+z");
+    await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(() => samples(page)).toEqual([LEFT, RIGHT]);
     dialog = await open("reverb-conv");
     const impulse = fixture([[1]], 48000);

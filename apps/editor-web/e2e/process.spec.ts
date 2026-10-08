@@ -54,9 +54,9 @@ test("gain processing changes only selected frames/channels and is one exact und
   expect((await history(page)).entries).toHaveLength(saved.entries.length + 1);
   expect((await history(page)).dirty).toBe(true);
   await page.getByTestId("document-details").click();
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => await samples(page)).toEqual([LEFT, RIGHT]);
-  await page.keyboard.press("Control+Shift+z");
+  await page.keyboard.press("ControlOrMeta+Shift+z");
   await expect.poll(async () => await samples(page)).toEqual(changed);
 });
 

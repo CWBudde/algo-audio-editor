@@ -13,9 +13,10 @@ test("uses system fonts without downloads and keeps desktop and narrow editor co
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
+  // Chromium on macOS serializes the BlinkMacSystemFont alias as "system-ui".
   await expect(page.locator("html")).toHaveCSS(
     "font-family",
-    /system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif/,
+    /system-ui, -apple-system, (BlinkMacSystemFont|"system-ui"), "Segoe UI", sans-serif/,
   );
   const name = `${"Long filename 🎵 — ".repeat(12)}stereo.wav`;
   await page.getByTestId("audio-file-input").setInputFiles({
@@ -186,7 +187,7 @@ test("information is on demand and does not stop playback or let editor shortcut
     element.focus();
   });
   await page.keyboard.press("Space");
-  await page.keyboard.press("Control+=");
+  await page.keyboard.press("ControlOrMeta+=");
   await expect
     .poll(async () => Number(await dialog.getByTestId("frames-played").textContent()))
     .toBeGreaterThan(before);

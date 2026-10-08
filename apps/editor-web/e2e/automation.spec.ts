@@ -67,7 +67,7 @@ test("records successful processing once, replays exact output, exports a CLI ch
   await dialog.getByRole("button", { name: "Apply macro" }).click();
   await expect(dialog.getByRole("status")).toContainText("2 of 2 completed");
   expect(await samples(page)).toEqual(expected);
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   expect(await samples(page)).toEqual(expected);
   const exported = await page.evaluate(async () => {
     const result = (await window.__aaeTest?.request("doc.export", {
@@ -81,11 +81,11 @@ test("records successful processing once, replays exact output, exports a CLI ch
   await writeFile(testInfo.outputPath("browser.wav"), Buffer.from(exported));
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByTestId("document-details").click();
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect
     .poll(() => samples(page))
     .toEqual([LEFT, RIGHT].map((channel) => channel.map((sample) => sample * 0.5)));
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => samples(page)).toEqual([LEFT, RIGHT]);
 });
 test("imports a chain, follows crop identity, applies the new whole range and keeps a failed prefix undoable", async ({
@@ -120,11 +120,11 @@ test("imports a chain, follows crop identity, applies the new whole range and ke
   );
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByTestId("document-details").click();
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect
     .poll(() => samples(page))
     .toEqual([LEFT, RIGHT].map((channel) => channel.slice(2, 6)));
-  await page.keyboard.press("Control+z");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => samples(page)).toEqual([LEFT, RIGHT]);
 });
 test("records clipboard edits and replays with a fresh clipboard version", async ({ page }) => {
