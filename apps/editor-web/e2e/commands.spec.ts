@@ -6,7 +6,7 @@ import { captureKernelWorker } from "./kernel-probe.ts";
 import { revealControl } from "./ui-disclosures.ts";
 
 async function palette(page: Page, query: string) {
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("ControlOrMeta+k");
   const dialog = page.getByRole("dialog", { name: "Command palette" });
   await expect(dialog).toBeVisible();
   const search = dialog.getByRole("combobox", { name: "Search commands" });
@@ -40,7 +40,7 @@ test("palette discovers disabled commands without a document, restores focus and
   await expect(dialog).not.toBeVisible();
   await expect(opener).toBeFocused();
   await palette(page, "");
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("ControlOrMeta+k");
   await expect(dialog).not.toBeVisible();
 });
 
@@ -129,7 +129,7 @@ test("macOS displays and executes Cmd shortcuts, preserving the other modifier",
   );
   await page.reload();
   await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByRole("dialog", { name: "Command palette" })).not.toBeVisible();
   await page.keyboard.press("Meta+k");
   const dialog = page.getByRole("dialog", { name: "Command palette" });

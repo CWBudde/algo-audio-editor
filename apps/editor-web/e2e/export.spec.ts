@@ -149,7 +149,7 @@ test("keyboard opens a fenced modal without a chooser, disables cursor range and
   ).toBeDisabled();
   await page.keyboard.press("Control+s");
   await page.keyboard.press("Control+z");
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByRole("dialog", { name: "Command palette" })).not.toBeVisible();
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
