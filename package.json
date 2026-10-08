@@ -2,6 +2,7 @@
   "name": "algo-audio-editor",
   "private": true,
   "version": "0.0.0",
+  "packageManager": "bun@1.4.2",
   "workspaces": [
     "apps/*",
     "packages/*"

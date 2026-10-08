@@ -55,3 +55,67 @@ pre-commit:
       root: packages/kernel
       glob: "*.go"
       run: go vet ./... && GOOS=js GOARCH=wasm go vet ./...
+
+# Pre-push repeats CI's lint job on everything that is about to leave the
+# machine (typically well under a minute), so a red `main` is caught before
+# the push instead of by CI. {push_files} are the files changed between the
+# remote ref and the pushed commits. Never bypass this with --no-verify or
+# LEFTHOOK=0 when pushing to main (see AGENTS.md).
+pre-push:
+  parallel: true
+  jobs:
+    # The exact CI command on the whole tree: lint, format and import order.
+    - name: biome-ci
+      run: node_modules/.bin/biome ci apps packages/protocol
+
+    - name: typecheck-web
+      glob:
+        - "apps/editor-web/**/*.{ts,tsx}"
+        - "packages/protocol/**/*.ts"
+      run: bun run --bun --cwd apps/editor-web typecheck
+
+    - name: typecheck-desktop
+      glob: "apps/desktop/**/*.{ts,mts}"
+      run: bun run --bun --cwd apps/desktop typecheck
+
+    # One-shot `vitest related` (watch mode is blocked) for the pushed sources
+    # and the tests that import them. Paths are made absolute because Vitest
+    # resolves them from the package directory. jsdom needs Node, not --bun.
+    - name: vitest-related-web
+      glob:
+        - "apps/editor-web/**/*.{ts,tsx}"
+        - "packages/protocol/**/*.ts"
+      run: |
+        repo="$(pwd)"; set --
+        for f in {push_files}; do [ -f "$f" ] && set -- "$@" "$repo/$f"; done
+        [ "$#" -eq 0 ] && exit 0
+        cd apps/editor-web && exec bun run vitest related --run --maxWorkers=2 --passWithNoTests "$@"
+
+    - name: vitest-related-desktop
+      glob: "apps/desktop/**/*.{ts,mts}"
+      run: |
+        repo="$(pwd)"; set --
+        for f in {push_files}; do [ -f "$f" ] && set -- "$@" "$repo/$f"; done
+        [ "$#" -eq 0 ] && exit 0
+        cd apps/desktop && exec bun run --bun vitest related --run --maxWorkers=2 --passWithNoTests "$@"
+
+    # With root set, {push_files} is relative to packages/kernel. Deleted
+    # files are skipped.
+    - name: go-format
+      root: packages/kernel
+      glob: "*.go"
+      run: |
+        set --
+        for f in {push_files}; do [ -f "$f" ] && set -- "$@" "$f"; done
+        [ "$#" -eq 0 ] && exit 0
+        unformatted="$(gofumpt -l "$@")" || exit 1
+        unsorted="$(gci list "$@")" || exit 1
+        if [ -n "$unformatted$unsorted" ]; then
+          printf 'gofumpt/gci: not formatted (run `just fmt`):\n%s\n%s\n' "$unformatted" "$unsorted"
+          exit 1
+        fi
+
+    - name: go-vet
+      root: packages/kernel
+      glob: "*.go"
+      run: go vet ./... && GOOS=js GOARCH=wasm go vet ./...
