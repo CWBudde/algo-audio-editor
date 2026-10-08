@@ -105,6 +105,14 @@ test-go:
 test-go-race:
     cd {{kernel}} && go test -race -covermode=atomic -coverprofile=coverage.out ./...
 
+# Enforce docs/testing.md coverage targets on the profile `test-go-race` wrote.
+check-coverage:
+    node scripts/check-coverage.mjs {{kernel}}/coverage.out
+
+# Unit tests for the CI helper scripts (coverage gate, flaky-test summary).
+test-scripts:
+    node --test scripts/check-coverage.test.mjs scripts/playwright-flaky-summary.test.mjs
+
 # Verify native golden vectors and immutable storage under the actual WASM build.
 test-go-wasm:
     cd {{kernel}} && GOOS=js GOARCH=wasm go test \
@@ -305,12 +313,12 @@ check-unreleased:
 
 # Fast local gate: formatting, lint, unit tests and the production build.
 # The hook warning prints first and again after the long test output.
-check: check-hooks check-formatted check-licenses lint test-go-race test-web test-desktop check-tidy build
+check: check-hooks check-formatted check-licenses lint test-go-race check-coverage test-scripts test-web test-desktop check-tidy build
     @just check-hooks
 
 # Electron e2e needs a display; headless, run `xvfb-run --auto-servernum just ci`.
 # Everything CI runs (.github/workflows/ci.yml and the test-*.yml it calls), in one recipe.
-ci: check-hooks check-formatted check-licenses lint test-go-race test-go-wasm fuzz-wav fuzz-codecs fuzz-export test-web test-desktop check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
+ci: check-hooks check-formatted check-licenses lint test-go-race check-coverage test-scripts test-go-wasm fuzz-wav fuzz-codecs fuzz-export test-web test-desktop check-tidy e2e e2e-pages e2e-desktop e2e-desktop-packaged
 
 clean:
     rm -rf {{kernel}}/bin

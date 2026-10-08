@@ -17,15 +17,10 @@ jobs:
         with:
           bun: "false"
       - run: just test-go-race
-      - name: Coverage summary
-        working-directory: packages/kernel
-        run: |
-          {
-            echo "### Kernel coverage"
-            echo '```'
-            go tool cover -func=coverage.out | tail -1
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+      # Writes the per-package table to the job summary and fails below target.
+      - name: Coverage targets (docs/testing.md)
+        run: just check-coverage
+      - run: just test-scripts
 
   # The native CLI and MCP server ship for macOS and Windows too; their path
   # handling (symlinked temp roots, volumes, case, 8.3 names) differs from Linux.
