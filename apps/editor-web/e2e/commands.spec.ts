@@ -129,7 +129,7 @@ test("macOS displays and executes Cmd shortcuts, preserving the other modifier",
   );
   await page.reload();
   await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
-  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.press("Control+k");
   await expect(page.getByRole("dialog", { name: "Command palette" })).not.toBeVisible();
   await page.keyboard.press("Meta+k");
   const dialog = page.getByRole("dialog", { name: "Command palette" });
