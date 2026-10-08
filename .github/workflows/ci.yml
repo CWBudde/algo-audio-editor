@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # `labeled` lets the `e2e` label request the browser/Electron suites.
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -32,9 +35,18 @@ jobs:
     name: Fuzz
     uses: ./.github/workflows/test-fuzz.yml
 
-  # The browser and Electron suites are the slow part; spend those runner
-  # minutes only once lint and unit tests pass.
+  # The browser and Electron suites are the slow part. They run only for
+  # release-please PRs, PRs labeled `e2e` and manual runs, after lint and unit
+  # tests pass; release.yml runs them again on the release commit before
+  # anything is published. A skipped job counts as passed for required checks.
+  # release-please opens its PR with GITHUB_TOKEN, which triggers no workflow:
+  # close and reopen the release PR (or add the label) to run CI on it.
   e2e:
     name: E2E
     needs: [lint, unit]
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+      (startsWith(github.head_ref, 'release-please--') ||
+      contains(github.event.pull_request.labels.*.name, 'e2e')))
     uses: ./.github/workflows/test-e2e.yml
