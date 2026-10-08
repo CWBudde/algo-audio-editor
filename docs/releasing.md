@@ -30,7 +30,7 @@ its commit. Desktop releases require a tag's commit to be on `main` and have
 successful CI, then publish only after every platform build succeeds. A manual
 desktop workflow checks its commit's CI and creates artifacts without publishing.
 These workflow gates do not establish required checks for merging to `main`.
-Required branch checks remain an open repository-setting task (PLAN Phase 28); the branch
+Required branch checks remain an open repository-setting task (PLAN Phase 29); the branch
 protection API reported `Branch not protected` during the 2026-10-05 audit.
 
 External workflow actions are pinned to verified commits with release comments;
@@ -58,23 +58,31 @@ No application release has been tagged. `just check-unreleased` reports this
 known state without failing; after a first tag, it checks accumulated commits
 against the configured threshold. Do not tag only to silence that report.
 
+`v0.1.0` is a **development release** (decided 2026-10-08): the web build
+plus unsigned desktop artifacts, labelled as development builds. Signed
+installers and installed-update acceptance (PLAN Phase 19) gate **1.0**, not
+`v0.1.0`. The tagged desktop workflow currently forces code signing, so allow an
+explicitly marked unsigned development build before tagging `v0.1.0`, without
+weakening the signing requirement for 1.0 tags.
+
 Before selecting a release commit:
 
-- Complete or explicitly decide the first-release feature scope. Waveform-editor
-  completeness covers Phases 1–6 plus the outstanding metadata/project work in
-  Phases 17–18. Keep unfinished performance, browser and host acceptance
-  visible in the roadmap.
-- Complete Phase 27's license policy compliance for the bundled third-party code,
-  including the documented FLAC Unlicense and archived AAC muxer decisions.
-  The [current audit](licenses/README.md) supplies inventory/notices, but policy
-  exceptions and missing upstream grants remain unresolved. After dependency or
-  policy changes, run `just licenses`, review its evidence and commit regenerated
-  files. Run `just check-license-policy` on the candidate; tagged desktop builds
-  enforce this gate before packaging. `just check-licenses` in ordinary CI checks
-  freshness and does not approve known findings.
-- Complete Phase 19's signing, installed associations, package integrity and real
-  update acceptance. Configure Windows/macOS signing and macOS notarization
-  credentials as described in [`desktop.md`](desktop.md#updates-and-publishing).
+- Complete the PLAN "Critical path to v0.1.0": green `main` and gate discipline
+  (Phase 29), data safety and basics (Phase 30), autosave and crash recovery
+  (Phase 18, project container optional), metadata (Phase 17), kernel and
+  playback robustness (Phase 31) and the Phase 28 flakes. Keep unfinished
+  performance, browser and host acceptance visible in the roadmap.
+- Pass the revised, property-based license policy (Phase 27). The
+  [current audit](licenses/README.md) supplies inventory/notices; accepted
+  exceptions must be reviewed and recorded. After dependency or policy changes,
+  run `just licenses`, review its evidence and commit regenerated files. Run
+  `just check-license-policy` on the candidate; tagged desktop builds enforce this
+  gate before packaging. `just check-licenses` in ordinary CI checks freshness and
+  does not approve known findings.
+- For 1.0, additionally complete Phase 19's signing, installed associations,
+  package integrity and real update acceptance. Configure Windows/macOS signing
+  and macOS notarization credentials as described in
+  [`desktop.md`](desktop.md#updates-and-publishing).
 - Run `just check-deps`, `just check-unreleased` and full local `just ci` on the
   candidate. Document any deliberately deferred sibling version in `PLAN.md`.
 - Obtain successful remote CI for that exact commit on `main`; an earlier green

@@ -1,5 +1,15 @@
 # Go license remediation plan (2026-10-05)
 
+> **Superseded in part on 2026-10-08.** The policy is now property-based (see
+> [README](README.md)). Go's SunPro/Cephes notices are permissive,
+> attribution-preserving terms inside the BSD-licensed standard library, so the
+> Go math provenance and replacement work below is **dropped**: it would cost
+> weeks of cross-target provenance and upstream transcendental rewrites without
+> reducing any copyleft or attribution risk. The FLAC Unlicense dependency is
+> also permitted. The MIT FLAC evaluation remains useful as optional robustness
+> work (bounded parsing, validation independent of MD5). The text below is kept
+> as the 2026-10-05 record.
+
 The user chose to retain **MIT/BSD/Apache only** for bundled code. Keep the
 current [audit findings](README.md#unresolved-evidence-and-policy) and strict
 release gate until source replacements or verified grants resolve them. This

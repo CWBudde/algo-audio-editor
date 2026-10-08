@@ -1,11 +1,23 @@
 # Dependency licenses and third-party notices
 
 The inventory and notice distribution are implemented. **Release approval
-remains open**: the current dependencies exceed the roadmap's MIT/BSD/Apache
-policy, and several pinned sources omit license grants. The user confirmed on
-2026-10-05 that this policy stays in force and affected dependencies should be
-replaced. The 2026-10-06 continuation replaced bundled Geist/Lucide with system
-fonts and pinned MIT Heroicons; no dependency was relicensed.
+remains open**: several pinned sources omit license grants, and the strict gate
+still evaluates the original MIT/BSD/Apache allowlist. The user confirmed that
+allowlist on 2026-10-05; the 2026-10-06 continuation replaced bundled
+Geist/Lucide with system fonts and pinned MIT Heroicons.
+
+**Policy revision (2026-10-08):** following the
+[2026-10-07 review](../REVIEW-2026-10-07.md), the user replaced the label
+allowlist with a property-based policy. Bundled code may use OSI-approved,
+permissive, non-copyleft licenses whose attribution is preserved in the bundled
+notices: MIT, BSD-1/2/3-Clause, Apache-2.0, ISC, 0BSD, Zlib, BlueOak-1.0.0,
+Python-2.0/PSF, Unlicense, CC0-1.0 and the Go standard-library notices
+(including SunPro/Cephes). GPL, LGPL, AGPL, MPL, SSPL and non-commercial terms
+remain denied. Replacing Go's math library is dropped, and adopting MIT FLAC is
+optional robustness work rather than a policy requirement. Implementing the
+revision in `policy.json`, adding a reviewed `accepted-exceptions.json` and
+resolving the missing grants remain PLAN Phase 27. Until then, the sections
+below describe the original policy's findings.
 
 The [Go audit](go-audit.md) covers 27 selected external modules and Go 1.26.8,
 including the native CLI/MCP commands on six OS/architecture combinations and

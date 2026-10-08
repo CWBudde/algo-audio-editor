@@ -275,8 +275,8 @@ from the kernel ABI.
 The server offers `mastering_check`, `podcast_cleanup` and `batch_convert`
 prompts. They guide inspection, schema discovery and explicit output choices;
 they do not automatically execute operations. HTTP transport and editing
-the running Electron session remain Phase 22 work. Native Windows/macOS batch
-execution acceptance remains Phase 19.
+the running Electron session are [planned work](#planned-work), deferred until
+after `v0.1.0`. Native Windows/macOS batch execution acceptance remains Phase 19.
 
 `just test-go` exercises actual MCP client/server messages in memory and a
 native stdio child process. Tests cover golden advertised schemas, descriptor
@@ -306,3 +306,24 @@ Review schema changes before deliberately updating the golden with
 existing real WASM/browser/Electron acceptance gates. ABI 18 is unchanged;
 chain format version 1 is separate and mirrored by `OperationChain` /
 `RecordedOperation` in `packages/protocol`.
+
+## Planned work
+
+MCP completion (formerly PLAN Phase 22) was deferred on 2026-10-08 until after
+the `v0.1.0` development release. Its acceptance stays the same: Claude Code or
+Claude Desktop connects, opens a WAV, queries statistics, applies a chain and
+exports; output is sample-identical to the UI and `aae`, and every mutation is
+undoable. Open items:
+
+- Streamable HTTP transport (legacy SSE deferred).
+- Read tools: offline true peak and silence detection (needs kernel/upstream work).
+- Edit tools: cross-document extraction.
+- Write tools: dedicated `render_region` and browser-only codec exports.
+- Convolution IR loading for `apply_effect`.
+- Dry runs for structural edits and whole chains, plus general output-LUFS prediction.
+- Sensible numeric rounding and pagination of other long control results.
+- Interactive acceptance with real Claude Code/Desktop hosts.
+- *Optional:* expose the desktop app's live session over MCP (Electron main
+  hosts the server and forwards to the kernel worker), so an agent edits the
+  document the user sees. If taken: a visible indicator and per-session consent
+  while an agent is attached, and mutations land in the user's undo stack.

@@ -19,7 +19,7 @@
 
 **Product shape:** a waveform editor first, in the spirit of ocenaudio, Sound Forge or Audition's waveform view. Multitrack (Phase 26) builds on the same block-based document model.
 
-**How to read this plan:** Phases 0–15 are complete for their stated scope; their summaries describe what exists today. Every unfinished item lives in Phases 16–28. Feature guides live in [`docs/`](docs/); dated measurements and validation scope live in [`docs/benchmarks/`](docs/benchmarks/README.md). The [historical roadmap at `9de516f`](https://github.com/cwbudde/algo-audio-editor/blob/9de516f/PLAN.md) keeps the full implementation narrative. Testing strategy is in [docs/testing.md](docs/testing.md); release rules are in [docs/releasing.md](docs/releasing.md).
+**How to read this plan:** Phases 0–15 are complete for their stated scope; their summaries describe what exists today. Every unfinished item lives in the open phases 16–33 (Phase 22 moved to *Deferred*); work them in the **critical-path order** below, not by number. Feature guides live in [`docs/`](docs/); dated measurements and validation scope live in [`docs/benchmarks/`](docs/benchmarks/README.md). The [historical roadmap at `9de516f`](https://github.com/cwbudde/algo-audio-editor/blob/9de516f/PLAN.md) keeps the full implementation narrative. Testing strategy is in [docs/testing.md](docs/testing.md); release rules are in [docs/releasing.md](docs/releasing.md). The latest whole-repository review is [docs/REVIEW-2026-10-07.md](docs/REVIEW-2026-10-07.md); Phases 29–33 and the changed acceptance criteria below come from it.
 
 ---
 
@@ -42,7 +42,7 @@
 | 12 MCP foundation | Official-SDK stdio `aae-mcp` with 18 tools, isolated sessions, summary/waveform PNG/binary peak resources, prompts, dry runs and write-root permissions; output matches the CLI and UI. | [automation & MCP](docs/mcp.md) | 14 |
 | 13 Review remediation | From the [2026-10-04 review](docs/REVIEW-2026-10-04.md): truthful CI with pinned actions, timeouts and native + js/wasm lint (R.1); kernel robustness, 3 GiB storage budget, fuzzing (R.2); MP3/PCM8/BS.1770 correctness (R.3); resampling/mixing moved upstream (R.4); registered method dispatch, typed names, strict decoding, bounded analysis, incremental history accounting, one-hour FLAC (R.5); frontend lifecycle races (R.6); module split, lazy chunks, optimized WASM and budgets (R.7); keyboard-accessible waveform and selection (R.8); Electron fuses, permission handlers and navigation guards (R.9); roadmap/evidence audit and process docs (R.10). | [benchmarks](docs/benchmarks/README.md) | R.1–R.10 |
 | 14 License inventory & notices | Go/npm/Electron inventory collectors, reviewed `docs/licenses/dependencies.json`, generated bundled third-party notices shown in About, `just check-licenses` freshness gate and `just check-license-policy` release gate; system fonts and MIT Heroicons replace OFL/ISC assets; isolated MIT FLAC evaluation and local remediation patches; Go math reach diagnostics. | [licenses](docs/licenses/README.md) | 23 (part) |
-| 15 Visual design | App-icon palette shared by DOM and canvas, adaptive waveform lanes, vertical waveform zoom (1×–64×), frequency rulers and spectrogram readouts, analysis dock, restyled dialogs and panels. | [visual design](docs/visual-design.md) | 24 (part) |
+| 15 Visual design | App-icon palette shared by DOM and canvas, adaptive waveform lanes, vertical waveform zoom (1×–64×), frequency rulers and spectrogram readouts, analysis dock, restyled dialogs and panels. Effect editor redesign: consolidated Filter/Weighting dialogs with kernel frequency charts, compact square-plot dynamics editors with Feedforward/Feedback topology, per-band multiband rows and Dynamic EQ band rows with kernel band transfer graphs (`algo-dsp v0.12.1`–`v0.12.4`). The last five editor commits skipped full checks; Phase 29 restores the gate. | [visual design](docs/visual-design.md) | 24 (part) |
 
 ---
 
@@ -50,11 +50,72 @@
 
 Original phase numbers are noted per phase; dated reports in `docs/benchmarks/` and older docs use them.
 
+### Critical path to v0.1.0
+
+`v0.1.0` is a **development release**: the web build plus unsigned Linux AppImage and Windows/macOS zip artifacts, labelled as development builds (decided 2026-10-08). Signed installers and installed-update acceptance (Phase 19) gate **1.0**, not `v0.1.0`. Work in this order; new effect-editor polish waits until the tag, and only bug fixes go in before then.
+
+1. **Phase 29**: green `main` and gate discipline (stop-the-line).
+2. **Phase 30**: data safety and v0.1 basics.
+3. **Phase 18**: autosave and crash recovery (`.aaep` may follow the tag).
+4. **Phase 17**: MP3 and FLAC metadata.
+5. **Phase 27**: property-based license policy passing.
+6. **Phase 31**: kernel and playback robustness.
+7. **Phase 28**: flakes fixed or quarantined, then tag `v0.1.0`.
+
+After the tag: Phases 32, 33 and 16, then 19 (1.0 gate), 24, 25, 26, with 20, 21 and 23 as non-blocking acceptance work.
+
+### Phase 29: Green Main & Gate Discipline
+
+*New (review 2026-10-07).* **Acceptance:** CI is green on the head of `main` and on each of the next 10 pushes. `just test` passes on macOS. `just check` fails locally on everything CI's lint job fails on.
+
+- [ ] Fix forward the failures that have kept `main` red since `d1c8caf`:
+  - treefmt `--fail-on-change`
+  - Biome: two `useExhaustiveDependencies` errors and one import sort
+  - Vitest: `waveform-view.test.tsx` "4× vertical"/geometry; `waveform/lane-layout.test.ts` expects 695, receives 719
+  - Triage the Electron `analysis…progressive spectrogram` timeout from the `d1c8caf` run. E2E has not run since, because it needs lint and unit to pass.
+- [ ] **macOS write-root bug:** `NewFilePolicy` resolves roots with `EvalSymlinks`, but `destination()` only applies `filepath.Abs` (`internal/automation/files.go`). On macOS, `--allow-write /tmp` therefore rejects `/tmp/x.wav`. Fix: canonicalize the destination's existing parent directory before the `Rel` check, keeping `os.Root` confinement. Add a symlinked-root regression test. This fixes 4 failing tests on macOS: three in automation and `TestMCPCLIAndUIProtocolParity`.
+- [ ] Add a `macos-latest` and `windows-latest` `go test` job; CI is currently Linux-only.
+- [ ] Align local hooks with CI:
+  - `just lint-web` runs `biome ci`, as CI does, instead of `biome lint`.
+  - `just check` warns when the lefthook hooks are not installed.
+  - Add a `pre-push` hook (`biome ci` plus related Vitest).
+- [ ] Process rule in AGENTS.md: never push onto a red `main`. Interactive design sessions work on a branch and merge only when green.
+- [ ] Configure required CI checks and branch protection for `main`. Keep an explicit admin bypass for the authorized direct-main workflow. The branch protection API currently reports `Branch not protected`; this item moved here from Phase 28.
+- [ ] Enforce the per-package coverage targets in [testing](docs/testing.md) with a `go tool cover -func` threshold check. `automation` is at 58% and `process` at 88.8%.
+- [ ] Surface Playwright `flaky` (retried) results in the CI step summary, and record each one in Phase 28.
+- [ ] Pin local tools as CI does:
+  - Go `tool` directives for gofumpt, gci and golangci-lint.
+  - `"packageManager": "bun@1.4.2"`.
+  - `dep-drift.yml` uses `go.mod`'s toolchain instead of `stable`.
+- [ ] Protocol parity v2:
+  - Compare field kind, optionality (`omitempty` vs `?`) and nullability (pointer vs `| null`), not only names.
+  - Fail when the schema hash changes without a `protocol.Version` / `PROTOCOL_VERSION` bump.
+  - Extend the shared Go-marshals/TS-parses golden files beyond process jobs.
+
+### Phase 30: Data Safety & v0.1 Basics
+
+*New (review 2026-10-07).* **Acceptance:** closing a tab or window with unsaved changes asks first. File → New, Preferences, the shortcut list and Copy diagnostics work in the browser and Electron, each covered by e2e.
+
+- [ ] Browser `beforeunload` guard while any document is dirty. Electron already has a guarded close.
+- [ ] File → New: chosen sample rate, channel count and optional silent length. `file.new` is currently disabled in `lib/commands.ts`.
+- [ ] Minimal persisted preferences: default export format and dither, time format, snapping. There is currently no settings store.
+- [ ] Help → Keyboard shortcuts, generated from the command registry. Help → Copy diagnostics, reusing About's diagnostics.
+- [ ] Export: default TPDF dither for integer depths ≤16 bits. Normalization warns when the output sample/true peak exceeds 0 dBFS. Offer an optional true-peak ceiling for LUFS normalization.
+- [ ] Record the MP3-export decision in [codecs](docs/codecs.md#lossy-export), under the Phase 27 policy.
+
 ### Phase 16: Processing & Playback Performance Acceptance
 
-*Originally Phase 15.* **Acceptance:** processing a ten-minute stereo file takes <1 s for every process; spectrogram rendering of a ten-minute file never blocks playback or drops samples.
+*Originally Phase 15. Gate replaced 2026-10-08.* **Acceptance** on the reference laptop, median of 5 runs:
+- Every O(n) process runs at ≥20× real time on a ten-minute stereo file.
+- Resampling runs at ≥3× real time (Fast/Balanced) and ≥1× (Best).
+- The UI never stalls for more than 50 ms.
+- Progress updates arrive at least every 250 ms.
+- Cancel takes effect within 200 ms.
+- Spectrogram rendering never blocks playback or drops samples.
 
-- [ ] Pass the unchanged <1 s gate in `process-benchmark.spec.ts` (32 serial ten-minute operations including Apply, output verification, commit and painted waveforms; extraction includes transfer/import/paint) without Preview/prepared candidates or reduced quality. Last full sweep: 17 pass / 15 timing failures. [Sweeps and reproduction](docs/benchmarks/processing-2026-10-03.md).
+- [ ] Record the reference laptop (CPU, RAM, OS, browser and version) in [testing](docs/testing.md); every timing gate in this plan refers to it.
+- [ ] Rework `process-benchmark.spec.ts` to measure throughput and responsiveness against the gates above. The previous absolute "<1 s per process including paint" sweep (last result: 17 pass / 15 fail) stays as historical evidence only. [Sweeps and reproduction](docs/benchmarks/processing-2026-10-03.md).
+- [ ] CI relative regression guard: kernel benchmarks fail when they regress more than ±15% against a stored baseline, in the style of algo-dsp's `benchguard`. This replaces the former Phase 25 benchmark item.
 - [ ] Profile and explain the historical `spectrogram-playback.spec.ts` underruns (Phase 8 and its baseline failed; Phase 5 and R.5 passed), then rerun without relaxing timing or underrun limits. [Runs](docs/benchmarks/spectrogram-playback-2026-10-04-05.md).
 
 ### Phase 17: MP3 & FLAC Metadata
@@ -65,18 +126,78 @@ Original phase numbers are noted per phase; dated reports in `docs/benchmarks/` 
 
 ### Phase 18: Projects, Autosave & Recent Files
 
-*Originally Phase 17.* **Acceptance:** after a crash (killed tab or Electron process), the last autosave restores within 5 s of the edit.
+*Originally Phase 17.* **Acceptance:** after a killed tab or Electron process, edits older than 5 s survive, and recovering a one-hour stereo document takes ≤10 s. Autosave and recovery are part of `v0.1.0`; the `.aaep` container and its association may follow the tag.
 
-- [ ] `.aaep` project: a zip-like container of document blocks, optional history, markers and view state.
 - [ ] OPFS-backed incremental autosave of dirty documents (only new blocks written) and crash recovery on startup.
+- [ ] `.aaep` project: a zip-like container of the autosave block store, optional history, markers and view state.
 - [ ] Application-owned recent files (browser: OPFS handles; desktop: native paths). OS recent-document acknowledgement already exists.
 - [ ] `.aaep` desktop file association.
 
-### Phase 19: Desktop Release & Installed Platform Acceptance
+### Phase 31: Kernel & Playback Robustness
 
-*Originally Phases 19 and 21.* **Acceptance:** signed installers for Linux (AppImage + deb), Windows (NSIS) and macOS (dmg) build in CI; file associations open documents and auto-update works on all three. Credentials and platform limits: [desktop](docs/desktop.md#updates-and-publishing).
+*New (review 2026-10-07).* **Acceptance:** each item has a regression test. An injected panic or effect error during playback leaves documents and history intact and shows an error in the UI.
+
+- [ ] Recover panics in the `render`, `copyMeters` and `takeData` bridge calls (`cmd/kernel/main.go`); only `Call` recovers today. A recovered panic cancels process and analysis jobs and stops the transport.
+- [ ] Report why playback stopped instead of treating every stop as end of file. Today an effect-stream error, a non-finite sample or a resampler error each set `playing=false`, and the UI shows a normal end (`transport.go`, `transport_resample.go`).
+- [ ] MP3 gapless: when LAME/Xing data is inconsistent, decode untrimmed instead of failing the import. Cases: `padding < 529` (`mp3.go:111`) and a Xing frame count that differs from the decoded count, for example a stale header on a cut file. Add a fixture for each.
+- [ ] WAV: treat a zero-size `data` chunk as "runs to EOF" only for streamed or unknown RIFF sizes. Today an empty `data` chunk followed by `LIST`/`cue ` imports those chunk bytes as audio (`wav.go`).
+- [ ] Size the ring and the preview horizon by sample rate:
+  - The ring is 8192 frames, which is only 42.7 ms at 192 kHz. Use about 170 ms in frames (`audio-engine.ts`, `stream-pump.ts`).
+  - The 16 ms effect-preview horizon grows adaptively after an underrun.
+- [ ] Align meters and live spectrum to the audible frame through a snapshot queue keyed by output frame. They currently lead playback by the ring depth (~170 ms at 48 kHz).
+- [ ] Selection spectrum: a budgeted Welch average over all hop-spaced frames of the selection. It currently samples only `averaging` windows (`analysis.go`), which is 0.06% of a ten-minute selection. `averaging` stays as a cap only for the live spectrum.
+- [ ] Automation and desktop inputs:
+  - One memory budget per MCP session, not 8 × 3 GiB engines.
+  - FIFO-safe `ReadFile`.
+  - Reject UNC and `\\?\` paths in Electron argv `enqueue`.
+  - Fall back to exclusive create plus rename when hard links are unsupported (exFAT/SMB) in desktop folder writes.
+- [ ] Structure:
+  - Split `applyEdit` (171 lines) into per-operation plan structs.
+  - Split `startAnalysis` (163 lines) and wrap its raw upstream errors; fix the "must be20Hz" message.
+  - Remove the identity `cloneEditor`.
+  - Reduce the remaining functions over 100 lines (`convertClipboard`, `decodeWAVTimeline`, `inspectWAV`, `exportDocument`, `decodeMP3`).
+- [ ] Downmix to `destination.maxChannelCount` in the kernel when the document has more channels than the output device. 3-, 5- and 8-channel files currently drop channels on stereo devices. Replace the cyclic clipboard 5.1→stereo fold with a BS.775 matrix, upstream first.
+
+### Phase 32: Effect Application Quality
+
+*New (review 2026-10-07). Upstream-first in algo-dsp `effectchain` where applicable.* **Acceptance:**
+- Applying a +12 dB low shelf to a selection that starts mid-signal leaves no boundary step above −60 dBFS.
+- Reverb and delay tails can be kept.
+- Preview started mid-selection matches Apply after the pre-roll.
+- Structural parameter changes during preview cause no discontinuity above −60 dBFS.
+
+- [ ] Equal-power crossfade at both selection edges, plus an optional tail: either extend the selection or mix the tail into the following audio. Today wet output switches hard at the edges and tails are cut at `selected.End` (`effects/stream.go`).
+- [ ] Pre-roll from `max(selection.Start, frame − preroll)` in `Prime`, bounded by a time budget, so seeks, loops and mid-selection starts match Apply.
+- [ ] Crossfade old and new streams for one or two quanta on updates that can't be applied in place. Ramp wet/mix changes within a quantum.
+- [ ] Response graphs request ≥1024 points or include each band's centre frequency, so narrow notches (Q 30) render at their real depth.
+
+### Phase 33: Frontend Structure
+
+*New (review 2026-10-07). No behaviour change.* **Acceptance:**
+- No hook or component exceeds 500 lines.
+- `AppLayout` does not re-render on unrelated dialog flags (Profiler test).
+- At most one latest-only `effects.response` request per dialog is in flight.
+
+- [ ] Split `useAppController` (751 lines, about 55 returned fields) into `usePlayback`, `useDialogState` and the remaining orchestration. Pass `AppLayout` slices or contexts instead of the whole controller.
+- [ ] Add a `useEffectResponse` hook with a shared latest-only queue and bounds-checked decoding. Today each `EffectCurve` and band graph sends its own RPC on every parameter change, and the `DataView` length is unchecked (`effect-parameters.tsx`).
+- [ ] Move per-effect rules (filter order and oversampling, Moog Q clamps, `/gain/i` and `/freq/i` id matching) out of `EffectParameters` into descriptor-driven `lib/` modules.
+- [ ] Add a generic latest/epoch/session primitive to replace the hand-written copies in `use-edit`, `use-history`, `use-document`, `use-process`, `use-effects` and `use-selection`.
+- [ ] Extract `useWaveformPrefs` from `waveform-view.tsx` (1322 lines). Give spectral selection a single owner; it currently lives both in the view and in the controller.
+- [ ] Accessibility and input:
+  - `dynamics-graph` gets an interactive role instead of a focusable `role="img"`.
+  - Add a keyboard path for `filter-response-graph`.
+  - EQ handle wheel requires focus or a modifier, so it doesn't hijack dialog scrolling.
+  - No ref writes during render.
+- [ ] Unit tests for the `kernel-call.ts`/worker boundary and the graphic EQ and filter response graphs. Replace path-`d` assertions with behaviour (keyboard and wheel value changes).
+- [ ] Runtime guards for the most complex RPC results at the worker boundary, replacing unchecked `as` casts (`kernel/client.ts`, `kernel-call.ts`).
+
+### Phase 19: Desktop Release & Installed Platform Acceptance (1.0 gate)
+
+*Originally Phases 19 and 21.* **Acceptance:** signed installers for Linux (AppImage + deb), Windows (NSIS) and macOS (dmg) build in CI; file associations open documents and auto-update works on all three. This gates **1.0**, not the `v0.1.0` development release. Credentials and platform limits: [desktop](docs/desktop.md#updates-and-publishing).
 
 - [ ] Configure signing credentials and the Linux package signature policy; verify signed/notarized installers in CI and installation/file associations on all target OSes.
+- [ ] Set `win.signtoolOptions.publisherName` so electron-updater verifies the Authenticode publisher. Confirm that `app-update.yml` carries it.
+- [ ] Place the web build inside the ASAR integrity boundary, or verify a hash manifest in `app-protocol.ts`. Renderer JS and WASM currently sit in user-writable `extraResources`.
 - [ ] Verify a real installed old-version → new-version GitHub update on Linux, Windows and macOS (current tests stub the feed/installer).
 - [ ] Verify Windows/macOS installer icons and installed audio associations (Linux already passes).
 - [ ] Verify installed Windows/macOS packaged notices (`resources/licenses`) and typography.
@@ -84,50 +205,28 @@ Original phase numbers are noted per phase; dated reports in `docs/benchmarks/` 
 
 ### Phase 20: Hosting Cache & Browser Acceptance
 
-*Originally Phase 20.* **Acceptance:** the public editor loads from a cold cache, reports `crossOriginIsolated === true`, imports a WAV, plays without underruns and exports it again, verified by live Playwright CI. Limits: [web deployment](docs/web-deployment.md).
+*Originally Phase 20. Non-blocking for `v0.1.0`.* **Acceptance:** the public editor loads from a cold cache, reports `crossOriginIsolated === true`, imports a WAV, plays without underruns and exports it again, verified by live Playwright CI. Limits: [web deployment](docs/web-deployment.md).
 
 - [ ] Strict hosting cache policy: GitHub Pages controls CDN headers (observed `max-age=600`), so never-cached HTML/worker and long-term immutable caching are not achieved; stale CDN HTML can still reference removed assets. Requires a host with header control or an equivalent mitigation.
+- [ ] Add a meta Content-Security-Policy to the Pages build that mirrors `app-protocol.ts`, minus `frame-ancestors`. Pages cannot send CSP headers.
 - [ ] Firefox/Safari acceptance and native AAC encode acceptance (Chromium is the tested reference; Linux Chromium/Electron report AAC encoding unavailable).
 
 ### Phase 21: Restoration Listening Acceptance
 
-*Originally Phase 18.* **Acceptance:** spectral click repair is inaudible on the reference fixtures; noise reduction achieves ≥15 dB on the stationary-noise fixture without audible musical noise at default settings. Numerical criteria pass (22.65 dB; click residual < −80 dBFS).
+*Originally Phase 18. Non-blocking.* **Acceptance:** a documented ABX listening test (16 trials per fixture, p > 0.05) cannot distinguish spectral click repair from the clean reference. Noise reduction achieves ≥15 dB on the stationary-noise fixture with no musical noise reported at default settings. The numerical criteria already pass (22.65 dB; click residual < −80 dBFS).
 
-- [ ] Audition the reference fixtures for click inaudibility and musical noise at default settings. [Validation and limits](docs/restoration.md#validation-and-limits).
-
-### Phase 22: MCP Completion
-
-*Originally Phase 22.* **Acceptance:** Claude Code or Claude Desktop connects, opens a WAV, queries statistics, applies a chain and exports; output is sample-identical to the UI and `aae`, and every mutation is undoable. [Current surface](docs/mcp.md).
-
-- [ ] Streamable HTTP transport (legacy SSE deferred).
-- [ ] Read tools: offline true peak and silence detection (needs kernel/upstream work).
-- [ ] Edit tools: cross-document extraction.
-- [ ] Write tools: dedicated `render_region` and browser-only codec exports.
-- [ ] Convolution IR loading for `apply_effect`.
-- [ ] Dry runs for structural edits and whole chains, plus general output-LUFS prediction.
-- [ ] Sensible numeric rounding and pagination of other long control results.
-- [ ] Interactive acceptance with real Claude Code/Desktop hosts.
-- [ ] *Optional:* evaluate exposing the desktop app's live session over MCP (Electron main hosts the server and forwards to the kernel worker), so an agent edits the document the user sees.
-- [ ] *Optional, if taken:* a visible indicator and per-session consent while an agent is attached; mutations land in the user's undo stack.
+- [ ] Run and record the ABX protocol on the reference fixtures. [Validation and limits](docs/restoration.md#validation-and-limits).
 
 ### Phase 23: Visual Design Follow-up
 
-*Originally Phase 24 open item.*
-
-- [x] Consolidated standard filter menu/rack entry points in **Filter…** and A-/C-weighting in **Weighting filters…**, with full-width kernel frequency charts, compatible type/family selectors and only relevant controls (`effect-menu.ts`, `filter-controls.ts`, `filter-response-graph.tsx`, `EffectParameters`, `EffectsDialog`). Legacy node IDs remain supported. Focused UI tests and Chromium checks cover control switching, charts, responsive layout and Apply/Undo; full commit checks remain deferred during interactive design.
-- [x] Narrower filter/weighting dialogs (80% of previous maximum), 320 px frequency charts down to −96 dB, and upstream Butterworth/Chebyshev orders through 20 (`algo-dsp v0.12.1`; Bessel 10 and elliptic 12 retained). Compact compressor uses a square plot beside two columns/three rows of knobs and a kernel-backed Auto gain checkbox; manual makeup stays stored, and keyboard/pointer curve inspection replaces the redundant slider/help (`DynamicsGraph`, `EffectParameters`). Focused upstream race tests, web tests/typecheck and Chromium checks cover real processing/response, control toggles, responsive geometry and exact Undo.
-- [x] Extend the compact square-plot layout and 51.2 rem dialogs to Expander, Gate, Limiter and Lookahead limiter (`isCompactDynamics`, `EffectParameters`, `EffectsDialog`). Expander pairs Threshold/Ratio, Knee/Range and Attack/Release, with detector/topology/RMS controls below; Gate uses those main pairs with Hold/Topology below; limiters use only their supported knobs. Focused web tests/typecheck and Chromium checks cover Full HD fit, narrow-screen stacking, actual response updates, Preview, Apply and exact Undo.
-- [x] Expose Feedforward/Feedback topology for every supporting dynamics processor: compressor, gate, expander and multiband compressor (all bands). `algo-dsp v0.12.2` adds missing catalogue/runtime wiring, with regressions for processing differences, sparse-graph compatibility, factory defaults and restoring Feedforward. Descriptor-driven editor dropdowns preserve the choice for preview, presets and offline Apply; topology may leave the static transfer plot unchanged.
-- [x] Multiband compressor uses a crossover header and one row per band with six common knobs, a small actual band transfer graph and independent Auto gain (`MultibandParameters`, thumbnail `DynamicsGraph`). `algo-dsp v0.12.3` supports 2–4 bands, per-band envelope/makeup settings, selected-band `Chain.Transfer` inspection and four-band workspace accounting; default remains three bands. Shared legacy settings materialize on the first band edit; hidden bands and manual makeup survive toggles/count changes. Upstream race tests cover finite independent processing, zero allocations and 8/48/384 kHz storage bounds; kernel `TestMultibandResponseUsesEachActualBandGainComputer` verifies binary band curves (including thresholds below −60 dB) and invalid-index fencing; web tests cover legacy presets, per-band gain and hidden values. Chromium verifies six aligned knobs per row, four-band Full HD fit (819 × 1013 px), 640/320 px overflow-free wrapping, factory defaults, live Preview, Apply and exact Undo.
-
-- [x] Dynamic EQ defaults to three peak bands at 120 Hz, 1 kHz and 8 kHz, with a full-width interactive Parametric EQ graph and horizontal band rows containing Type/Mode, all nine common knobs and right-aligned square I/O graphs (`DynamicEQParameters`, band `DynamicsGraph`). `algo-dsp v0.12.4` supplies selected-band `Chain.Transfer` through the actual `DynamicEQ.BandCurve`, including static offset, all four modes and range limits; low sample rates compress default frequency spacing. Hidden band settings remain stored. Upstream race tests cover catalogue/sparse defaults, known transfer values, live inspection state and zero-allocation rendering; kernel `TestDynamicEQResponseUsesBandModeOffsetAndRange` checks binary curves and invalid-index fencing. Fifteen focused web tests, typecheck and Chromium checks cover graph drag/right-click/wheel editing, independent controls/curves, presets, 128 px square plots, nine aligned knobs per row, Full HD fit (1024 × 1021 px), 1024/640/320 px overflow-free wrapping, live Preview, Apply and exact Undo. Full commit/CI checks remain deferred during interactive design.
+*Originally Phase 24 open item. Non-blocking; completed effect editor items are in Phase 15 and [visual design](docs/visual-design.md).*
 
 - [ ] Continue visual review with user feedback: remaining populated/error/loading dialogs, combined dense multichannel/spectral/analysis states, complete small-screen focus/scroll access and contrast review at OS scaling settings. Installed Windows/macOS typography/scale is covered in Phase 19.
 - [ ] Decide the zoomed-out waveform redesign and sinc interpolation for sample view (outside original Phase U's scope).
 
 ### Phase 24: Recording
 
-*Originally Phase 7.* **Acceptance:** a 30-minute 48 kHz stereo recording has no dropped frames and lines up with playback within the measured round-trip latency. The Electron microphone permission is already in place.
+*Originally Phase 7.* **Acceptance:** a 30-minute 48 kHz stereo recording has no dropped frames. After latency compensation it lines up within ±1 ms of a loopback-measured reference. The Electron microphone permission is already in place.
 
 - [ ] Capture worklet: input → SAB ring (the reverse of playback) → kernel worker appends blocks.
 - [ ] Input device selection (`getUserMedia` with echo cancellation, noise suppression and AGC **off**).
@@ -137,17 +236,24 @@ Original phase numbers are noted per phase; dated reports in `docs/benchmarks/` 
 
 ### Phase 25: Performance & Large Files
 
-*Originally Phase 10.* **Acceptance:** a 3-hour 96 kHz stereo file (~4 GB as float32) opens, edits and plays with less than 1 GB of WASM heap resident.
+*Originally Phase 10. Gate corrected 2026-10-08:* the former "3-hour 96 kHz stereo (~4 GB)" target is about 8.3 GB of float32 and also exceeds the 1 GiB encoded-import limit. **Acceptance** for a streaming import of a 2-hour 48 kHz stereo file:
+- WASM memory stays under 1.5 GB.
+- Open to first paint takes under 10 s.
+- Zoom and scroll respond within 100 ms.
+- Cut and paste take under 1 s.
+- Processing a one-minute selection meets Phase 16's throughput.
 
+Until then, [codecs](docs/codecs.md) documents the supported size limit.
+
+- [ ] Streaming import that decodes into blocks without holding the whole encoded file.
 - [ ] Block paging: cold blocks evicted to OPFS (browser) or a temp file (desktop) and faulted back on demand; the peak pyramid stays resident.
 - [ ] Waveform rendering in an `OffscreenCanvas` render worker reading peaks directly.
 - [ ] Profile the kernel render path in the browser; SIMD where algo-dsp provides it (`GOARCH=wasm` SIMD permitting).
-- [ ] Benchmark suite with a regression guard in the style of algo-dsp's `benchguard`.
 - [ ] Evaluate TinyGo for kernel size and speed (not a goal if the trade-offs are bad).
 
 ### Phase 26: Multitrack
 
-*Originally Phase 11.* **Acceptance:** 16 stereo tracks, each with an effect chain, play without underruns on a mid-range laptop, and the mixdown matches offline rendering sample for sample.
+*Originally Phase 11.* **Acceptance:** 16 stereo tracks, each with an effect chain, play without underruns at 48 kHz on the reference laptop (Phase 16), and the mixdown matches offline rendering sample for sample.
 
 - [ ] Session model: tracks → clips (document range, gain, fades, offset); non-destructive clip edits.
 - [ ] Timeline view: tracks, clip drag/trim/split, snapping, time and bars/beats grid.
@@ -158,12 +264,17 @@ Original phase numbers are noted per phase; dated reports in `docs/benchmarks/` 
 
 ### Phase 27: License Policy Compliance
 
-*Originally Phase 23 open items.* Policy confirmed by the user on 2026-10-05: **bundled code must be MIT/BSD/Apache only.** The strict gate `just check-license-policy` fails until this phase is done. Plans: [Go replacements](docs/licenses/go-replacements.md), [npm replacements](docs/licenses/npm-replacements.md), [Electron audit](docs/licenses/electron-audit.md).
+*Originally Phase 23 open items. Policy revised 2026-10-08.*
+- **Revision:** the 2026-10-05 MIT/BSD/Apache-only allowlist is replaced by a property-based policy. Bundled code may use OSI-approved, permissive, non-copyleft licenses whose attribution is preserved in the bundled notices: MIT, BSD-1/2/3-Clause, Apache-2.0, ISC, 0BSD, Zlib, BlueOak-1.0.0, Python-2.0/PSF, Unlicense, CC0-1.0 and the Go standard-library notices (including SunPro/Cephes). GPL, LGPL, AGPL, MPL, SSPL and any non-commercial terms remain denied.
+- **Dropped:** replacing Go's math library, with no copyleft risk to justify it.
+- **Acceptance:** `just check-license-policy` passes, and every accepted exception is reviewed and recorded.
 
-- [ ] Replace or prove exclusion of: FLAC Unlicense, Go's retained SunPro/Cephes wording, remaining updater ISC, Python-2.0 and BlueOak-1.0.0. Resolve missing runtime grants in tagged `algo-vecmath`, FLAC's inherited BSD text and `lazy-val 1.0.5`. `algo-approx` and 38 development grants remain documented evidence gaps (informational while not redistributed). An SPDX label does not substitute for a missing runtime license. [Go evidence](docs/licenses/go-audit.md), [npm evidence](docs/licenses/npm-audit.md).
-- [ ] **Go math:** complete symbol/source provenance across all seven targets (inlined code, constants, assembly inheritance, final optimized WASM attribution). Define numerical/allocation/performance contracts, implement required permitted transcendental functions upstream and replace callers through tagged releases. Recheck codec/standard-library reach and binary budgets; if SunPro/Cephes bodies remain, evaluate reproducible maintained toolchain replacements. [Requirements](docs/licenses/go-replacements.md#go-math-positive-linked-evidence-then-scoped-replacements), [reach report](docs/licenses/go-math-reach.md).
-- [ ] **MIT FLAC (`tphakala/go-flac`) adoption:** obtain maintainer review and an audited upstream tag with the [local remediation](docs/licenses/flac-remediation.md) fixes (count/rate/channel/depth/sequence checks independent of MD5, bounded/skip metadata parsing, caller-controlled scratch ceilings, 32-bit residual encoding). Then complete per-file/contributor provenance, linked SIMD/math reach review, IETF corpus, bounded atomic import/writer regressions, one-hour memory/performance, native/WASM/browser parity and binary budgets. The current Unlicense dependency stays until adoption passes.
+Plans: [Go replacements](docs/licenses/go-replacements.md), [npm replacements](docs/licenses/npm-replacements.md), [Electron audit](docs/licenses/electron-audit.md).
+
+- [ ] Update `docs/licenses/policy.json` to the revised allowlist and add a reviewed `docs/licenses/accepted-exceptions.json` (package, license, reason, reviewer, date) that `just check-license-policy` reads. Unknown expressions keep failing closed.
+- [ ] Add full LICENSE grants to `algo-vecmath` and `algo-approx` and tag them, then bump them here. Resolve FLAC's inherited BSD text upstream, and `lazy-val 1.0.5`'s missing grant. An SPDX label does not substitute for a missing runtime license. [Go evidence](docs/licenses/go-audit.md), [npm evidence](docs/licenses/npm-audit.md).
 - [ ] Resolve the Electron/Chromium component license selections and platform reach recorded by `licenses-electron.mjs`.
+- [ ] *Optional, not a policy blocker:* adopt MIT FLAC (`tphakala/go-flac`) for robustness once an audited upstream tag contains the [local remediation](docs/licenses/flac-remediation.md) fixes. That adoption also needs IETF corpus, bounded import, one-hour memory/performance and native/WASM/browser parity validation.
 
 ### Phase 28: CI Stability & Release Process
 
@@ -171,13 +282,21 @@ Original phase numbers are noted per phase; dated reports in `docs/benchmarks/` 
 
 - [ ] **Allocation flake:** `internal/effects/stream_test.go` (`AllocsPerRun`, "prepared auto-wah render+reset allocate 1") failed in 1 of 6 local `-race` runs. Find the stray allocation or make the measurement robust before it reddens CI. Later isolated and full-catalogue repetitions passed; process-global allocation counters are a suspected, unconfirmed source. [Evidence](docs/benchmarks/r1-ci-2026-10-05.md#allocation-flake).
 - [ ] **Short-file EOF snapshot flake:** one parallel `transport.spec.ts` run reported frame 13 instead of 31. Repetitions with passive DOM/output-clock/shared-counter diagnostics pass; the cause is open. Keep the exact 31-frame, zero-underrun and replay assertions. [Evidence](docs/benchmarks/r1-ci-2026-10-05.md#short-file-eof-flake).
-- [ ] Configure required successful CI checks for contributions where applicable, preserving the authorized direct-main workflow (the branch protection API currently reports `Branch not protected`).
-- [ ] Agree the `v0.1.0` development-release scope with unfinished metadata/persistence (Phases 17–18) explicit; complete the [first-release prerequisites](docs/releasing.md#first-release) (Phases 19 and 27), dependency checks and CI for the release commit before tagging. The first tag also establishes the `check-unreleased` baseline.
+- [ ] **Electron spectrogram timeout:** the `d1c8caf` CI run failed `analysis…progressive spectrogram` with a 5 s predicate timeout. Decide whether it is a flake or a regression once Phase 29 lets e2e run again.
+- [ ] Add `govulncheck` and Dependabot (or Renovate) for Go modules, npm and GitHub Actions; `dep-drift.yml` only covers the `algo-*` family.
+- [ ] Machine-generated evidence over 200 KB goes to CI artifacts or release assets, with only a summary `.md` in `docs/benchmarks/`. Example: the 2.4 MB `go-math-reach-2026-10-06.json`. Benchmark reports hold evidence, not open checkboxes, so move the open items in `processing-2026-10-03.md` here or to Phase 16.
+- [ ] Let `desktop-release.yml` build an explicitly marked unsigned development release (it currently forces signing for every tag), keeping signing mandatory for 1.0 tags.
+- [ ] Tag the **`v0.1.0` development release** once the critical path above is done, with dependency checks and green CI on the release commit. The tag also establishes the `check-unreleased` baseline. [First release](docs/releasing.md#first-release).
 
 ---
 
 ## Deferred / Later
 
+- **MCP completion** (formerly Phase 22, deferred 2026-10-08). Covers Streamable HTTP transport, offline true peak and silence detection, cross-document extraction, `render_region`, browser-only codec exports, convolution IR loading, structural and chain dry runs with LUFS prediction, numeric rounding and pagination, interactive Claude host acceptance, and an optional live desktop-session server. The list is in [automation & MCP](docs/mcp.md#planned-work).
+- Multiple documents open at once (tabs, or one Electron window per document), with copy and paste between them
+- Keyboard shortcut customization
+- System clipboard exchange (WAV)
+- Scrub, varispeed and playback rate
 - VST3/CLAP plugin hosting (desktop only, via a native helper process)
 - MIDI input for transport control
 - Video track for post-production sync
