@@ -1,0 +1,127 @@
+{
+  "EffectDescriptor": [
+    {
+      "id": "saturator",
+      "name": "Saturator",
+      "category": "Distortion",
+      "channelMode": "mono",
+      "view": "generic",
+      "parameters": [
+        {
+          "id": "drive",
+          "label": "Drive",
+          "unit": "dB",
+          "type": "number",
+          "min": 0,
+          "max": 24,
+          "default": 6,
+          "scale": "dB",
+          "step": 0.1
+        },
+        {
+          "id": "frequency",
+          "label": "Tone",
+          "unit": "Hz",
+          "type": "number",
+          "min": 20,
+          "max": 20000,
+          "default": 1000,
+          "scale": "log",
+          "step": 1
+        },
+        {
+          "id": "oversample",
+          "label": "Oversample",
+          "unit": "",
+          "type": "boolean",
+          "min": 0,
+          "max": 1,
+          "default": 1,
+          "scale": "lin",
+          "step": 1
+        },
+        {
+          "id": "curve",
+          "label": "Curve",
+          "unit": "",
+          "type": "enum",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "scale": "lin",
+          "step": 1,
+          "defaultString": "soft",
+          "options": [
+            {
+              "value": "soft",
+              "label": "Soft"
+            },
+            {
+              "value": "hard",
+              "label": "Hard"
+            }
+          ]
+        }
+      ],
+      "presets": [
+        {
+          "id": "warm",
+          "name": "Warm",
+          "num": {
+            "drive": 9
+          },
+          "str": {
+            "curve": "soft"
+          }
+        }
+      ]
+    },
+    {
+      "id": "invert",
+      "name": "Invert",
+      "category": "Utility",
+      "channelMode": "stereo",
+      "view": "generic",
+      "parameters": [],
+      "presets": []
+    }
+  ],
+  "EffectIRResult": [
+    {
+      "irId": 1,
+      "name": "hall.wav",
+      "sampleRate": 48000,
+      "channels": 2,
+      "frames": 96000
+    }
+  ],
+  "EffectMetersResult": [
+    {
+      "documentId": "doc-1",
+      "previewId": "preview-1",
+      "frames": 4800,
+      "inputPeak": [0.5, 0.25],
+      "inputRms": [0.2, 0.1],
+      "outputPeak": [0.7, 0.35],
+      "outputRms": [0.3, 0.15]
+    }
+  ],
+  "EffectPreviewResult": [
+    {
+      "documentId": "doc-1",
+      "start": 0,
+      "end": 48000,
+      "channelMask": 3,
+      "previewId": "preview-1",
+      "wet": 0.5,
+      "bypass": false
+    }
+  ],
+  "EffectResponseResult": [
+    {
+      "axis": "frequency",
+      "count": 256,
+      "dataBytes": 4096
+    }
+  ]
+}
