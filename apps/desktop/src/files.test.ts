@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rename,
   rm,
   symlink,
@@ -81,7 +82,8 @@ const selectDirectory = async (folder = directory) => {
 const bytes = () => new Uint8Array([9, 8, 7]).buffer;
 
 beforeEach(async () => {
-  directory = await mkdtemp(path.join(os.tmpdir(), "aae-files-unit-"));
+  // The capabilities canonicalize paths; macOS tmpdir is a /var -> /private/var symlink.
+  directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "aae-files-unit-")));
   electron.handlers.clear();
   electron.windows.clear();
   electron.showOpenDialog.mockReset();

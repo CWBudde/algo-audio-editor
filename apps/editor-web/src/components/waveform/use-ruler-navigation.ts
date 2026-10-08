@@ -54,6 +54,7 @@ export function useRulerNavigation(options: RulerNavigationOptions) {
     element.addEventListener("wheel", wheel, { passive: false });
     return () => element.removeEventListener("wheel", wheel);
   }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A replaced session or disabled ruler abandons the active drag and its pending frame.
   useLayoutEffect(() => {
     drag.current = undefined;
     setDragging(false);

@@ -528,7 +528,9 @@ describe("WaveformView", () => {
     fireEvent.change(s.getByLabelText("Vertical zoom"), { target: { value: "4" } });
     await painted(s.getByTestId);
     expect(view.dataset.verticalZoom).toBe("4");
-    expect(s.getAllByText("4× vertical")).toHaveLength(2);
+    expect(
+      s.getAllByTitle("Display-only vertical magnification").map((badge) => badge.textContent),
+    ).toEqual(["4×", "4×"]);
     expect(canvas.dataset.verticalZoom).toBe("4");
     expect(second.dataset.verticalZoom).toBe("4");
     expect(overview.dataset.verticalZoom).toBe("1");
@@ -812,10 +814,15 @@ describe("WaveformView", () => {
     expect(drawing?.arc).toHaveBeenCalledTimes(4);
     expect(drawing?.strokeStyle).toBe(testPalette.waveformPeak);
     expect(drawing?.fillStyle).toBe(testPalette.waveformSample);
-    // Amplitude guides precede the exact kernel-sample geometry.
+    // Amplitude and time guides precede the exact kernel-sample geometry.
     expect(drawing?.lineTo.mock.calls).toEqual([
       [744, 40],
       [744, 120],
+      [0.5, 160],
+      [186.5, 160],
+      [372.5, 160],
+      [558.5, 160],
+      [744.5, 160],
       [744, 80],
       [186, 40],
       [372, 140],
@@ -834,6 +841,11 @@ describe("WaveformView", () => {
     expect(drawing?.lineTo.mock.calls).toEqual([
       [744, 40],
       [744, 120],
+      [0.5, 160],
+      [186.5, 160],
+      [372.5, 160],
+      [558.5, 160],
+      [744.5, 160],
       [744, 80],
       [186, 140],
       [186, 40],

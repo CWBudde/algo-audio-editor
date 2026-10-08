@@ -325,6 +325,7 @@ function WaveformContent({
   const interactionDisabled =
     disabled || Boolean(timelineOptions?.busy) || !client || editor.adding || info.frames === 0;
   const manualRulerNavigation = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A new client/document or transport/follow change resumes following after manual ruler navigation.
   useLayoutEffect(() => {
     manualRulerNavigation.current = false;
   }, [client, info.documentId, playing, follow]);
