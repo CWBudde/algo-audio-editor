@@ -25,10 +25,10 @@ export async function launchEditor(options: Parameters<typeof electron.launch>[0
 }
 
 export async function closeEditor(app: ElectronApplication) {
-  await app
-    .evaluate(({ BrowserWindow }) => {
-      for (const win of BrowserWindow.getAllWindows()) win.destroy();
-    })
-    .catch(() => {});
+  // Exit without tearing windows down. Destroying several windows in one tick
+  // crashes Electron on macOS: the deferred NSWindow close makes the next,
+  // already destroyed window key and its observer touches freed memory. Exiting
+  // also skips the unsaved-work guard, which tests must not wait on.
+  await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
   await app.close().catch(() => {});
 }
