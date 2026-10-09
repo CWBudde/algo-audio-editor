@@ -8,6 +8,11 @@ export async function launchEditor(options: Parameters<typeof electron.launch>[0
   const directory = await mkdtemp(path.join(tmpdir(), "aae-desktop-"));
   const app = await electron.launch({
     ...options,
+    // Without a GPU (CI under xvfb), the first accelerated 2D canvas makes the
+    // renderer wait synchronously on a cold software-GL GPU process, which
+    // blocked the first waveform for 5-10 s on fresh runners. Rasterize canvases
+    // in software instead; the editor draws only 2D canvases.
+    args: [...(options?.args ?? []), "--disable-gpu"],
     env: { ...process.env, ...options?.env, AAE_USER_DATA: directory },
   });
   app.on("close", () => {
