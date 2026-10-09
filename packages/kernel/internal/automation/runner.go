@@ -11,6 +11,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/engine"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/speech"
 )
 
 // MaxChainOperations limits operations in one automation chain.
@@ -31,6 +32,12 @@ type Operation struct {
 type Chain struct {
 	Version    int         `json:"version"`
 	Operations []Operation `json:"operations"`
+}
+
+// Speaker synthesizes speech.generate steps into mono PCM at
+// speech.SampleRate. A nil Speaker rejects them.
+type Speaker interface {
+	Synthesize(ctx context.Context, p protocol.SpeechGenerateParams) ([]float32, error)
 }
 
 // Call retains the binary boundary: data is never embedded in a JSON result.
@@ -115,8 +122,10 @@ func ValidateOperation(op Operation) error {
 		target = new(protocol.ProcessStartParams)
 	case protocol.MethodEffectsApply:
 		target = new(protocol.EffectsPreviewParams)
+	case protocol.ChainSpeechGenerate:
+		target = new(protocol.SpeechGenerateParams)
 	default:
-		return fmt.Errorf("operation: unsupported method %q; use edit.apply, process.start or effects.apply", op.Method)
+		return fmt.Errorf("operation: unsupported method %q; use edit.apply, process.start, effects.apply or speech.generate", op.Method)
 	}
 	payload, err := json.Marshal(op.Params)
 	if err != nil {
@@ -127,6 +136,14 @@ func ValidateOperation(op Operation) error {
 	}
 	if p, ok := target.(*protocol.ProcessStartParams); ok && p.Operation == protocol.OperationExtractChannel {
 		return fmt.Errorf("operation: extract-channel creates a second document and is not supported in chains")
+	}
+	if p, ok := target.(*protocol.ProcessStartParams); ok && p.Generator == protocol.GeneratorAudio {
+		return fmt.Errorf("operation: the audio generator needs samples; record speech as speech.generate")
+	}
+	if p, ok := target.(*protocol.SpeechGenerateParams); ok {
+		if err := speech.Validate(*p); err != nil {
+			return fmt.Errorf("operation: %w", err)
+		}
 	}
 	return nil
 }
@@ -141,7 +158,10 @@ type OperationResult struct {
 // Apply steps private kernel jobs to completion and uses the kernel's commit
 // and history. Cancellation always discards an unfinished candidate. Dry-run
 // evaluates a processing/effect candidate but cancels it instead of committing.
-func Apply(ctx context.Context, e *engine.Engine, documentID string, op Operation, dryRun bool) (OperationResult, error) {
+//
+// A speech.generate step is synthesized by speaker first and placed with the
+// audio generator.
+func Apply(ctx context.Context, e *engine.Engine, documentID string, op Operation, dryRun bool, speaker Speaker) (OperationResult, error) {
 	result := OperationResult{DryRun: dryRun}
 	if err := ValidateOperation(op); err != nil {
 		return result, err
@@ -196,8 +216,16 @@ func Apply(ctx context.Context, e *engine.Engine, documentID string, op Operatio
 		_, err := Call(e, op.Method, params, nil, result.Edit)
 		return result, err
 	}
+	method, call, input := op.Method, any(params), []byte(nil)
+	if op.Method == protocol.ChainSpeechGenerate {
+		start, pcm, err := synthesize(ctx, params, speaker)
+		if err != nil {
+			return result, err
+		}
+		method, call, input = protocol.MethodProcessStart, start, pcm
+	}
 	var job protocol.ProcessJobResult
-	if _, err := Call(e, op.Method, params, nil, &job); err != nil {
+	if _, err := Call(e, method, call, input, &job); err != nil {
 		return result, err
 	}
 	jobParams := protocol.ProcessJobParams{DocumentID: documentID, JobID: job.JobID}
@@ -226,6 +254,30 @@ func Apply(ctx context.Context, e *engine.Engine, documentID string, op Operatio
 	return result, nil
 }
 
+// synthesize speaks a speech.generate step and returns the process.start
+// call that places it.
+func synthesize(ctx context.Context, params map[string]any, speaker Speaker) (protocol.ProcessStartParams, []byte, error) {
+	if speaker == nil {
+		return protocol.ProcessStartParams{}, nil, speech.ErrNoModelRoot
+	}
+	payload, err := json.Marshal(params)
+	if err != nil {
+		return protocol.ProcessStartParams{}, nil, fmt.Errorf("operation: encode: %w", err)
+	}
+	var p protocol.SpeechGenerateParams
+	if err := DecodeStrict(payload, &p); err != nil {
+		return protocol.ProcessStartParams{}, nil, fmt.Errorf("operation: %s: %w", protocol.ChainSpeechGenerate, err)
+	}
+	pcm, err := speaker.Synthesize(ctx, p)
+	if err != nil {
+		return protocol.ProcessStartParams{}, nil, fmt.Errorf("operation: %w", err)
+	}
+	return protocol.ProcessStartParams{
+		SelectionResult: p.SelectionResult, Operation: protocol.OperationGenerate,
+		Generator: protocol.GeneratorAudio, SourceSampleRate: speech.SampleRate, LevelDB: p.LevelDB,
+	}, speech.EncodePCM(pcm), nil
+}
+
 // ChainResult records the completed chain and its document state.
 type ChainResult struct {
 	Applied int               `json:"applied"`
@@ -235,7 +287,7 @@ type ChainResult struct {
 
 // ApplyChain commits in order, one undo entry per change. Failures report the
 // completed prefix; they never imply an all-or-nothing transaction.
-func ApplyChain(ctx context.Context, e *engine.Engine, documentID string, chain Chain) (ChainResult, error) {
+func ApplyChain(ctx context.Context, e *engine.Engine, documentID string, chain Chain, speaker Speaker) (ChainResult, error) {
 	result := ChainResult{Results: []OperationResult{}}
 	data, err := json.Marshal(chain)
 	if err != nil {
@@ -245,7 +297,7 @@ func ApplyChain(ctx context.Context, e *engine.Engine, documentID string, chain 
 		return result, err
 	}
 	for i, op := range chain.Operations {
-		item, err := Apply(ctx, e, documentID, op, false)
+		item, err := Apply(ctx, e, documentID, op, false, speaker)
 		if err != nil {
 			result.Error = fmt.Sprintf("chain: operation %d failed after %d completed operations: %v; inspect history and undo the completed changes if needed", i, result.Applied, err)
 			return result, fmt.Errorf("chain: operation %d failed after %d completed operations: %w; inspect history and undo the completed changes if needed", i, result.Applied, err)

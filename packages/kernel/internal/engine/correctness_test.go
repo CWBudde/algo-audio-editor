@@ -88,7 +88,7 @@ func TestSurroundNormalizeStatisticsExportAndMeters(t *testing.T) {
 func TestLFEOnlyNormalizationRejectsWithoutPublication(t *testing.T) {
 	e, _ := openEditorFixture(t, make([]float32, 48000*6), 6)
 	before := e.editResult(false)
-	if _, err := e.startProcess(normalizationParams(e, 0, 48000, 1<<3, "normalize-loudness", -23)); err == nil {
+	if _, err := e.startProcess(normalizationParams(e, 0, 48000, 1<<3, "normalize-loudness", -23), nil); err == nil {
 		t.Fatal("LFE has no programme loudness")
 	}
 	if e.jobs.processJob != nil || !reflect.DeepEqual(before, e.editResult(false)) {

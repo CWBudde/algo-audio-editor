@@ -281,6 +281,74 @@
     }
   },
   {
+    "name": "generate_speech",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "session document id returned by open_document",
+          "type": "string"
+        },
+        "dryRun": {
+          "description": "synthesize and evaluate the candidate without committing",
+          "type": "boolean"
+        },
+        "eosThreshold": {
+          "description": "end-of-speech logit threshold; default -4",
+          "type": ["null", "number"]
+        },
+        "levelDb": {
+          "description": "gain in [-120, 0] dB",
+          "type": "number"
+        },
+        "model": {
+          "description": "catalog model, e.g. english_2026-01 or german; see list_speech_models",
+          "type": "string"
+        },
+        "range": {
+          "additionalProperties": false,
+          "description": "optional range in sample frames; omit to use the current selection",
+          "properties": {
+            "channelMask": {
+              "type": "integer"
+            },
+            "end": {
+              "type": "integer"
+            },
+            "start": {
+              "type": "integer"
+            }
+          },
+          "required": ["start", "end", "channelMask"],
+          "type": ["null", "object"]
+        },
+        "samplerSteps": {
+          "description": "flow decode steps per frame in [1, 64]; default 1",
+          "type": ["null", "integer"]
+        },
+        "seed": {
+          "description": "reproduces the speech on this build and platform",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "temperature": {
+          "description": "sampling temperature in [0, 2]; default: the model's",
+          "type": ["null", "number"]
+        },
+        "text": {
+          "description": "text to speak, at most 5000 characters; long text is synthesized sentence by sentence",
+          "type": "string"
+        },
+        "voice": {
+          "description": "predefined voice of the model; default: its default voice",
+          "type": "string"
+        }
+      },
+      "required": ["documentId", "model", "text"],
+      "type": "object"
+    }
+  },
+  {
     "name": "get_statistics",
     "inputSchema": {
       "additionalProperties": false,
@@ -353,6 +421,13 @@
   },
   {
     "name": "list_operations",
+    "inputSchema": {
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_speech_models",
     "inputSchema": {
       "additionalProperties": false,
       "type": "object"

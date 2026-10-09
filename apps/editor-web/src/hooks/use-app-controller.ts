@@ -27,6 +27,7 @@ import { useKernel } from "@/hooks/use-kernel";
 import { useMetadata } from "@/hooks/use-metadata";
 import { useProcess } from "@/hooks/use-process";
 import { useSelection } from "@/hooks/use-selection";
+import { useSpeech } from "@/hooks/use-speech";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import { DEFAULT_SPECTRAL_SETTINGS, type SpectralSettings } from "@/lib/analysis-settings";
 import {
@@ -274,7 +275,7 @@ export function useAppController() {
     onError: (action, error) => reportError(action)(error),
     refreshDocument: doc.refreshInfo,
   });
-  const processing = useProcess({
+  const processOptions = {
     onRecorded: automation.record,
     client,
     info: doc.info,
@@ -326,7 +327,11 @@ export function useAppController() {
     onEdited,
     onError: (action, error) => reportError(action)(error),
     refreshDocument: doc.refreshInfo,
-  });
+  } satisfies Parameters<typeof useProcess>[0];
+  const processing = useProcess(processOptions);
+  // Generate speech… is a second process session: the same lock, preview and
+  // commit path, with the audio generator's PCM from the speech worker.
+  const speech = useSpeech(processOptions);
   useEffect(() => {
     document.title = doc.info
       ? `${history.history?.dirty ? "* " : ""}${doc.info.name} — algo-audio-editor`
@@ -466,6 +471,7 @@ export function useAppController() {
           automation.open ||
           batch.open ||
           processing.view ||
+          speech.view ||
           effects.view ||
           exporting.view ||
           informationOpen ||
@@ -618,6 +624,10 @@ export function useAppController() {
           },
         ]),
       ),
+      "process.generate-speech": () => {
+        const range = selection;
+        if (range) speech.open(range);
+      },
       "help.about": () => setInformationOpen(true),
     },
   });
@@ -650,6 +660,7 @@ export function useAppController() {
         automation.open ||
           batch.open ||
           processing.view ||
+          speech.view ||
           effects.view ||
           exporting.view ||
           analysis.view ||
@@ -663,6 +674,7 @@ export function useAppController() {
       !automation.open &&
       !batch.open &&
       !processing.view &&
+      !speech.view &&
       !effects.view &&
       !exporting.view &&
       !analysis.view &&
@@ -731,6 +743,7 @@ export function useAppController() {
     playing,
     position,
     processing,
+    speech,
     readPosition,
     runEdit,
     seek,

@@ -49,6 +49,12 @@ func fixtureWAV() []byte {
 
 func client(t *testing.T, roots []string) (*mcp.ClientSession, context.Context) {
 	t.Helper()
+	return speechClient(t, roots, "")
+}
+
+// speechClient connects to a server whose speech models live in speechRoot.
+func speechClient(t *testing.T, roots []string, speechRoot string) (*mcp.ClientSession, context.Context) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 	policy, err := automation.NewFilePolicy(roots)
@@ -57,7 +63,7 @@ func client(t *testing.T, roots []string) (*mcp.ClientSession, context.Context) 
 	}
 	t.Cleanup(policy.Close)
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	server, err := New(policy).Connect(ctx, serverTransport, nil)
+	server, err := New(policy, speechRoot).Connect(ctx, serverTransport, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +285,7 @@ func TestGoldenToolDiscoveryAndProtocolSchemas(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"apply_chain", "apply_effect", "apply_operation", "close_document", "detect_clipping", "document_info", "export_document", "get_statistics", "history", "list_documents", "list_effects", "list_operations", "open_document", "redo", "save_document", "select_range", "select_seconds", "undo"}
+	want := []string{"apply_chain", "apply_effect", "apply_operation", "close_document", "detect_clipping", "document_info", "export_document", "generate_speech", "get_statistics", "history", "list_documents", "list_effects", "list_operations", "list_speech_models", "open_document", "redo", "save_document", "select_range", "select_seconds", "undo"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatal("tool surface changed; update the reference deliberately", names)
 	}
@@ -330,6 +336,14 @@ func TestGoldenToolDiscoveryAndProtocolSchemas(t *testing.T) {
 		props := schema.(map[string]any)["properties"].(map[string]any)
 		if _, ok := props["documentId"]; ok {
 			t.Fatal("adapter identity leaked into payload schema")
+		}
+		// speech.generate is a chain method: the runner synthesizes, then
+		// places the speech with process.start.
+		if method == protocol.ChainSpeechGenerate {
+			if err := automation.ValidateOperation(automation.Operation{Method: method, Params: map[string]any{"model": "german", "voice": "juergen", "text": "Hallo.", "temperature": 0.3, "samplerSteps": 1, "eosThreshold": -4, "seed": 1}}); err != nil {
+				t.Fatal("advertised speech.generate is rejected by chains", err)
+			}
+			continue
 		}
 		// The real engine must recognize each advertised dispatch method.
 		var envelope protocol.Response
@@ -410,7 +424,7 @@ func TestStdioProcess(t *testing.T) {
 		if err != nil {
 			os.Exit(2)
 		}
-		if err := New(policy).Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		if err := New(policy, "").Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(3)
 		}

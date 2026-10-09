@@ -67,9 +67,11 @@ try a regular current-browser window, or use the desktop app.
 The worker keeps **no CacheStorage or offline application cache**. Controlled
 HTML navigations fetch with `cache: no-store` and return `Cache-Control: no-store`.
 Its initial script reference carries a content-hash query. Vite bundles JS/CSS
-with hashes and copies the kernel and matching Go runtime to independent
-SHA-256 filenames. Unversioned `kernel.wasm`/`wasm_exec.js` are removed from the
-published build. Updated header-only workers can activate without reloading an
+with hashes and copies the kernel, the speech worker's `speech.wasm` and the
+matching Go runtime to independent SHA-256 filenames. Unversioned
+`kernel.wasm`/`speech.wasm`/`wasm_exec.js` are removed from the published build.
+The speech program loads only when **Generate speech…** is used; its model files
+come from pinned Hugging Face URLs and are verified by SHA-256 in the browser. Updated header-only workers can activate without reloading an
 editing session; existing tabs keep their instantiated kernel. Reloading starts
 a fresh session and can lose unsaved work.
 
@@ -91,14 +93,16 @@ Every `just build` runs the pinned Binaryen 132.0.0 `wasm-opt -Oz` after Go's
 features remain enabled; IEEE/trapping semantics are preserved. The optimizer is
 installed by `bun install`, including on Windows and CI.
 
-The checker measures gzip level 9 and fails closed if the content-hashed kernel
-or module entry is missing. Browser CI explicitly repeats this gate after e2e.
+The checker measures gzip level 9 and fails closed if the content-hashed kernel,
+the content-hashed speech program or the module entry is missing. Browser CI explicitly repeats this gate after e2e.
 It includes **all** JS files, including lazy dialogs, worker and Go runtime:
 
 | Artifact | Limit |
 | --- | --- |
 | WASM, raw | 12 MiB |
 | WASM, gzip | 3 MiB |
+| Speech WASM, raw | 8 MiB |
+| Speech WASM, gzip | 2.5 MiB |
 | Any JS chunk, raw | 500 KiB |
 | Entry JS chunk, gzip | 160 KiB |
 | All JS artifacts combined, gzip | 384 KiB |

@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef } from "react";
 import type { useAutomation } from "@/hooks/use-automation";
+import { describeOperation } from "@/lib/operation-chain";
 
 export function AutomationDialog({
   automation,
@@ -70,7 +71,7 @@ export function AutomationDialog({
             key={`${index}-${operation.method}`}
             className="my-1 break-words py-1 leading-relaxed marker:text-muted-foreground"
           >
-            {operation.method === "effects.apply" ? "Effects" : operation.params.operation} ·{" "}
+            {describeOperation(operation)} ·{" "}
             {operation.range === "document" ? "Whole document" : "Selection / sample coordinates"}
           </li>
         ))}

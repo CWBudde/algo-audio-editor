@@ -161,3 +161,92 @@ it("rejects invalid later envelopes before executing the prefix", async () => {
   ).rejects.toThrow("edit.apply");
   expect(call).not.toHaveBeenCalled();
 });
+it("synthesizes a speech.generate step and places it with the audio generator", async () => {
+  const placed = edit({ ...info, documentId: "doc-2", frames: 148 });
+  const call = vi.fn(async (method: string) => {
+    if (method === "selection.get") return { start: 20, end: 20, channelMask: 3 };
+    if (method === "process.commit") return placed;
+    if (method === "process.cancel") return {};
+    throw new Error(method);
+  });
+  const startAudioProcess = vi.fn(async () => job);
+  const runProcess = vi.fn(async () => ({ ...job, state: "ready" }));
+  const pcm = new Float32Array([0.5, -0.5]).buffer;
+  const synthesize = vi.fn(async () => ({ pcm, sampleRate: 24000 }));
+  const onEdited = vi.fn();
+  const speech = {
+    model: "english_2026-01",
+    voice: "alba",
+    text: "Hello.",
+    temperature: 0.3,
+    samplerSteps: 1,
+    eosThreshold: -4,
+    seed: 9,
+  };
+  expect(
+    await runOperationChain(
+      { call, runProcess, startAudioProcess } as unknown as KernelClient,
+      info,
+      {
+        version: 1,
+        operations: [{ method: "speech.generate", params: { ...speech, levelDb: -6 } }],
+      },
+      { onEdited, synthesize },
+    ),
+  ).toBe(1);
+  // Synthesis sees only the speech fields; the level is the kernel's.
+  expect(synthesize).toHaveBeenCalledWith(speech, undefined);
+  expect(startAudioProcess).toHaveBeenCalledWith(
+    {
+      documentId: "doc-1",
+      start: 20,
+      end: 20,
+      channelMask: 3,
+      operation: "generate",
+      generator: "audio",
+      sourceSampleRate: 24000,
+      levelDb: -6,
+    },
+    pcm,
+  );
+  expect(call).toHaveBeenCalledWith("process.commit", { documentId: "doc-1", jobId: "job-1" });
+  expect(onEdited).toHaveBeenCalledWith(placed, "doc-1");
+});
+it("stops a speech step on cancellation before any kernel job exists", async () => {
+  const abort = new AbortController();
+  const call = vi.fn(async (method: string) => {
+    if (method === "selection.get") return { start: 0, end: 0, channelMask: 3 };
+    throw new Error(method);
+  });
+  const startAudioProcess = vi.fn();
+  const synthesize = vi.fn(async () => {
+    abort.abort();
+    throw new DOMException("Speech generation cancelled", "AbortError");
+  });
+  await expect(
+    runOperationChain(
+      { call, startAudioProcess } as unknown as KernelClient,
+      info,
+      {
+        version: 1,
+        operations: [
+          {
+            method: "speech.generate",
+            params: {
+              model: "english_2026-01",
+              voice: "alba",
+              text: "Hi.",
+              temperature: 0.3,
+              samplerSteps: 1,
+              eosThreshold: -4,
+              seed: 1,
+            },
+          },
+        ],
+      },
+      { onEdited: vi.fn(), synthesize, signal: abort.signal },
+    ),
+  ).rejects.toThrow(/Macro stopped after 0 of 1 operations: .*Speech generation cancelled/);
+  expect(synthesize).toHaveBeenCalledWith(expect.anything(), abort.signal);
+  expect(startAudioProcess).not.toHaveBeenCalled();
+});

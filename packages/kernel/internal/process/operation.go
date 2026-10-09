@@ -29,6 +29,10 @@ type Settings struct {
 	Frequency, EndFrequency, LevelDB float64
 	Seed                             uint64
 	Restoration                      RestorationSettings
+	// Audio holds the mono samples of the "audio" generator at AudioRate;
+	// the operation keeps them for its lifetime, so callers pass a copy.
+	Audio     []float32
+	AudioRate int
 }
 
 // NewOperation prepares a private result without reading or rendering a full
@@ -61,6 +65,7 @@ type blockOperation struct {
 	blocks                      [][]*audiobuf.Block
 	means                       []signal.MeanAccumulator
 	generators                  []*signal.StreamGenerator
+	audio                       []float32
 	mono, second                []float32
 	dsp, other, rising          []float64
 	progress                    Progress
@@ -164,7 +169,13 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 		b.outputSelection = ops.Range{End: b.outputFrames, ChannelMask: 1}
 	case protocol.OperationGenerate:
 		b.renderFrames = selected.End - selected.Start
-		if b.renderFrames == 0 {
+		if settings.Generator == protocol.GeneratorAudio {
+			audio, err := prepareAudio(settings, document.SampleRate(), limits)
+			if err != nil {
+				return nil, err
+			}
+			b.audio, b.renderFrames = audio, max(int64(len(audio)), b.partialRegion(document))
+		} else if b.renderFrames == 0 {
 			b.renderFrames = settings.DurationFrames
 		}
 		if b.renderFrames < 1 || b.renderFrames > (1<<53-1)-document.Frames()+(selected.End-selected.Start) {
@@ -213,7 +224,9 @@ func newBlockOperation(document audiobuf.Document, selected ops.Range, settings 
 	if settings.Operation == protocol.OperationRemoveDC {
 		b.means = make([]signal.MeanAccumulator, len(b.channels))
 	}
-	if settings.Operation == protocol.OperationGenerate {
+	if settings.Operation == protocol.OperationGenerate && b.audio != nil {
+		b.sharedGenerator = true
+	} else if settings.Operation == protocol.OperationGenerate {
 		b.sharedGenerator = settings.Generator == "silence" || settings.Generator == "sine" || settings.Generator == "linear-sweep" || settings.Generator == "log-sweep"
 		for _, channel := range b.indices {
 			generator, err := signal.NewStreamGenerator(signal.StreamConfig{Kind: signal.StreamKind(settings.Generator), SampleRate: float64(document.SampleRate()), Amplitude: core.DBToLinear(settings.LevelDB), StartHz: settings.Frequency, EndHz: settings.EndFrequency, Frames: b.renderFrames, Seed: settings.Seed + uint64(channel)*0x9e3779b97f4a7c15}) // #nosec G115 -- channel is an index into validated document channels; unsigned seed multiplication deliberately wraps.
@@ -246,7 +259,7 @@ func (b *blockOperation) MaterializedBytes() int64 {
 	if b.shared || b.identity {
 		return 0
 	}
-	return b.renderFrames * 4 * int64(len(b.blocks))
+	return (b.renderFrames*int64(len(b.blocks)) + int64(len(b.audio))) * 4
 }
 func (b *blockOperation) Peak() (float64, bool) { return b.peak, b.nonfinite }
 
@@ -377,6 +390,9 @@ func (b *blockOperation) render(i, count int) error {
 	case protocol.OperationInvert:
 		return signal.ScaleInto32(b.mono[:count], b.mono[:count], -1)
 	case protocol.OperationGenerate:
+		if b.audio != nil {
+			return b.renderAudio(count)
+		}
 		return b.generators[i].GenerateInto32(b.mono[:count])
 	case protocol.OperationStereoToMono:
 		if b.settings.ChannelMode == "mix" {
@@ -511,8 +527,10 @@ func (b *blockOperation) assemble() (audiobuf.Document, error) {
 		channel, _ := b.source.Channel(i)
 		channels[i] = channel
 		if b.selected.ChannelMask&(1<<i) == 0 {
-			if op == protocol.OperationGenerate && b.selected.Start == b.selected.End {
-				left, err := channel.Slice(0, b.selected.Start)
+			if grown := b.renderFrames - (b.selected.End - b.selected.Start); op == protocol.OperationGenerate && grown > 0 {
+				// An insert or a longer audio region: the channel keeps its
+				// audio and is padded with silence to stay in sync.
+				left, err := channel.Slice(0, b.selected.End)
 				if err != nil {
 					return audiobuf.Document{}, err
 				}
@@ -520,7 +538,7 @@ func (b *blockOperation) assemble() (audiobuf.Document, error) {
 				if err != nil {
 					return audiobuf.Document{}, err
 				}
-				silence, err := audiobuf.NewSilence(b.renderFrames)
+				silence, err := audiobuf.NewSilence(grown)
 				if err != nil {
 					return audiobuf.Document{}, err
 				}
@@ -542,7 +560,7 @@ func (b *blockOperation) assemble() (audiobuf.Document, error) {
 	if op == protocol.OperationTimeStretch {
 		stretchTimeline(&metadata.Timeline, b.selected, b.renderFrames)
 	}
-	if (op == protocol.OperationCrossfade || op == protocol.OperationGenerate) && b.selected.ChannelMask == (1<<b.source.Channels())-1 || op == protocol.OperationGenerate && b.selected.Start == b.selected.End {
+	if (op == protocol.OperationCrossfade || op == protocol.OperationGenerate) && b.selected.ChannelMask == (1<<b.source.Channels())-1 || op == protocol.OperationGenerate && b.renderFrames != b.selected.End-b.selected.Start {
 		var err error
 		metadata.Timeline, err = metadata.Timeline.Splice(b.source.Frames(), b.selected.Start, b.selected.End, b.renderFrames)
 		if err != nil {
@@ -594,7 +612,7 @@ func (b *blockOperation) MemoryDocument() (audiobuf.Document, error) {
 
 func (b *blockOperation) release() {
 	b.source = audiobuf.Document{}
-	b.channels, b.indices, b.blocks, b.means, b.generators = nil, nil, nil, nil, nil
+	b.channels, b.indices, b.blocks, b.means, b.generators, b.audio = nil, nil, nil, nil, nil, nil
 	b.mono, b.second, b.dsp, b.other, b.rising = nil, nil, nil, nil, nil
 }
 

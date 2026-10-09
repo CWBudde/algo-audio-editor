@@ -40,7 +40,7 @@ check-hooks:
 
 # ── Kernel (Go → WASM) ───────────────────────────────────────────────────────
 
-# Build kernel.wasm and copy the matching wasm_exec.js into the web app
+# Build kernel.wasm and speech.wasm and copy the matching wasm_exec.js into the web app
 wasm-build:
     bun scripts/build-wasm.mjs
 
@@ -324,5 +324,5 @@ ci: check-hooks check-formatted check-licenses lint test-go-race check-coverage 
 
 clean:
     rm -rf {{kernel}}/bin
-    rm -rf {{web}}/dist {{web}}/dist-pages {{desktop}}/dist {{web}}/public/kernel.wasm {{web}}/public/wasm_exec.js
+    rm -rf {{web}}/dist {{web}}/dist-pages {{desktop}}/dist {{web}}/public/kernel.wasm {{web}}/public/speech.wasm {{web}}/public/speech-catalog.json {{web}}/public/wasm_exec.js
     rm -f {{kernel}}/coverage.out

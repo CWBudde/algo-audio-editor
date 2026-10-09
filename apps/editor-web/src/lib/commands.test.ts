@@ -151,6 +151,15 @@ describe("central command registry", () => {
       }),
     ).toBe(true);
     expect(enabled("process.generate", { info: undefined })).toBe(false);
+    // Speech is placed like generated audio, so it is available on the same terms.
+    expect(
+      enabled("process.generate-speech", {
+        info: { ...info, frames: 0 },
+        selection: { start: 0, end: 0, channelMask: 3 },
+      }),
+    ).toBe(true);
+    expect(enabled("process.generate-speech", { info: undefined })).toBe(false);
+    expect(enabled("process.generate-speech", { modalOpen: true })).toBe(false);
     for (const id of [
       "process.reverse",
       "process.invert",

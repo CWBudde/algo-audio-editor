@@ -811,3 +811,56 @@ it("refreshes document info when a successful commit outlives its session identi
   expect(s.options.onRecorded).not.toHaveBeenCalled();
   expect(s.held()).toBe(false);
 });
+
+it("builds a candidate from a supplied source, reuses it for Apply and records the source's request", async () => {
+  const s = setup("generate");
+  const recorded = {
+    method: "process.start" as const,
+    params: { documentId: info.documentId, ...range, operation: "reverse" as const },
+  };
+  const start = vi.fn(async () => ({ ...initialJob, operation: "generate" as const }));
+  const source = { key: "speech-a", start, recorded };
+  await act(async () => s.result.current.runSource("prepare", source));
+  expect(start).toHaveBeenCalledWith(s.options.client, info, range, expect.any(AbortSignal));
+  expect(s.result.current.view).toMatchObject({ phase: "ready", preparedKey: "speech-a" });
+  expect(s.options.playPreview).not.toHaveBeenCalled();
+  expect(s.call).not.toHaveBeenCalledWith("process.commit", expect.anything());
+  await act(async () => s.result.current.runSource("apply", source));
+  expect(start).toHaveBeenCalledTimes(1);
+  expect(s.call).toHaveBeenCalledWith("process.commit", {
+    documentId: info.documentId,
+    jobId: initialJob.jobId,
+  });
+  expect(s.options.onRecorded).toHaveBeenCalledWith(recorded, info);
+});
+
+it("Cancel aborts a source that has not produced a job and does not report the abort", async () => {
+  const s = setup("generate");
+  let aborted = false;
+  const start = vi.fn(
+    (_client: unknown, _info: unknown, _selection: unknown, signal: AbortSignal) =>
+      new Promise<ProcessJobResult>((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          aborted = true;
+          reject(new DOMException("cancelled", "AbortError"));
+        });
+      }),
+  );
+  act(() => {
+    void s.result.current.runSource("prepare", {
+      key: "speech-b",
+      start,
+      recorded: {
+        method: "process.start",
+        params: { documentId: "x", ...range, operation: "reverse" },
+      },
+    });
+  });
+  await waitFor(() => expect(start).toHaveBeenCalled());
+  await act(async () => s.result.current.cancel());
+  expect(aborted).toBe(true);
+  expect(s.options.onError).not.toHaveBeenCalled();
+  expect(s.runProcess).not.toHaveBeenCalled();
+  expect(s.result.current.view).toBeUndefined();
+  expect(s.held()).toBe(false);
+});

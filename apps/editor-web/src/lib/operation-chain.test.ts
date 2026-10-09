@@ -1,6 +1,7 @@
 import type { DocumentInfoResult, OperationChain } from "@aae/protocol";
 import { expect, it } from "vitest";
 import {
+  describeOperation,
   MAX_CHAIN_BYTES,
   parseOperationChain,
   recordOperation,
@@ -171,4 +172,75 @@ it("exports near-limit chains as reimportable compact JSON when indentation woul
   expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(MAX_CHAIN_BYTES);
   expect(parseOperationChain(text)).toEqual(chain);
   expect(text).toBe(JSON.stringify(chain));
+});
+
+const speech = {
+  model: "english_2026-01",
+  voice: "alba",
+  text: "Hello world.",
+  temperature: 0.3,
+  samplerSteps: 1,
+  eosThreshold: -4,
+  seed: 4294967295,
+  levelDb: -3,
+};
+it("records speech.generate at the requested cursor with the seed it used", () => {
+  const recorded = recordOperation(
+    {
+      method: "speech.generate",
+      params: { documentId: info.documentId, start: 40, end: 40, channelMask: 1, ...speech },
+    },
+    info,
+  );
+  expect(recorded).toEqual({
+    method: "speech.generate",
+    params: { start: 40, end: 40, channelMask: 1, ...speech },
+  });
+  expect(describeOperation(recorded)).toBe("Speech");
+  expect(
+    parseOperationChain(JSON.stringify({ version: 1, operations: [recorded] })).operations[0],
+  ).toEqual(recorded);
+});
+it.each([
+  [{ text: "" }, /text is empty/],
+  [{ text: "   " }, /text is empty/],
+  [{ text: "?!" }, /text is empty/],
+  [{ text: "𝔸".repeat(5001) }, /exceeds 5000/],
+  [{ temperature: 3 }, /temperature/],
+  [{ samplerSteps: 0 }, /sampler steps/],
+  [{ samplerSteps: 1.5 }, /sampler steps/],
+  [{ seed: -1 }, /seed/],
+  [{ levelDb: 6 }, /level/],
+  [{ model: "" }, /model and a voice/],
+  [{ pitch: 2 }, /Unknown chain field: pitch/],
+  [{ sourceSampleRate: 24000 }, /Unknown chain field/],
+])("rejects speech.generate with %j", (change, error) => {
+  expect(() =>
+    parseOperationChain(
+      JSON.stringify({
+        version: 1,
+        operations: [{ method: "speech.generate", params: { ...speech, ...change } }],
+      }),
+    ),
+  ).toThrow(error);
+});
+it("accepts 5000 code points of speech text and rejects the audio generator in chains", () => {
+  expect(() =>
+    parseOperationChain(
+      JSON.stringify({
+        version: 1,
+        operations: [{ method: "speech.generate", params: { ...speech, text: "𝔸".repeat(5000) } }],
+      }),
+    ),
+  ).not.toThrow();
+  expect(() =>
+    parseOperationChain(
+      JSON.stringify({
+        version: 1,
+        operations: [
+          { method: "process.start", params: { operation: "generate", generator: "audio" } },
+        ],
+      }),
+    ),
+  ).toThrow(/record speech as speech.generate/);
 });

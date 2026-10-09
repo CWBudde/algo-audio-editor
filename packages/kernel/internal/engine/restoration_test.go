@@ -181,23 +181,23 @@ func TestRestorationFailureCancelAndABI(t *testing.T) {
 	}
 	p := restorationParams(e, "noise-reduce")
 	p.NoiseProfile = &protocol.SelectionResult{DocumentID: "stale", SelectionRange: protocol.SelectionRange{End: 2048, ChannelMask: 3}}
-	if _, err := e.startProcess(p); err == nil {
+	if _, err := e.startProcess(p, nil); err == nil {
 		t.Fatal("accepted stale profile")
 	}
 	p.NoiseProfile.DocumentID = p.DocumentID
 	p.NoiseProfile.ChannelMask = 1
-	if _, err := e.startProcess(p); err == nil {
+	if _, err := e.startProcess(p, nil); err == nil {
 		t.Fatal("uncovered channel")
 	}
 	p = restorationParams(e, "spectral-heal")
 	p.Start, p.End = 5000, 6000
 	p.SpectralMask = &protocol.SpectralMask{Start: 5000, End: 6000, HighHz: 24000}
-	if _, err := e.startProcess(p); err == nil {
+	if _, err := e.startProcess(p, nil); err == nil {
 		t.Fatal("long heal")
 	}
 	p = restorationParams(e, "time-stretch")
 	p.ChannelMask = 1
-	if _, err := e.startProcess(p); err == nil {
+	if _, err := e.startProcess(p, nil); err == nil {
 		t.Fatal("independent time stretch")
 	}
 	for _, op := range []string{"time-stretch", "remove-clicks", "remove-hum", "noise-reduce"} {
