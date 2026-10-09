@@ -199,7 +199,7 @@ func TestDocumentRangeTracksStructuralChangesAndClipboard(t *testing.T) {
 		{Method: protocol.MethodEditApply, Params: map[string]any{"operation": "paste-insert", "start": 4800, "end": 4800, "convert": true}},
 		{Method: protocol.MethodProcessStart, Range: "document", Params: map[string]any{"operation": "reverse"}},
 	}}
-	result, err := ApplyChain(context.Background(), e, info.DocumentID, chain)
+	result, err := ApplyChain(context.Background(), e, info.DocumentID, chain, nil)
 	if err != nil || result.Applied != 4 {
 		t.Fatal("chain failed", result, err)
 	}

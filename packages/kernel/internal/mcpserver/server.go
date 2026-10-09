@@ -16,6 +16,8 @@ import (
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/buildinfo"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/engine"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/speech"
+	pockettts "github.com/cwbudde/go-pocket-tts"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -36,6 +38,9 @@ type Session struct {
 	policy    *automation.FilePolicy
 	documents map[string]*document
 	sequence  uint64
+	// speechRoot holds the speech models; speaker loads them on demand.
+	speechRoot string
+	speaker    *speech.Synthesizer
 }
 
 type documentArgs struct {
@@ -73,8 +78,9 @@ type exportArgs struct {
 
 // New uses the official MCP SDK for negotiation, schema validation, stdio and
 // cancellation. No HTTP listener or live-editor session is exposed.
-func New(policy *automation.FilePolicy) *mcp.Server {
-	s := &Session{policy: policy, documents: make(map[string]*document)}
+// speechRoot is the speech model directory; empty disables speech.
+func New(policy *automation.FilePolicy, speechRoot string) *mcp.Server {
+	s := &Session{policy: policy, documents: make(map[string]*document), speechRoot: speechRoot, speaker: speech.NewSynthesizer(speechRoot)}
 	s.server = mcp.NewServer(&mcp.Implementation{Name: "algo-audio-editor", Version: buildinfo.Version}, &mcp.ServerOptions{
 		Instructions: "Native audio editor. Open local files, inspect document_info/get_statistics and list_operations/list_effects before editing. Ranges use sample frames with exclusive end and a channel bit mask; select_seconds converts seconds to frames. Document summaries link waveform PNG and binary peak resources. Mutations use kernel undo history. Filesystem writes require --allow-write and never overwrite unless explicitly requested. Chains commit each step; failures report the completed prefix.",
 	})
@@ -284,7 +290,7 @@ func (s *Session) registerTools() {
 			if err != nil {
 				return nil, err
 			}
-			result, err := automation.Apply(ctx, d.kernel, d.info.DocumentID, input.Operation, input.DryRun)
+			result, err := automation.Apply(ctx, d.kernel, d.info.DocumentID, input.Operation, input.DryRun, s.speaker)
 			return operationResult(d, result), err
 		})
 	addTool(s, "apply_chain", "Run a version 1 JSON operation chain (at most 64 operations). Each step commits separately. Failure returns the completed prefix; use history/undo to revert it.", false,
@@ -293,7 +299,7 @@ func (s *Session) registerTools() {
 			if err != nil {
 				return nil, err
 			}
-			result, err := automation.ApplyChain(ctx, d.kernel, d.info.DocumentID, input.Chain)
+			result, err := automation.ApplyChain(ctx, d.kernel, d.info.DocumentID, input.Chain, s.speaker)
 			items := make([]any, 0, len(result.Results))
 			for _, item := range result.Results {
 				items = append(items, operationResult(d, item))
@@ -321,9 +327,10 @@ func (s *Session) registerTools() {
 			if input.Wet != nil {
 				params["wet"] = *input.Wet
 			}
-			result, err := automation.Apply(ctx, d.kernel, d.info.DocumentID, automation.Operation{Method: protocol.MethodEffectsApply, Params: params}, input.DryRun)
+			result, err := automation.Apply(ctx, d.kernel, d.info.DocumentID, automation.Operation{Method: protocol.MethodEffectsApply, Params: params}, input.DryRun, s.speaker)
 			return operationResult(d, result), err
 		})
+	s.registerSpeechTools()
 	addTool(s, "list_operations", "Discover input schemas derived from Go protocol structs. Omit documentId in params. Missing start/end/channelMask use the current selection; call select_range or supply explicit frame values.", true,
 		func(_ context.Context, _ struct{}) (any, error) { return operationSchemas() })
 	addTool(s, "list_effects", "Discover effect descriptors, parameter ranges, defaults and presets; supports offset/limit pagination.", true,
@@ -412,12 +419,24 @@ func operationSchemas() (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("effects schema: %w", err)
 	}
+	speak, err := jsonschema.For[protocol.SpeechGenerateParams](nil)
+	if err != nil {
+		return nil, fmt.Errorf("speech schema: %w", err)
+	}
+	catalog, err := pockettts.LoadCatalog()
+	if err != nil {
+		return nil, fmt.Errorf("speech schema: %w", err)
+	}
+	speak.Properties["model"].Enum = make([]any, 0, len(catalog.Models))
+	for _, m := range catalog.Models {
+		speak.Properties["model"].Enum = append(speak.Properties["model"].Enum, m.Name)
+	}
 	edit.Properties["operation"].Enum = []any{"delete", "cut", "copy", "paste-insert", "paste-replace", "paste-mix", "crop", "insert-silence", "duplicate", "swap-channels", "mute"}
 	process.Properties["operation"].Enum = []any{"gain", "normalize-peak", "normalize-loudness", "fade-in", "fade-out", "crossfade", "reverse", "invert", "remove-dc", "mono-to-stereo", "stereo-to-mono", "resample", "generate", "spectral-attenuate", "spectral-remove", "spectral-heal", "noise-reduce", "remove-clicks", "declip", "time-stretch", "remove-hum"}
 	process.Properties["curve"].Enum = []any{"linear", "equal-power", "logarithmic", "s-curve"}
 	process.Properties["quality"].Enum = []any{"fast", "balanced", "best"}
 	process.Properties["generator"].Enum = []any{"silence", "sine", "white-noise", "pink-noise", "linear-sweep", "log-sweep"}
-	items := map[string]*jsonschema.Schema{protocol.MethodEditApply: edit, protocol.MethodProcessStart: process, protocol.MethodEffectsApply: effects}
+	items := map[string]*jsonschema.Schema{protocol.MethodEditApply: edit, protocol.MethodProcessStart: process, protocol.MethodEffectsApply: effects, protocol.ChainSpeechGenerate: speak}
 	for _, schema := range items {
 		delete(schema.Properties, "documentId")
 		filtered := make([]string, 0, len(schema.Required))

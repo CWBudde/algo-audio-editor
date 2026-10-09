@@ -14,6 +14,7 @@ import (
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/engine"
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
+	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/speech"
 )
 
 // WriteDirectories is a repeatable --allow-write flag shared by both fronts.
@@ -29,7 +30,11 @@ func (d *WriteDirectories) Set(value string) error {
 
 // RunCLI processes files sequentially with isolated engines and JSON results.
 // A failed file never publishes output; successful earlier files remain on disk.
+// `aae speech …` lists and downloads speech models instead.
 func RunCLI(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if len(args) > 0 && args[0] == "speech" {
+		return runSpeechCLI(ctx, args[1:], stdout, stderr)
+	}
 	flags := flag.NewFlagSet("aae", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var inputs WriteDirectories
@@ -46,6 +51,7 @@ func RunCLI(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	overwrite := flags.Bool("overwrite", false, "explicitly replace an existing destination")
 	var roots WriteDirectories
 	flags.Var(&roots, "allow-write", "existing output directory (repeatable; writes disabled by default)")
+	speechModels := flags.String("speech-models", "", "speech model directory for speech.generate steps (fill it with `aae speech download`)")
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("aae: flags: %w", err)
 	}
@@ -97,13 +103,16 @@ func RunCLI(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		seen[canonical] = true
 	}
 	params := protocol.DocumentExportParams{Format: *format, BitDepth: *depth, Float: *float, Dither: *dither}
+	// One synthesizer for the batch loads each speech model once.
+	speaker := speech.NewSynthesizer(*speechModels)
+	defer speaker.Close()
 	failed := 0
 	encoder := json.NewEncoder(stdout)
 	for i, input := range inputs {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("aae: %w", err)
 		}
-		result, err := convertFile(ctx, policy, input, outputs[i], chain, params, *overwrite)
+		result, err := convertFile(ctx, policy, input, outputs[i], chain, params, *overwrite, speaker)
 		if err != nil {
 			if *outputDir == "" {
 				return err
@@ -124,7 +133,7 @@ func RunCLI(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	return nil
 }
 
-func convertFile(ctx context.Context, policy *FilePolicy, input, output string, chain Chain, params protocol.DocumentExportParams, overwrite bool) (map[string]any, error) {
+func convertFile(ctx context.Context, policy *FilePolicy, input, output string, chain Chain, params protocol.DocumentExportParams, overwrite bool, speaker Speaker) (map[string]any, error) {
 	data, err := ReadFile(input, MaxInputBytes)
 	if err != nil {
 		return nil, err
@@ -134,7 +143,7 @@ func convertFile(ctx context.Context, policy *FilePolicy, input, output string, 
 	if _, err := Call(e, protocol.MethodDocumentOpen, protocol.DocumentOpenParams{Name: filepath.Base(input)}, data, &info); err != nil {
 		return nil, err
 	}
-	result, err := ApplyChain(ctx, e, info.DocumentID, chain)
+	result, err := ApplyChain(ctx, e, info.DocumentID, chain, speaker)
 	if err != nil {
 		return nil, err
 	}

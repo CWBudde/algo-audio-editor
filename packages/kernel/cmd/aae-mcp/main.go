@@ -18,6 +18,7 @@ import (
 func main() {
 	var roots automation.WriteDirectories
 	flag.Var(&roots, "allow-write", "existing output directory (repeatable; writes disabled by default)")
+	speechModels := flag.String("speech-models", "", "speech model directory for generate_speech (fill it with `aae speech download`)")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "aae-mcp: unexpected arguments; run --help")
@@ -31,7 +32,7 @@ func main() {
 	defer policy.Close()
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
-	if err := mcpserver.New(policy).Run(ctx, &mcp.StdioTransport{}); err != nil && ctx.Err() == nil {
+	if err := mcpserver.New(policy, *speechModels).Run(ctx, &mcp.StdioTransport{}); err != nil && ctx.Err() == nil {
 		fmt.Fprintln(os.Stderr, "aae-mcp:", err)
 		os.Exit(1)
 	}

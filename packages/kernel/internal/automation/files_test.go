@@ -116,17 +116,17 @@ func TestCancellationDiscardsCandidateAndAllowsRetry(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	op := Operation{Method: protocol.MethodProcessStart, Params: map[string]any{"operation": "gain", "gainDb": -6}}
-	if _, err := Apply(ctx, e, info.DocumentID, op, false); err == nil {
+	if _, err := Apply(ctx, e, info.DocumentID, op, false, nil); err == nil {
 		t.Fatal("canceled operation succeeded")
 	}
 	var history protocol.HistoryListResult
 	if _, err := Call(e, protocol.MethodHistoryList, protocol.HistoryListParams{DocumentID: info.DocumentID}, nil, &history); err != nil || history.Dirty {
 		t.Fatal("cancellation changed history", history, err)
 	}
-	if _, err := Apply(context.Background(), e, info.DocumentID, op, true); err != nil {
+	if _, err := Apply(context.Background(), e, info.DocumentID, op, true, nil); err != nil {
 		t.Fatal("retry dry-run failed", err)
 	}
-	if _, err := Apply(context.Background(), e, info.DocumentID, op, false); err != nil {
+	if _, err := Apply(context.Background(), e, info.DocumentID, op, false, nil); err != nil {
 		t.Fatal("retry commit failed", err)
 	}
 }
