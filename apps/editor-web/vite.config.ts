@@ -29,6 +29,8 @@ export default defineConfig(({ command }) => {
     return `${name.slice(0, dot)}-${hash}${name.slice(dot)}`;
   };
   const wasm = hashed("kernel.wasm");
+  // Speech synthesis loads only when it is used; it has its own worker and Go program.
+  const speech = hashed("speech.wasm");
   const runtime = hashed("wasm_exec.js");
   const workerHash = createHash("sha256")
     .update(readFileSync(`${publicDir}coi-serviceworker.js`))
@@ -98,6 +100,7 @@ export default defineConfig(({ command }) => {
         closeBundle() {
           for (const [source, target] of [
             ["kernel.wasm", wasm],
+            ["speech.wasm", speech],
             ["wasm_exec.js", runtime],
           ]) {
             copyFileSync(`${publicDir}${source}`, `${distDir}${target}`);
@@ -110,6 +113,7 @@ export default defineConfig(({ command }) => {
     define: {
       "import.meta.env.VITE_KERNEL_FILE": JSON.stringify(wasm),
       "import.meta.env.VITE_GO_RUNTIME_FILE": JSON.stringify(runtime),
+      "import.meta.env.VITE_SPEECH_FILE": JSON.stringify(speech),
       "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(commit),
       "import.meta.env.VITE_BUILD_CHANNEL": JSON.stringify(
         process.env.VITE_BUILD_CHANNEL ?? "development",

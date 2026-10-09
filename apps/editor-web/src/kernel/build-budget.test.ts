@@ -18,6 +18,7 @@ function artifact() {
   );
   writeFileSync(path.join(dir, "assets/index.js"), 'console.log("editor");');
   writeFileSync(path.join(dir, "kernel-0123456789abcdef.wasm"), new Uint8Array([0, 97, 115, 109]));
+  writeFileSync(path.join(dir, "speech-fedcba9876543210.wasm"), new Uint8Array([0, 97, 115, 109]));
   return dir;
 }
 function check(dir: string) {
@@ -42,5 +43,24 @@ it("fails closed on missing hashed WASM and enforces raw WASM independently of g
   rmSync(wasm);
   expect(() => check(dir)).toThrow(/content-hashed kernel artifact/);
   writeFileSync(wasm, new Uint8Array(12 * 1024 * 1024 + 1));
+  expect(() => check(dir)).toThrow(/JS\/WASM size budgets/);
+});
+it("requires exactly one hashed speech artifact within its own raw and gzip budgets", () => {
+  const dir = artifact();
+  const speech = path.join(dir, "speech-fedcba9876543210.wasm");
+  expect(JSON.parse(check(dir)).speech.name).toBe("speech-fedcba9876543210.wasm");
+  writeFileSync(path.join(dir, "speech-0000000000000000.wasm"), new Uint8Array([0, 97, 115, 109]));
+  expect(() => check(dir)).toThrow(/content-hashed speech artifact/);
+  rmSync(path.join(dir, "speech-0000000000000000.wasm"));
+  rmSync(speech);
+  expect(() => check(dir)).toThrow(/content-hashed speech artifact/);
+  // Zeros gzip to almost nothing, so this checks the raw limit alone.
+  writeFileSync(speech, new Uint8Array(8 * 1024 * 1024 + 1));
+  expect(() => check(dir)).toThrow(/JS\/WASM size budgets/);
+  // Random bytes do not compress: 2.6 MiB stays below the raw limit but not the gzip one.
+  const noise = new Uint8Array(2.6 * 1024 * 1024);
+  for (let offset = 0; offset < noise.length; offset += 65536)
+    crypto.getRandomValues(noise.subarray(offset, offset + 65536));
+  writeFileSync(speech, noise);
   expect(() => check(dir)).toThrow(/JS\/WASM size budgets/);
 });
