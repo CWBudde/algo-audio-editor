@@ -298,6 +298,8 @@ it("routes Phase 3.2 commands through the common process lifecycle", () => {
     ["Extract channel…", "extract-channel"],
     ["Change sample rate…", "resample"],
     ["Generate audio…", "generate"],
+    // The speech dialog is a second process session of the audio generator.
+    ["Generate speech…", "generate"],
   ]) {
     fireEvent.click(ui.getByRole("button", { name: label }));
     expect(fake.processOpen).toHaveBeenLastCalledWith(

@@ -37,6 +37,9 @@ const ExportDialog = lazy(() =>
 const ProcessDialog = lazy(() =>
   import("@/components/process-dialog").then((module) => ({ default: module.ProcessDialog })),
 );
+const SpeechDialog = lazy(() =>
+  import("@/components/speech-dialog").then((module) => ({ default: module.SpeechDialog })),
+);
 const CommandPalette = lazy(() =>
   import("@/components/command-palette").then((module) => ({ default: module.CommandPalette })),
 );
@@ -77,6 +80,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
     playing,
     position,
     processing,
+    speech,
     readPosition,
     runEdit,
     seek,
@@ -294,7 +298,12 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
               onSpectralSelectionChange={setSpectralSelection}
               spectralSettings={spectralSettings}
               analysisPaused={Boolean(
-                analysis.view || effects.view || processing.view || exporting.view || busy,
+                analysis.view ||
+                  effects.view ||
+                  processing.view ||
+                  speech.view ||
+                  exporting.view ||
+                  busy,
               )}
               analysisStateId={history.history?.currentStateId}
             />
@@ -321,7 +330,12 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
                 onSettings={changeSpectralSettings}
                 playing={playing}
                 paused={Boolean(
-                  analysis.view || effects.view || processing.view || exporting.view || busy,
+                  analysis.view ||
+                    effects.view ||
+                    processing.view ||
+                    speech.view ||
+                    exporting.view ||
+                    busy,
                 )}
                 onClose={closeSpectrum}
                 stateId={history.history?.currentStateId}
@@ -440,6 +454,22 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
             onStopPreview={processing.stopPreview}
             onApply={processing.apply}
             onCancel={processing.cancel}
+          />
+        </Suspense>
+      )}
+      {speech.view && (
+        <Suspense fallback={<p role="status">Opening…</p>}>
+          <SpeechDialog
+            view={speech.view}
+            onFormChange={speech.setForm}
+            onModelChange={speech.setModel}
+            onNewSeed={speech.newSeed}
+            onGenerate={speech.generate}
+            onPreview={speech.preview}
+            onStopPreview={speech.stopPreview}
+            onApply={speech.apply}
+            onRetry={speech.retry}
+            onCancel={speech.cancel}
           />
         </Suspense>
       )}

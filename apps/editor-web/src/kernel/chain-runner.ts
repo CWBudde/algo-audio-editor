@@ -1,15 +1,27 @@
-import type {
-  DocumentInfoResult,
-  EditApplyParams,
-  EditResult,
-  EffectPreviewParams,
-  OperationChain,
-  ProcessJobResult,
-  ProcessStartParams,
-  SelectionRange,
+import {
+  CHAIN_SPEECH_GENERATE,
+  type DocumentInfoResult,
+  type EditApplyParams,
+  type EditResult,
+  type EffectPreviewParams,
+  type OperationChain,
+  type ProcessJobResult,
+  type ProcessStartParams,
+  type SelectionRange,
+  type SpeechGenerateParams,
 } from "@aae/protocol";
 import { parseOperationChain } from "@/lib/operation-chain";
+import type { SpeechSynthesisParams, SpeechSynthesisResult } from "@/speech/messages";
 import type { KernelClient } from "./client";
+
+/** Turns a speech.generate step into PCM; the editor's speech worker by default. */
+export type ChainSynthesizer = (
+  params: SpeechSynthesisParams,
+  signal?: AbortSignal,
+) => Promise<SpeechSynthesisResult>;
+
+const workerSynthesizer: ChainSynthesizer = async (params, signal) =>
+  (await import("@/speech/synthesize")).synthesizeSpeech(params, { signal });
 
 export interface ChainProgress {
   completed: number;
@@ -28,6 +40,7 @@ export async function runOperationChain(
     onEdited(result: EditResult, sourceDocumentId: string): void;
     onProgress?(progress: ChainProgress): void;
     failureContext?: string;
+    synthesize?: ChainSynthesizer;
   },
 ): Promise<number> {
   const chain = parseOperationChain(JSON.stringify(input));
@@ -56,10 +69,34 @@ export async function runOperationChain(
         options.onProgress?.({ completed, total: chain.operations.length, committing: true });
         result = await client.call("edit.apply", edit);
       } else {
-        const job =
-          op.method === "process.start"
-            ? await client.call(op.method, params as ProcessStartParams)
-            : await client.call(op.method, params as EffectPreviewParams);
+        let job: ProcessJobResult;
+        if (op.method === CHAIN_SPEECH_GENERATE) {
+          const { documentId, start, end, channelMask, levelDb, ...speech } =
+            params as SpeechGenerateParams;
+          const synthesized = await (options.synthesize ?? workerSynthesizer)(
+            speech,
+            options.signal,
+          );
+          cancelled();
+          // Placed like Generate audio: insert at a cursor, replace a selection.
+          job = await client.startAudioProcess(
+            {
+              documentId,
+              start,
+              end,
+              channelMask,
+              operation: "generate",
+              generator: "audio",
+              sourceSampleRate: synthesized.sampleRate,
+              ...(levelDb === undefined ? {} : { levelDb }),
+            },
+            synthesized.pcm,
+          );
+        } else
+          job =
+            op.method === "process.start"
+              ? await client.call(op.method, params as ProcessStartParams)
+              : await client.call(op.method, params as EffectPreviewParams);
         const jobParams = { documentId: info.documentId, jobId: job.jobId };
         const cancel = () => {
           void client.call("process.cancel", jobParams).catch(() => {});

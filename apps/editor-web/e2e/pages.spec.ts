@@ -121,3 +121,43 @@ test.describe("blocked service workers", () => {
     expect(navigations).toBe(1);
   });
 });
+
+test("the speech worker reaches pinned Hugging Face files through the isolation service worker", async ({
+  page,
+  context,
+}) => {
+  // Fake the model host; a fetch that is not routed must not download a real model.
+  const routed: string[] = [];
+  await context.route("https://huggingface.co/**", (route) => {
+    routed.push(route.request().url());
+    return route.fulfill({
+      status: 200,
+      headers: { "access-control-allow-origin": "*", "content-type": "application/octet-stream" },
+      body: Buffer.from("not a model"),
+    });
+  });
+  await page.goto("./");
+  await expect.poll(() => page.evaluate(() => crossOriginIsolated)).toBe(true);
+  await expect(page.locator("[data-kernel-state]")).toHaveAttribute("data-kernel-state", "ready");
+  const probe = await page.evaluate(async () => {
+    const response = await fetch("https://huggingface.co/aae-routing-probe");
+    return response.status;
+  });
+  expect(probe, "Playwright must route requests made by the service worker").toBe(200);
+  expect(routed).toEqual(["https://huggingface.co/aae-routing-probe"]);
+  await page.getByRole("button", { name: "Open demo", exact: true }).click();
+  await expect(page.getByTestId("document-name")).toHaveText("demo.wav");
+  await page.getByRole("menuitem", { name: "Process", exact: true }).click();
+  await page.locator('[role="menuitem"][data-command-id="process.generate-speech"]').click();
+  const dialog = page.getByRole("dialog", { name: "Generate speech" });
+  // The real speech.wasm boots in its worker and lists the embedded catalog.
+  await expect(dialog.getByLabel("Model")).toBeEnabled();
+  await dialog.getByRole("button", { name: "Generate", exact: true }).click();
+  // The worker's fetch arrives and is verified: the fake bytes are rejected, never loaded.
+  await expect(dialog.getByRole("alert")).toContainText("does not match the pinned catalog");
+  expect(routed[1]).toMatch(
+    /^https:\/\/huggingface\.co\/kyutai\/[^/]+\/resolve\/[0-9a-f]{40}\/.+\.safetensors$/,
+  );
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+});

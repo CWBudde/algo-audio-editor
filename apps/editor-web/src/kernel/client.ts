@@ -11,6 +11,7 @@ import {
   PROTOCOL_VERSION,
   type ProcessJobParams,
   type ProcessJobResult,
+  type ProcessStartParams,
   type ResultOf,
 } from "@aae/protocol";
 import type { RingBufferInit, RingBufferStats } from "@/audio/ring-buffer";
@@ -125,6 +126,20 @@ export class KernelClient {
     return this.request({ op: "call", method: "doc.importBinary", params, data: bytes }, 60_000, [
       bytes,
     ]) as Promise<DocumentInfoResult>;
+  }
+
+  /**
+   * Starts the audio generator with supplied mono float32 PCM (synthesized
+   * speech). The kernel copies and resamples it synchronously, so the call
+   * gets the document-open allowance; the caller's buffer is detached.
+   */
+  startAudioProcess(
+    params: Extract<ProcessStartParams, { generator: "audio" }>,
+    pcm: ArrayBuffer,
+  ): Promise<ProcessJobResult> {
+    return this.request({ op: "call", method: "process.start", params, data: pcm }, 60_000, [
+      pcm,
+    ]) as Promise<ProcessJobResult>;
   }
 
   loadImpulseResponse(

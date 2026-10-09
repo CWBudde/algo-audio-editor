@@ -569,6 +569,7 @@ export type RecordedOperation = { range?: "document" } & (
       params: RecordedParams<Exclude<ProcessStartParams, { operation: "extract-channel" }>>;
     }
   | { method: "effects.apply"; params: RecordedParams<EffectPreviewParams> }
+  | { method: typeof CHAIN_SPEECH_GENERATE; params: RecordedParams<SpeechGenerateParams> }
 );
 export interface OperationChain {
   version: 1;

@@ -53,6 +53,7 @@ export type CommandId =
   | "process.extract-channel"
   | "process.resample"
   | "process.generate"
+  | "process.generate-speech"
   | "process.capture-noise-profile"
   | "process.noise-reduce"
   | "process.spectral-attenuate"
@@ -189,6 +190,7 @@ export const COMMAND_MENUS: readonly { label: string; items: readonly (CommandId
       "process.time-stretch",
       "-",
       "process.generate",
+      "process.generate-speech",
     ],
   },
   {
@@ -565,6 +567,12 @@ const definitions: readonly Definition[] = [
     enabled: processAvailable,
   },
   { id: "process.generate", label: "Generate audio…", menu: "Process", enabled: validSelection },
+  {
+    id: "process.generate-speech",
+    label: "Generate speech…",
+    menu: "Process",
+    enabled: validSelection,
+  },
   { id: "effects.rack", label: "Effect rack…", menu: "Effects", enabled: processAvailable },
   { id: "analyze.meters", label: "Playback meters", menu: "Analyze", enabled: processAvailable },
   {

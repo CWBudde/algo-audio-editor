@@ -37,6 +37,25 @@ export interface ProcessOptions {
 
 export type ProcessPhase = "idle" | "processing" | "ready" | "committing" | "cancelling";
 export type ProcessOperation = ProcessStartParams["operation"];
+/**
+ * Supplies a candidate from outside the settings form, e.g. synthesized speech
+ * for the audio generator. The rest of the job lifecycle (lock, preview, clip
+ * acknowledgement, commit, recording, cancellation) is the dialog's own.
+ */
+export interface CandidateSource {
+  /** Identity of the request; a ready candidate is reused only while it matches. */
+  key: string;
+  /** Starts the kernel job. Cancel aborts `signal`. */
+  start(
+    client: KernelClient,
+    info: DocumentInfoResult,
+    selection: SelectionRange,
+    signal: AbortSignal,
+  ): Promise<ProcessJobResult>;
+  /** The request recorded for macros once the candidate is committed. */
+  recorded: AppliedOperation;
+}
+export type ProcessRunMode = "prepare" | "preview" | "apply";
 export interface ProcessView {
   returnFocus?: HTMLElement;
   info: DocumentInfoResult;
@@ -47,6 +66,8 @@ export interface ProcessView {
   ready?: boolean;
   phase: ProcessPhase;
   job?: ProcessJobResult;
+  /** Key of the candidate the job was built from; see CandidateSource.key. */
+  preparedKey?: string;
   previewing: boolean;
 }
 
@@ -63,6 +84,8 @@ interface Session {
   released: ReturnType<typeof deferred>;
   job?: ProcessJobResult;
   pending?: Promise<void>;
+  /** Aborts a CandidateSource's start. */
+  abort?: AbortController;
   cancellation?: Promise<void>;
   closing: boolean;
   committing: boolean;
@@ -183,6 +206,7 @@ export function useProcess(options: ProcessOptions) {
     // Once commit has been sent, a successful authoritative reply must win.
     if (!s || s.committing || s.cancellation) return s?.cancellation;
     s.closing = true;
+    s.abort?.abort();
     update(s, { phase: "cancelling" });
     s.cancellation = (async () => {
       try {
@@ -335,12 +359,14 @@ export function useProcess(options: ProcessOptions) {
   );
 
   const run = useCallback(
-    (mode: "preview" | "apply", allowClipping = false) => {
+    (mode: ProcessRunMode, allowClipping = false, source?: CandidateSource) => {
       const s = session.current;
       if (!s || s.closing || s.pending || s.committing) return;
-      const params = processParams(s.info, s.selection, s.operation, s.parameterText, s.settings);
-      if (!params) return;
-      const key = processSettingsKey(params);
+      const params = source
+        ? undefined
+        : processParams(s.info, s.selection, s.operation, s.parameterText, s.settings);
+      if (!source && !params) return;
+      const key = source ? source.key : processSettingsKey(params as ProcessStartParams);
       const operation = s.operation;
       // Invoke before the first await: AudioContext activation belongs to this
       // button gesture, not to the eventual job-completion task.
@@ -368,7 +394,17 @@ export function useProcess(options: ProcessOptions) {
           if (s.job?.state !== "ready" || s.preparedKey !== key) {
             await discard(s);
             if (s.closing || !owns(s)) return;
-            s.job = await s.client.call("process.start", params);
+            s.preparedKey = undefined;
+            update(s, { job: undefined, preparedKey: undefined });
+            if (source) {
+              const abort = new AbortController();
+              s.abort = abort;
+              try {
+                s.job = await source.start(s.client, s.info, s.selection, abort.signal);
+              } finally {
+                if (s.abort === abort) s.abort = undefined;
+              }
+            } else s.job = await s.client.call("process.start", params as ProcessStartParams);
             if (s.closing || !owns(s)) {
               await discard(s);
               return;
@@ -378,11 +414,16 @@ export function useProcess(options: ProcessOptions) {
               if (!s.closing) update(s, { job });
             });
             s.preparedKey = key;
+            update(s, { preparedKey: key });
           }
           if (s.closing || !owns(s)) return;
           if (s.job?.state !== "ready") {
             s.job = undefined;
             update(s, { phase: "idle", job: undefined, ready: false });
+            return;
+          }
+          if (mode === "prepare") {
+            update(s, { phase: "ready", job: s.job, ready: true });
             return;
           }
           if (mode === "preview") {
@@ -402,22 +443,30 @@ export function useProcess(options: ProcessOptions) {
           if (operation === "extract-channel") {
             if (!latest.current.onExtract) throw new Error("Channel extraction unavailable");
             await latest.current.onExtract(s.info, s.job);
-            latest.current.onRecorded?.({ method: "process.start", params }, s.info);
+            latest.current.onRecorded?.(
+              { method: "process.start", params: params as ProcessStartParams },
+              s.info,
+            );
             await discard(s);
             await finish(s);
             return;
           }
           // Record the source range resolved by the kernel. Insertion and
           // cursor crossfade coordinates retain their requested meaning.
-          const recordedParams =
-            operation === "crossfade" || operation === "generate"
-              ? params
-              : {
-                  ...params,
-                  start: s.job.start,
-                  end: s.job.end,
-                  channelMask: s.job.channelMask,
-                };
+          const recorded: AppliedOperation = source
+            ? source.recorded
+            : {
+                method: "process.start",
+                params:
+                  operation === "crossfade" || operation === "generate"
+                    ? (params as ProcessStartParams)
+                    : {
+                        ...(params as ProcessStartParams),
+                        start: s.job.start,
+                        end: s.job.end,
+                        channelMask: s.job.channelMask,
+                      },
+              };
           const result = await s.client.call("process.commit", {
             documentId: s.info.documentId,
             jobId: s.job.jobId,
@@ -425,17 +474,16 @@ export function useProcess(options: ProcessOptions) {
           s.committed = true;
           s.job = undefined;
           if (owns(s)) {
-            latest.current.onRecorded?.(
-              { method: "process.start", params: recordedParams },
-              s.info,
-            );
+            latest.current.onRecorded?.(recorded, s.info);
             latest.current.onEdited(result, s.info.documentId);
           } else if (mounted.current && latest.current.client === s.client) {
             await latest.current.refreshDocument?.(s.client);
           }
           await finish(s);
         } catch (error) {
-          report(s, error);
+          // Cancel aborted the candidate source; that is not a failure to report.
+          if (!(s.closing && error instanceof DOMException && error.name === "AbortError"))
+            report(s, error);
           s.cancelExtract?.();
           try {
             if (s.previewing) await s.stopPreview();
@@ -483,9 +531,20 @@ export function useProcess(options: ProcessOptions) {
 
   const preview = useCallback(() => run("preview"), [run]);
   const apply = useCallback((allowClipping = false) => run("apply", allowClipping), [run]);
+  /**
+   * Runs the same lifecycle with a candidate from `source`: "prepare" builds
+   * it without previewing or committing; a ready candidate with the same key
+   * is reused by a later "preview" or "apply".
+   */
+  const runSource = useCallback(
+    (mode: ProcessRunMode, source: CandidateSource, allowClipping = false) =>
+      run(mode, allowClipping, source),
+    [run],
+  );
   return {
     view,
     open,
+    runSource,
     setParameterText,
     setSettings,
     setOperation,

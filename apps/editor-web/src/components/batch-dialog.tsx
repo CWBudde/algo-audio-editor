@@ -3,6 +3,7 @@ import type { useBatch } from "@/hooks/use-batch";
 import { AUDIO_ACCEPT } from "@/lib/audio-codecs";
 import { batchFolderAvailable } from "@/lib/batch-output";
 import { type BatchFormat, batchDepths, batchOutputNames } from "@/lib/batch-settings";
+import { describeOperation } from "@/lib/operation-chain";
 import { desktopBridge } from "@/platform";
 
 export function BatchDialog({ batch }: { batch: ReturnType<typeof useBatch> }) {
@@ -103,7 +104,7 @@ export function BatchDialog({ batch }: { batch: ReturnType<typeof useBatch> }) {
             {batch.chain.operations.map((operation, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: The ordered chain has no editable row state.
               <li key={index}>
-                {operation.method === "effects.apply" ? "Effects" : operation.params.operation}
+                {describeOperation(operation)}
                 {operation.range === "document" ? " · Whole document" : " · Sample coordinates"}
               </li>
             ))}

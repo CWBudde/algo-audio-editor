@@ -1,10 +1,13 @@
-import type {
-  DocumentInfoResult,
-  EditApplyParams,
-  EffectPreviewParams,
-  OperationChain,
-  ProcessStartParams,
-  RecordedOperation,
+import {
+  CHAIN_SPEECH_GENERATE,
+  type DocumentInfoResult,
+  type EditApplyParams,
+  type EffectPreviewParams,
+  MAX_SPEECH_TEXT_LENGTH,
+  type OperationChain,
+  type ProcessStartParams,
+  type RecordedOperation,
+  type SpeechGenerateParams,
 } from "@aae/protocol";
 
 export const MAX_CHAIN_OPERATIONS = 64;
@@ -12,7 +15,8 @@ export const MAX_CHAIN_BYTES = 1024 * 1024;
 export type AppliedOperation =
   | { method: "edit.apply"; params: EditApplyParams }
   | { method: "process.start"; params: ProcessStartParams }
-  | { method: "effects.apply"; params: EffectPreviewParams };
+  | { method: "effects.apply"; params: EffectPreviewParams }
+  | { method: typeof CHAIN_SPEECH_GENERATE; params: SpeechGenerateParams };
 
 const common = ["start", "end", "channelMask"];
 const fields = {
@@ -47,6 +51,17 @@ const fields = {
     "harmonics",
   ],
   "effects.apply": [...common, "graph", "wet", "bypass", "previewId"],
+  [CHAIN_SPEECH_GENERATE]: [
+    ...common,
+    "model",
+    "voice",
+    "text",
+    "temperature",
+    "samplerSteps",
+    "eosThreshold",
+    "seed",
+    "levelDb",
+  ],
 };
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -54,6 +69,33 @@ function object(value: unknown): value is Record<string, unknown> {
 function keys(value: Record<string, unknown>, allowed: readonly string[]) {
   for (const key of Object.keys(value))
     if (!allowed.includes(key)) throw new Error(`Unknown chain field: ${key}`);
+}
+
+/** Mirrors internal/speech.Validate apart from the catalog lookup, which the speech worker does. */
+function validateSpeech(params: Record<string, unknown>) {
+  const { model, voice, text, temperature, samplerSteps, eosThreshold, seed, levelDb } = params;
+  if (typeof model !== "string" || !model || typeof voice !== "string" || !voice)
+    throw new Error("Speech needs a model and a voice.");
+  if (typeof text !== "string" || ![...text].some((character) => character > " "))
+    throw new Error("Speech text is empty.");
+  if ([...text].length > MAX_SPEECH_TEXT_LENGTH)
+    throw new Error(`Speech text exceeds ${MAX_SPEECH_TEXT_LENGTH} characters.`);
+  if (typeof temperature !== "number" || temperature < 0 || temperature > 2)
+    throw new Error("Speech temperature must be from 0 to 2.");
+  if (!Number.isInteger(samplerSteps) || Number(samplerSteps) < 1 || Number(samplerSteps) > 64)
+    throw new Error("Speech sampler steps must be a whole number from 1 to 64.");
+  if (typeof eosThreshold !== "number") throw new Error("Speech EOS threshold must be a number.");
+  if (!Number.isSafeInteger(seed) || Number(seed) < 0)
+    throw new Error("Speech seed must be a non-negative whole number.");
+  if (levelDb !== undefined && (typeof levelDb !== "number" || levelDb < -120 || levelDb > 0))
+    throw new Error("Speech level must be from -120 to 0 dB.");
+}
+
+/** A short name for a chain step, as the automation and batch dialogs list it. */
+export function describeOperation(operation: RecordedOperation): string {
+  if (operation.method === "effects.apply") return "Effects";
+  if (operation.method === CHAIN_SPEECH_GENERATE) return "Speech";
+  return operation.params.operation;
 }
 
 function finiteControl(value: unknown, depth = 0) {
@@ -82,7 +124,9 @@ export function parseOperationChain(text: string): OperationChain {
     if (!object(op)) throw new Error("Operation must be an object.");
     keys(op, ["method", "params", "range"]);
     if (typeof op.method !== "string" || !Object.hasOwn(fields, op.method) || !object(op.params))
-      throw new Error("Use edit.apply, process.start or effects.apply with object params.");
+      throw new Error(
+        "Use edit.apply, process.start, effects.apply or speech.generate with object params.",
+      );
     keys(op.params, fields[op.method as keyof typeof fields]);
     if (op.range !== undefined && op.range !== "document")
       throw new Error("Range must be omitted or document.");
@@ -96,8 +140,11 @@ export function parseOperationChain(text: string): OperationChain {
       )
         throw new Error(`Invalid ${field}.`);
     }
-    if (op.method !== "effects.apply" && typeof op.params.operation !== "string")
+    if (op.method === CHAIN_SPEECH_GENERATE) validateSpeech(op.params);
+    else if (op.method !== "effects.apply" && typeof op.params.operation !== "string")
       throw new Error("Operation name is required.");
+    if (op.method === "process.start" && op.params.generator === "audio")
+      throw new Error("The audio generator needs samples; record speech as speech.generate.");
     if (
       op.method === "process.start" &&
       ["extract-channel", "noise-reduce"].includes(String(op.params.operation))

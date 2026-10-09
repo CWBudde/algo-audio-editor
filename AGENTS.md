@@ -23,6 +23,7 @@ to `apps/editor-web/`.
 | `packages/kernel` | Go module `github.com/cwbudde/algo-audio-editor/packages/kernel` |
 | `cmd/kernel` | `js && wasm` entry point: the `syscall/js` bridge |
 | `cmd/aae`, `cmd/aae-mcp` | Native CLI and stdio MCP entry points |
+| `cmd/speech` | `js && wasm` entry point of the lazily loaded `speech.wasm` (go-pocket-tts) |
 | `internal/engine` | Engine coordinator, document/transport/history/job/analysis/effect state and strict protocol dispatch; platform-independent Go |
 | `internal/audiobuf` | Immutable planar blocks, shared timeline/window views, peak pyramids and block inventories |
 | `internal/ops` | Immutable edits, clipboard and annotation timeline transforms |
@@ -32,11 +33,13 @@ to `apps/editor-web/`.
 | `internal/memory` | Shared kernel storage ceiling; the engine owns available capacity |
 | `internal/automation` | Native file permissions, operation-chain runner and CLI/batch routing |
 | `internal/mcpserver` | Native MCP tools, schemas and inspection resources over the same engine |
+| `internal/speech` | Speech parameter validation and native go-pocket-tts synthesis for `speech.generate` |
 | `internal/buildinfo` | Version/time metadata stamped by `scripts/build-wasm.mjs` |
 | `internal/protocol` | ABI method names, payloads and response envelope |
 | `packages/protocol` | TypeScript ABI mirror (consumed via path alias, no build) |
 | `apps/editor-web` | Vite + React 19 + Tailwind v4 + shadcn (Base UI) |
 | `src/kernel` | Kernel worker, RPC client, runtime singleton and operation-chain runner |
+| `src/speech` | Speech worker, client, lazy runtime and verified model downloads |
 | `src/audio` | SAB ring buffer, playback worklet and AudioEngine |
 | `src/components/ui` | shadcn-generated components; leave as generated, add via `just --command bunx shadcn add` |
 | `apps/desktop` | Electron main/preload, `app://` resource handling, native capabilities and packaging hardening |
