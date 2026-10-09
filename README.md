@@ -319,10 +319,12 @@ changes. Save marks only the successfully written history state as saved;
 undo/redo back to that state becomes clean, while export alone does not. With
 File System Access, the write and close must succeed. The download fallback
 can observe only handoff to the browser, not disk completion or cancellation.
-Opening another file resets history. Electron protects dirty documents with
-Save, Discard or Cancel when closing and asks before replacing them on Open;
-cancelled or failed saves keep the window open. Browser tabs do not yet have
-that native close flow. Projects, autosave and crash recovery remain Phase 18.
+Opening another file resets history, so Open, drag-and-drop and the demo ask
+before discarding unsaved changes (a native dialog in Electron, the browser's
+confirm prompt otherwise). Electron protects dirty documents with Save, Discard
+or Cancel when closing; cancelled or failed saves keep the window open. Browser
+tabs show the browser's leave-page warning instead. Projects, autosave and crash
+recovery remain Phase 18.
 
 ## Commands and shortcuts
 
@@ -331,6 +333,9 @@ palette. Search by command name, menu or shortcut; arrow keys choose an
 available command, Enter runs it and Escape closes the palette. Unavailable
 and planned commands remain visible. Menus, the palette and keyboard commands
 share the same registry and recheck availability before execution.
+Help → Keyboard shortcuts lists every binding from that registry with this
+platform's keys. Help → Copy diagnostics copies the About facts (versions,
+build, isolation, playback counters, platform) as plain text for bug reports.
 
 File Open/Save/Export use Ctrl/Cmd+O/S/Shift+E. Export WAV writes a copy without
 marking the working document saved. Zoom uses Ctrl/Cmd+=/−/0; Select all uses

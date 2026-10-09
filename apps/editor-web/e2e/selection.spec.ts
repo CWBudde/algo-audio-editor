@@ -2,6 +2,7 @@
 
 import type { DocumentInfoResult, SelectionResult, TimelineResult } from "@aae/protocol";
 import { expect, type Page, test } from "@playwright/test";
+import { openDiscarding } from "./edit-fixture.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
 import { revealControl } from "./ui-disclosures.ts";
 
@@ -226,9 +227,7 @@ test("reopening an identical file resets selection and anchors and rejects the o
   await page.getByRole("button", { name: "Add region", exact: true }).click();
   await expect(page.getByTestId("timeline-region-1")).toBeVisible();
   const old = await selection(page);
-  await page
-    .getByTestId("audio-file-input")
-    .setInputFiles({ name: "selection.wav", mimeType: "audio/wav", buffer: fixture() });
+  await openDiscarding(page, { name: "selection.wav", mimeType: "audio/wav", buffer: fixture() });
   await expect.poll(async () => (await selection(page)).documentId).not.toBe(old.documentId);
   await expect.poll(() => range(page)).toEqual({ start: 0, end: 0, channelMask: 3 });
   await expect(page.getByTestId("timeline-region-1")).toHaveCount(0);

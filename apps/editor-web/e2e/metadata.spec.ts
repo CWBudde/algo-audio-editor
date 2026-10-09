@@ -2,7 +2,7 @@
 import type { DocumentInfoResult, MetadataResult } from "@aae/protocol";
 import { expect, type Page, test } from "@playwright/test";
 import { runCommand } from "./command-fixture.ts";
-import { fixture, info, LEFT, load, RIGHT, samples } from "./edit-fixture.ts";
+import { fixture, info, LEFT, load, openDiscarding, RIGHT, samples } from "./edit-fixture.ts";
 import { exportDownload, openExport, parseWAV, sourceState, wavChunk } from "./export-fixture.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
 
@@ -91,9 +91,11 @@ test("metadata edits, modal shortcuts, undo/redo and actual WAV export preserve 
   expect(wavChunk(exported.bytes, "xtra")).toEqual(Buffer.from([1, 2, 3]));
   expect(exported.bytes.includes(chunk("ZZZZ", Buffer.from([9, 8, 7])))).toBe(true);
   const oldID = (await info(page)).documentId;
-  await page
-    .getByTestId("audio-file-input")
-    .setInputFiles({ name: "reopened.wav", mimeType: "audio/wav", buffer: exported.bytes });
+  await openDiscarding(page, {
+    name: "reopened.wav",
+    mimeType: "audio/wav",
+    buffer: exported.bytes,
+  });
   await expect.poll(async () => (await info(page)).documentId).not.toBe(oldID);
   expect((await metadata(page)).tags).toEqual({ title: "Edited 🎵", artist: "Artist" });
   expect(await samples(page)).toEqual([LEFT, RIGHT]);

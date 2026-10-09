@@ -34,3 +34,19 @@ it("keeps command identities, enabled state, separators, shortcuts and effect gr
     children: [{ id: "effects.distortion", label: "Distortion…", enabled: false }],
   });
 });
+
+it("mirrors the Help menu's shortcut list and diagnostics commands", () => {
+  const menu = nativeMenu([
+    { id: "commands.palette", menu: "Help", label: "Command palette…", enabled: true },
+    { id: "help.shortcuts", menu: "Help", label: "Keyboard shortcuts…", enabled: true },
+    { id: "help.diagnostics", menu: "Help", label: "Copy diagnostics", enabled: false },
+    { id: "help.about", menu: "Help", label: "About", enabled: true },
+  ]);
+  expect(menu.find((item) => item.label === "Help")?.children).toEqual([
+    { id: "commands.palette", label: "Command palette…", enabled: true },
+    { id: "help.shortcuts", label: "Keyboard shortcuts…", enabled: true },
+    { separator: true },
+    { id: "help.diagnostics", label: "Copy diagnostics", enabled: false },
+    { id: "help.about", label: "About", enabled: true },
+  ]);
+});

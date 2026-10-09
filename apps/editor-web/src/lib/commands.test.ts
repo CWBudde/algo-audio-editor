@@ -5,6 +5,7 @@ import {
   type CommandActions,
   type CommandContext,
   type CommandId,
+  commandShortcuts,
   detectShortcutPlatform,
   matchCommandShortcut,
   resolveCommands,
@@ -198,6 +199,20 @@ describe("central command registry", () => {
     expect(enabled("file.metadata", { modalOpen: true })).toBe(false);
     expect(enabled("edit.undo", { canUndo: false })).toBe(false);
     expect(enabled("edit.redo", { canRedo: false })).toBe(false);
+  });
+
+  it("offers the shortcut list and diagnostics in Help whenever About is available", () => {
+    expect(COMMAND_MENUS.find((menu) => menu.label === "Help")?.items).toEqual([
+      "commands.palette",
+      "help.shortcuts",
+      "-",
+      "help.diagnostics",
+      "help.about",
+    ]);
+    for (const id of ["help.shortcuts", "help.diagnostics"] as const) {
+      expect(enabled(id, { ready: false, busy: true, info: undefined })).toBe(true);
+      expect(enabled(id, { modalOpen: true })).toBe(false);
+    }
   });
 
   it("accepts empty-document cursor actions but rejects empty-range edits/playback", () => {
@@ -503,4 +518,36 @@ it("gates macro recording by document, active recording and modal state", () => 
     expect(enabled(id, { recordingMacro: true, busy: true })).toBe(false);
     expect(enabled(id, { recordingMacro: true, modalOpen: true })).toBe(false);
   }
+});
+
+describe("shortcut list", () => {
+  it("lists every registered shortcut by menu, with platform labels and alternatives", () => {
+    const other = commandShortcuts("other");
+    const mac = commandShortcuts("mac");
+    const menus = COMMAND_MENUS.map((menu) => menu.label);
+    expect(other.map((group) => group.menu)).toEqual(
+      menus.filter((menu) => other.some((group) => group.menu === menu)),
+    );
+    const find = (groups: typeof other, id: CommandId) =>
+      groups.flatMap((group) => group.commands).find((command) => command.id === id);
+    expect(find(other, "edit.redo")).toEqual({
+      id: "edit.redo",
+      label: "Redo",
+      keys: ["Ctrl+Shift+Z", "Ctrl+Y"],
+    });
+    expect(find(mac, "edit.redo")?.keys).toEqual(["Cmd+Shift+Z"]);
+    expect(find(other, "transport.toggle-playback")?.keys).toEqual(["Space"]);
+    expect(find(other, "view.zoom-in")?.keys).toEqual([
+      "Ctrl+=",
+      "Ctrl+Shift++",
+      "Ctrl+Shift+=",
+      "Ctrl++",
+    ]);
+    expect(find(other, "file.new")).toBeUndefined();
+    const listed = other.flatMap((group) => group.commands.map((command) => command.id));
+    expect(new Set(listed).size).toBe(listed.length);
+    for (const command of resolveCommands(context, "other", actions))
+      if (command.shortcutLabel)
+        expect(find(other, command.id)?.keys[0]).toBe(command.shortcutLabel);
+  });
 });

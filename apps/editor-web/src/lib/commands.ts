@@ -40,6 +40,8 @@ export type CommandId =
   | "transport.seek-start"
   | "transport.seek-end"
   | "commands.palette"
+  | "help.shortcuts"
+  | "help.diagnostics"
   | "help.about"
   | "process.amplify"
   | "process.normalize"
@@ -253,7 +255,10 @@ export const COMMAND_MENUS: readonly { label: string; items: readonly (CommandId
       "timeline.export-labels",
     ],
   },
-  { label: "Help", items: ["commands.palette", "help.about"] },
+  {
+    label: "Help",
+    items: ["commands.palette", "help.shortcuts", "-", "help.diagnostics", "help.about"],
+  },
 ];
 
 const available = (c: CommandContext) => c.ready && !c.busy && !c.modalOpen;
@@ -671,6 +676,18 @@ const definitions: readonly Definition[] = [
     shortcuts: [mod("k")],
     globalInText: true,
   },
+  {
+    id: "help.shortcuts",
+    label: "Keyboard shortcuts…",
+    menu: "Help",
+    enabled: (c) => !c.modalOpen,
+  },
+  {
+    id: "help.diagnostics",
+    label: "Copy diagnostics",
+    menu: "Help",
+    enabled: (c) => !c.modalOpen,
+  },
   { id: "help.about", label: "About", menu: "Help", enabled: (c) => !c.modalOpen },
 ];
 
@@ -721,6 +738,28 @@ export function resolveCommands(
     ...(definition.shortcuts?.[0] ? shortcutLabels(definition.shortcuts[0], platform) : {}),
     enabled: Boolean(actions[definition.id] && definition.enabled(context)),
   }));
+}
+
+export interface CommandShortcutGroup {
+  menu: string;
+  commands: { id: CommandId; label: string; keys: string[] }[];
+}
+
+/** Every binding the matcher accepts on this platform, grouped in menu order. */
+export function commandShortcuts(platform: ShortcutPlatform): CommandShortcutGroup[] {
+  return COMMAND_MENUS.map((menu) => ({
+    menu: menu.label,
+    commands: definitions
+      .filter((definition) => definition.menu === menu.label)
+      .map((definition) => ({
+        id: definition.id,
+        label: definition.label,
+        keys: (definition.shortcuts ?? [])
+          .filter((shortcut) => !(shortcut.otherOnly && platform === "mac"))
+          .map((shortcut) => shortcutLabels(shortcut, platform).shortcutLabel),
+      }))
+      .filter((command) => command.keys.length > 0),
+  })).filter((group) => group.commands.length > 0);
 }
 
 export interface CommandShortcutMatch {

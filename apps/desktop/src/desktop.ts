@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
@@ -99,6 +100,13 @@ export function registerDesktop(applicationURL: string, checkUpdates: () => void
       noLink: true,
     });
     return result.response === 1;
+  });
+  // Menu commands carry no renderer user activation and the permission policy grants
+  // only audio capture, so the renderer's navigator.clipboard cannot write here.
+  ipcMain.handle("desktop.copy-text", (event, text: unknown) => {
+    trustedWindow(event, applicationURL);
+    if (typeof text !== "string" || text.length > 64 * 1024) throw new Error("Invalid text");
+    return clipboard.writeText(text);
   });
   ipcMain.handle("desktop.complete-close", (event, request: unknown, saved: unknown) => {
     const win = trustedWindow(event, applicationURL);

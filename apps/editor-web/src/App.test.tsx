@@ -15,6 +15,7 @@ const fake = vi.hoisted(() => ({
   seek: vi.fn(),
   dispose: vi.fn(),
   error: vi.fn(),
+  success: vi.fn(),
   open: vi.fn(),
   save: vi.fn(),
   exportOpen: vi.fn(),
@@ -180,7 +181,7 @@ vi.mock("@/components/app-menubar", () => ({
   }) => (
     <>
       {commands
-        .filter((command) => command.id.startsWith("process.") || command.id === "help.about")
+        .filter((command) => command.id.startsWith("process.") || command.id.startsWith("help."))
         .map((command) => (
           <button
             key={command.id}
@@ -198,7 +199,7 @@ vi.mock("@/components/ui/sonner", () => ({ Toaster: () => null }));
 vi.mock("@/components/ui/tooltip", () => ({
   TooltipProvider: ({ children }: { children: ReactNode }) => children,
 }));
-vi.mock("sonner", () => ({ toast: { error: fake.error } }));
+vi.mock("sonner", () => ({ toast: { error: fake.error, success: fake.success } }));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -262,6 +263,55 @@ it("shares Information and Help About without stopping playback or exposing rout
   expect(ui.getAllByRole("dialog", { name: "About / Status" })).toHaveLength(1);
   fireEvent.click(ui.getByRole("button", { name: "Close information" }));
   expect(ui.queryByRole("dialog")).toBeNull();
+});
+
+it("opens the generated keyboard shortcut list from Help and restores focus on close", () => {
+  const ui = render(<App />);
+  const launcher = ui.getByRole("button", { name: "Keyboard shortcuts…" });
+  launcher.focus();
+  fireEvent.click(launcher);
+  const dialog = ui.getByRole("dialog", { name: "Keyboard shortcuts" });
+  expect(dialog.textContent).toContain("Undo");
+  fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+  expect(fake.undo).not.toHaveBeenCalled();
+  expect(ui.getByRole("button", { name: "About" }).hasAttribute("disabled")).toBe(true);
+  fireEvent(dialog, new Event("cancel", { cancelable: true }));
+  expect(ui.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(launcher);
+});
+
+it("copies diagnostics from Help and confirms with a toast", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  try {
+    const ui = render(<App />);
+    await act(async () => {
+      fireEvent.click(ui.getByRole("button", { name: "Copy diagnostics" }));
+    });
+    expect(writeText).toHaveBeenCalledOnce();
+    expect(writeText.mock.calls[0][0]).toContain("Kernel status: ready\n");
+    expect(fake.success).toHaveBeenCalledWith("Diagnostics copied to the clipboard");
+    expect(ui.queryByRole("dialog")).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it("reports a refused diagnostics copy", async () => {
+  vi.stubGlobal("navigator", {
+    ...navigator,
+    clipboard: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+  });
+  try {
+    const ui = render(<App />);
+    await act(async () => {
+      fireEvent.click(ui.getByRole("button", { name: "Copy diagnostics" }));
+    });
+    expect(fake.error).toHaveBeenCalledWith("Command failed", { description: "denied" });
+    expect(fake.success).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it("keeps actionable startup failures visible outside the information dialog", () => {

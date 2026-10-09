@@ -6,7 +6,7 @@ import type {
   ExportResult,
   SelectionResult,
 } from "@aae/protocol";
-import { expect, type Page } from "@playwright/test";
+import { type Dialog, expect, type Page } from "@playwright/test";
 import { revealControl } from "./ui-disclosures.ts";
 
 export const LEFT = [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1];
@@ -35,7 +35,37 @@ export function fixture(channels = [LEFT, RIGHT], rate = 48_000) {
   return bytes;
 }
 
+/** The editor asks before an open replaces unsaved changes. */
+function discardPrompt(dialog: Dialog) {
+  return dialog.type() === "confirm" && dialog.message().startsWith("Discard changes to ");
+}
+
+/** Opens over unsaved changes, asserting the prompt and discarding them. */
+export async function openDiscarding(
+  page: Page,
+  file: { name: string; mimeType: string; buffer: Buffer },
+) {
+  const asked = page.waitForEvent("dialog");
+  await page.getByTestId("audio-file-input").setInputFiles(file);
+  const prompt = await asked;
+  expect(discardPrompt(prompt), prompt.message()).toBe(true);
+  await prompt.accept();
+}
+
+/** Opens the fixture, discarding any unsaved changes to the current document. */
 export async function load(page: Page, channels = [LEFT, RIGHT], rate = 48_000) {
+  const discard = (dialog: Dialog) => {
+    if (discardPrompt(dialog)) void dialog.accept();
+  };
+  page.on("dialog", discard);
+  try {
+    await install(page, channels, rate);
+  } finally {
+    page.off("dialog", discard);
+  }
+}
+
+async function install(page: Page, channels: number[][], rate: number) {
   const previous = await page.evaluate(async () => {
     try {
       const document = (await window.__aaeTest?.request("doc.info")) as

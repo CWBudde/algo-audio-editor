@@ -53,6 +53,8 @@ export interface DesktopBridge {
   onSaveBeforeClose(callback: (request: string) => void): () => void;
   completeClose(request: string, saved: boolean): Promise<void>;
   confirmReplace(name: string): Promise<boolean>;
+  /** Writes plain text to the system clipboard through the main process. */
+  copyText?(text: string): Promise<void>;
   deleteEffectIR?(id: string): Promise<void>;
   loadEffectIR?(id: string): Promise<ArrayBuffer>;
   saveEffectIR?(id: string, data: ArrayBuffer): Promise<void>;
