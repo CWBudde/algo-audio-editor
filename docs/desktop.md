@@ -63,6 +63,39 @@ windows get the same native services and independent close protection.
 Installers advertise WAV, FLAC, AIFF/AIFC and MP3 associations. `.aaep` associations wait for Phase 18 project support. Browser-dependent codec formats are available through Open without advertising installer associations. Projects and crash recovery remain Phase 18;
 the close guard does not provide autosave.
 
+## Speech models
+
+Generate speech in Electron reads the go-pocket-tts weights, tokenizers and voices
+from `userData/speech-models`, in the catalog layout (for example
+`german/voices/juergen.safetensors`). `speech-models.ts` downloads missing files in
+the main process; the renderer never reaches the network. It requests a list of
+catalog entries, and the main process validates each one as untrusted input: a
+revision-pinned `https://huggingface.co/<org>/<repo>/resolve/<40-hex>/<file>` URL, a
+lower-case SHA-256, a size of at most 4 GiB and a safe relative path ending in
+`.safetensors`, `tokenizer.model` or `tokenizer.json` (at most 40 files, no
+duplicates). Requests use Chromium's network stack with the system proxy, no cookies
+or credentials and no HTTP cache. Redirects are followed manually, at most five,
+and only to `https://huggingface.co` or `https://*.hf.co` (the Hugging Face Xet/LFS
+CDN); any other target aborts the download.
+
+Each file streams into a unique `<file>.<uuid>.part` beside its destination while
+its byte count and SHA-256 are checked; more bytes than expected abort at once. Only
+a flushed file with the exact size and hash is renamed into place, so a final path
+never holds a partial or unverified file, and failures remove the partial file
+(stale ones from a killed process are removed on the next download). Existing files
+are re-hashed once per session and skipped when they match; corrupt or replaced
+files are downloaded again. One download runs at a time. Cancel, main-frame
+navigation and closing the requesting window abort it, and the request rejects with
+`cancelled`. Progress is pushed to the requesting window at most every 100 ms.
+
+The renderer then fetches `app://editor/speech-models/<path>`, so its CSP stays
+`connect-src 'self'`. The protocol serves only catalog-shaped paths below that
+folder, without following a final symlink, streaming the file with the same
+COOP/COEP/CSP headers. Removing speech models deletes the whole folder; it is
+refused while a download runs. Deleting `userData/speech-models` manually while
+the app is closed has the same effect. In `just desktop-hot` the renderer origin is
+the Vite server, which cannot read `app://` model files; use `just desktop-dev`.
+
 ## App icons
 
 The original artwork is `assets/appicon.png`. Checked-in derivatives include
@@ -115,7 +148,8 @@ and absence of renderer Node access.
 Main-process unit tests run with `just test-desktop` and are included in `just test`,
 `just check`, `just ci` and the reusable unit-test workflow. They exercise file
 capability ownership, bounded reads and atomic writes, shortcut routing, saved
-window validation, protocol handling and permission policies.
+window validation, protocol handling, the speech model download policy and
+permission policies.
 
 ## Updates and publishing
 

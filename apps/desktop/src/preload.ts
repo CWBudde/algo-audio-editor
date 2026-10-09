@@ -4,12 +4,30 @@
  * apps/editor-web/src/platform.ts; keep the two in sync.
  */
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopBridge } from "../../editor-web/src/platform";
+import type {
+  DesktopBridge,
+  SpeechDownloadProgress,
+  SpeechModelFile,
+} from "../../editor-web/src/platform";
 
 function subscribe<T extends unknown[]>(channel: string, callback: (...args: T) => void) {
   const listener = (_event: unknown, ...args: unknown[]) => callback(...(args as T));
   ipcRenderer.on(channel, listener);
   return () => ipcRenderer.removeListener(channel, listener);
+}
+
+/** Rejects with the main process's own message, e.g. "cancelled", without Electron's
+ * "Error invoking remote method" wrapper, for APIs whose callers match on it. */
+async function invokePlain<T>(channel: string, ...args: unknown[]): Promise<T> {
+  try {
+    return await ipcRenderer.invoke(channel, ...args);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const prefix = `Error invoking remote method '${channel}': `;
+    throw new Error(
+      message.startsWith(prefix) ? message.slice(prefix.length).replace(/^Error: /, "") : message,
+    );
+  }
 }
 
 const bridge = {
@@ -40,6 +58,13 @@ const bridge = {
   loadEffectPresets: (): Promise<string | null> => ipcRenderer.invoke("effects.presets.load"),
   saveEffectPresets: (data: string): Promise<void> =>
     ipcRenderer.invoke("effects.presets.save", data),
+  ensureSpeechModels: (files: SpeechModelFile[]) =>
+    invokePlain<string>("speech-models.ensure", files),
+  cancelSpeechModels: () => invokePlain<void>("speech-models.cancel"),
+  removeSpeechModels: () => invokePlain<void>("speech-models.remove"),
+  speechModelsUsage: () => invokePlain<number>("speech-models.usage"),
+  onSpeechModelsProgress: (callback: (progress: SpeechDownloadProgress) => void) =>
+    subscribe("speech-models.progress", callback),
   platform: process.platform,
   versions: {
     electron: process.versions.electron,

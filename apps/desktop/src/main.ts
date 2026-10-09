@@ -21,6 +21,7 @@ import {
   registerPermissions,
   sameApplication,
 } from "./security";
+import { registerSpeechModels, speechModelsRoot } from "./speech-models";
 import { registerUpdates } from "./updates";
 import { loadWindowState, persistWindowState } from "./window-state";
 
@@ -46,6 +47,7 @@ const argumentFiles = (argv: string[]) =>
 initialFiles.push(...argumentFiles(process.argv.slice(app.isPackaged ? 1 : 2)));
 let desktop: ReturnType<typeof registerDesktop>;
 let files: ReturnType<typeof registerFiles>;
+let speechModels: ReturnType<typeof registerSpeechModels>;
 let primaryWindow: BrowserWindow | undefined;
 let desktopReady = false;
 let quitRequested = false;
@@ -108,7 +110,9 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 function registerAppProtocol() {
-  protocol.handle(SCHEME, (request) => appResponse(request.url, WEB_ROOT));
+  // userData is final here: AAE_USER_DATA is applied before the app is ready.
+  const speechRoot = speechModelsRoot();
+  protocol.handle(SCHEME, (request) => appResponse(request.url, WEB_ROOT, speechRoot));
 }
 
 let openingWindow: Promise<BrowserWindow> | undefined;
@@ -152,6 +156,7 @@ async function makeWindow() {
 
 function attachWindow(win: BrowserWindow, persist = false) {
   files.attach(win);
+  speechModels.attach(win);
   desktop(win);
   if (persist) {
     const flush = persistWindowState(win);
@@ -209,6 +214,7 @@ if (singleInstance) {
       registerAppProtocol();
       registerEffectPresets(DEV_URL ?? APP_URL);
       files = registerFiles(DEV_URL ?? APP_URL);
+      speechModels = registerSpeechModels(DEV_URL ?? APP_URL);
       desktop = registerDesktop(DEV_URL ?? APP_URL, () => {
         void checkUpdates();
       });
