@@ -34,7 +34,9 @@ claude mcp add --transport stdio algo-audio-editor -- \
 ```
 
 Omit `--allow-write` for a server that can inspect and edit in memory but cannot
-write files. Repeat it to grant multiple existing output directories.
+write files. Repeat it to grant multiple existing output directories. Add
+`--speech-models /absolute/path/speech-models` to enable `generate_speech`
+(see [Speech](#speech)).
 
 For [Claude Desktop's local server configuration](https://modelcontextprotocol.io/docs/develop/connect-local-servers),
 merge this entry into `claude_desktop_config.json`, then restart the client:
@@ -102,6 +104,8 @@ to MCP. Startup errors and diagnostics go to stderr.
 | `history` | `documentId`; current/save states and bounded history entries |
 | `export_document` | `documentId`, `path`, `format`, `bitDepth`; optional `float`, `scope`, `dither`, `noiseShaping`, `seed`, `overwrite` |
 | `save_document` | Same export fields, whole-document scope only; also marks the save point |
+| `generate_speech` | `documentId`, `model`, `text`; optional `voice`, `temperature`, `samplerSteps`, `eosThreshold`, `seed`, `levelDb`, `range`, `dryRun`; speaks the text and places it like a generator |
+| `list_speech_models` | No parameters; the speech model catalog, sizes, voices and what `--speech-models` holds |
 
 The MCP client discovers and validates the full tool input schemas. The
 operation payload schemas are generated from `internal/protocol`; unknown
@@ -145,7 +149,8 @@ A version 1 chain stores the UI protocol method and its control parameters:
 }
 ```
 
-The accepted methods are `edit.apply`, `process.start` and `effects.apply`.
+The accepted methods are `edit.apply`, `process.start`, `effects.apply` and
+`speech.generate` (see [Speech](#speech)).
 Omit `documentId` from their `params`; the runner supplies the current engine
 identity. Missing `start`, `end` and `channelMask` use the current selection
 at that step. The optional operation-level `"range": "document"` instead uses
@@ -244,6 +249,40 @@ fields. Query statistics separately for whole-document output measurements.
 It is computation,
 not a fast estimate; arbitrary processing does not calculate output LUFS.
 Structural-edit and whole-chain dry runs are not implemented.
+
+## Speech
+
+`speech.generate` speaks text with [go-pocket-tts](https://github.com/cwbudde/go-pocket-tts)
+(Kyutai PocketTTS; model weights and voices are CC-BY-4.0, downloaded, never
+bundled) and places it like the generators: at a cursor it is inserted, a
+range is replaced. The speech keeps its own length; on a range of only some
+channels the region grows to fit and the other channels keep their audio,
+padded with silence. It is resampled from 24 kHz to the document rate.
+
+```json
+{"method": "speech.generate", "params": {"model": "german", "voice": "juergen", "text": "Guten Tag.", "temperature": 0.3, "samplerSteps": 1, "eosThreshold": -4, "seed": 7, "start": 0, "end": 0}}
+```
+
+`model`, `voice`, `text` (at most 5,000 characters), `temperature` (0–2),
+`samplerSteps` (1–64), `eosThreshold` and `seed` are required in chains;
+`levelDb` (−120–0) is optional. `generate_speech` fills omitted values from
+the model's defaults. One seed reproduces the samples for one build and
+platform: the native CLI and MCP server agree byte for byte, while the
+browser's WebAssembly build differs slightly (no assembly kernels).
+
+Native runs read models from a directory given with `--speech-models`. Fill
+it once per model:
+
+```sh
+packages/kernel/bin/aae speech download --speech-models ~/speech-models --model german
+packages/kernel/bin/aae speech download --speech-models ~/speech-models --model english_2026-01 --voice alba --voice marius
+packages/kernel/bin/aae speech list --speech-models ~/speech-models
+```
+
+Downloads are revision-pinned and checked by size and SHA-256; an existing
+verified file is kept. `list` prints one JSON line per catalog model with its
+voices and what is present. Then pass the same `--speech-models` to `aae`
+chains or `aae-mcp`. See [speech.md](speech.md) for the editor dialog.
 
 ## Resources, prompts and validation
 
