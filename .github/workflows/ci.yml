@@ -35,7 +35,33 @@ jobs:
     name: Fuzz
     uses: ./.github/workflows/test-fuzz.yml
 
-  # The browser and Electron suites are the slow part. They run only for
+  # Whether a pull request touches what the E2E suites exercise; see
+  # scripts/e2e-changed-paths.mjs for the paths. Other events output nothing.
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      e2e: ${{ steps.paths.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts
+      - id: paths
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: >-
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename'
+          | node scripts/e2e-changed-paths.mjs
+
+  # The browser and Electron suites are the slow part. They run only for PRs
+  # that change editor/desktop sources, e2e specs, Playwright configs or the
+  # cross-origin isolation files (Vite config, index.html, public/), for
   # release-please PRs, PRs labeled `e2e` and manual runs, after lint and unit
   # tests pass; release.yml runs them again on the release commit before
   # anything is published. A skipped job counts as passed for required checks.
@@ -43,10 +69,11 @@ jobs:
   # close and reopen the release PR (or add the label) to run CI on it.
   e2e:
     name: E2E
-    needs: [lint, unit]
+    needs: [lint, unit, changes]
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
       (startsWith(github.head_ref, 'release-please--') ||
-      contains(github.event.pull_request.labels.*.name, 'e2e')))
+      contains(github.event.pull_request.labels.*.name, 'e2e') ||
+      needs.changes.outputs.e2e == 'true'))
     uses: ./.github/workflows/test-e2e.yml

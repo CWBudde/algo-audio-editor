@@ -147,6 +147,38 @@ func TestExtractBinaryHandoffExactUnsavedAndFailureAtomic(t *testing.T) {
 	}
 }
 
+// TypeScript declares BinaryDocumentParams.tags as Record<string, string>, so an
+// untagged candidate must marshal an empty object, never null.
+func TestExportCandidateUntaggedSendsEmptyTags(t *testing.T) {
+	source, _ := openEditorFixture(t, []float32{.25, -.5, .75, 1}, 2)
+	// Codecs without a tag map (FLAC, MP3, AIFF) leave Tags nil.
+	metadata := source.doc.document.Metadata()
+	metadata.Tags = nil
+	untagged, err := source.doc.document.WithMetadata(metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.doc.document = untagged
+	p := processParams(source, 0, 2, 3, 0)
+	p.Operation = "extract-channel"
+	ready := finishEngineNormalization(t, source, startEngineProcess(t, source, p))
+	info, err := source.exportCandidate(jobParams(ready))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if string(fields["tags"]) != "{}" {
+		t.Fatalf("tags = %s, want {}", fields["tags"])
+	}
+}
+
 func TestBinaryHandoffPublicAPIExactSignalingNaNAndSubnormalBits(t *testing.T) {
 	bits := []uint32{0x80000000, 0x00000000, 0x00000001, 0x80000001, 0x7f812345, 0xff812345, 0x7fc12345, 0x3f000000}
 	pcm := make([]byte, len(bits)*8)

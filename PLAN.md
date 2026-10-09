@@ -77,7 +77,7 @@ After the tag: Phases 32, 33 and 16, then 19 (1.0 gate), 24, 25, 26, with 20, 21
   - macOS lifecycle and `/private/var` temp paths in `native.spec.ts`, Chromium's `system-ui` font serialization, and a `metadata.spec` undo race.
   - No app bugs found, no `fixme`, no limits relaxed. On macOS `just e2e` gives 172 passed (baseline: 56 failed); `just e2e-desktop` gives 24 passed and 1 skipped (baseline: 8 failed).
 - [x] Re-cover the consolidated filter variants (2026-10-08) — a browser e2e test reaches every `filter-*` and weighting variant through the Filter "Type"/"Family" and "Weighting" selects, with preview, one undoable apply and distinct kernel output per path. It found that choosing the Moog family kept standard-filter parameters (`stopbandDB`), so the kernel rejected preview and apply. The dialog now sends only the parameters the node's own type declares (covered by a unit test). `just e2e`: 173 passed.
-- [ ] Run E2E on pull requests that touch `apps/editor-web/src`, `apps/desktop/src` or the e2e specs, not only on release PRs and the `e2e` label. Three editor-redesign commits left five stale specs unnoticed.
+- [x] Run E2E on pull requests that touch `apps/editor-web/src`, `apps/desktop/src` or the e2e specs, not only on release PRs and the `e2e` label. Three editor-redesign commits left five stale specs unnoticed. (2026-10-09) — a `changes` job in `ci.yml` pipes the PR's file list into `scripts/e2e-changed-paths.mjs` (both `src` and `e2e` directories, the Playwright configs, `test-e2e.yml`), and E2E also runs when it reports `run=true`. `just test-scripts` covers the path rules; on PR #4 hosted CI printed `run=false` for the kernel/CI-only commits and `run=true` once `apps/desktop/e2e/launch.ts` changed (run 37857307818).
 - [x] Align local hooks with CI:
   - `just lint-web` runs `biome ci`, as CI does, instead of `biome lint`.
   - `just check` warns when the lefthook hooks are not installed.
@@ -90,12 +90,13 @@ After the tag: Phases 32, 33 and 16, then 19 (1.0 gate), 24, 25, 26, with 20, 21
   - Go `tool` directives for gofumpt, gci and golangci-lint.
   - `"packageManager": "bun@1.4.2"`. The root `package.json` is a hashed license-inventory input, so add the pin together with a `just licenses` run on Linux; regenerating on macOS drops the Electron binary evidence.
   - `dep-drift.yml` uses `go.mod`'s toolchain instead of `stable`.
+  - (2026-10-09) — partial: gofumpt v0.10.0, gci v0.14.0 and golangci-lint v2.12.2 are `tool` directives in a separate `tools/go.mod` (outside the kernel's license inputs), run through `scripts/go-tool.sh` by treefmt, lefthook and `just lint-go`; CI's lint job reads golangci-lint's version from it, and `dep-drift.yml` uses `packages/kernel/go.mod`'s toolchain. Remaining: the Bun `packageManager` pin, together with a Linux `just licenses` run.
 - [x] Protocol parity v2 (2026-10-08):
   - Compare field kind, optionality (`omitempty` vs `?`) and nullability (pointer vs `| null`), not only names.
   - Fail when the schema hash changes without a `protocol.Version` / `PROTOCOL_VERSION` bump.
   - Extend the shared Go-marshals/TS-parses golden files beyond process jobs.
   - Done: `scripts/protocol-schema.go` emits each field's kind, optionality and nullability plus a schema hash. `protocol-parity.test.ts` compares them; its two-entry `tsDiffers` allowlist fails once an entry is stale. `TestSchemaHashPinsVersion` pins the hash to `protocol.Version` in `testdata/schema-hash.json`; re-pin with `-update-schema-hash`. New document, analysis and effects golden files are checked on both sides. Scratch edits proved both checks: an optional `TimelineMarker.name` fails parity, and a new Go field without a version bump fails the hash pin.
-- [ ] `engine/binary_document.go:29` passes `metadata.Tags` unguarded, so a nil map would send `"tags": null` where TypeScript declares `Record<string, string>`. `metadata.go` already guards this. Nil slices and maps are outside the pointer-only nullability check.
+- [x] `engine/binary_document.go:29` passes `metadata.Tags` unguarded, so a nil map would send `"tags": null` where TypeScript declares `Record<string, string>`. `metadata.go` already guards this. Nil slices and maps are outside the pointer-only nullability check. (2026-10-09) — `exportCandidate` now sends `{}` for the nil tag map that FLAC/AIFF/MP3 imports (`installPCM`) leave; `TestExportCandidateUntaggedSendsEmptyTags` failed with `tags = null` before the guard. The parity check still does not cover nil slices and maps in general.
 
 ### Phase 30: Data Safety & v0.1 Basics
 

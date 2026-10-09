@@ -25,12 +25,13 @@ pre-commit:
       glob: "apps/desktop/**/*.{ts,mts}"
       run: bun run --bun --cwd apps/desktop typecheck
 
-    # With root set, {staged_files} is relative to packages/kernel.
+    # With root set, {staged_files} is relative to packages/kernel. Go tools
+    # come from tools/go.mod through scripts/go-tool.sh, at CI's versions.
     - name: gofumpt
       root: packages/kernel
       glob: "*.go"
       run: |
-        unformatted="$(gofumpt -l {staged_files})" || exit 1
+        unformatted="$(../../scripts/go-tool.sh gofumpt -l {staged_files})" || exit 1
         if [ -n "$unformatted" ]; then
           printf 'gofumpt: not formatted (run `just fmt`):\n%s\n' "$unformatted"
           exit 1
@@ -40,7 +41,7 @@ pre-commit:
       root: packages/kernel
       glob: "*.go"
       run: |
-        unsorted="$(gci list {staged_files})" || exit 1
+        unsorted="$(../../scripts/go-tool.sh gci list {staged_files})" || exit 1
         if [ -n "$unsorted" ]; then
           printf 'gci: imports not ordered (run `just fmt`):\n%s\n' "$unsorted"
           exit 1
@@ -49,7 +50,7 @@ pre-commit:
     - name: golangci-lint
       root: packages/kernel
       glob: "*.go"
-      run: golangci-lint run ./... && GOOS=js GOARCH=wasm golangci-lint run ./...
+      run: ../../scripts/go-tool.sh golangci-lint run ./... && GOOS=js GOARCH=wasm ../../scripts/go-tool.sh golangci-lint run ./...
 
     - name: go-vet
       root: packages/kernel
@@ -108,8 +109,8 @@ pre-push:
         set --
         for f in {push_files}; do [ -f "$f" ] && set -- "$@" "$f"; done
         [ "$#" -eq 0 ] && exit 0
-        unformatted="$(gofumpt -l "$@")" || exit 1
-        unsorted="$(gci list "$@")" || exit 1
+        unformatted="$(../../scripts/go-tool.sh gofumpt -l "$@")" || exit 1
+        unsorted="$(../../scripts/go-tool.sh gci list "$@")" || exit 1
         if [ -n "$unformatted$unsorted" ]; then
           printf 'gofumpt/gci: not formatted (run `just fmt`):\n%s\n%s\n' "$unformatted" "$unsorted"
           exit 1

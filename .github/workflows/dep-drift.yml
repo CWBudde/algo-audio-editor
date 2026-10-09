@@ -29,10 +29,11 @@ jobs:
         with:
           fetch-depth: 0 # release-guard needs tags to find the latest release
 
+      # The module's pinned toolchain, as in CI, not whatever `stable` is today.
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: stable
+          go-version-file: packages/kernel/go.mod
 
       - name: Check sibling dependencies
         id: deps

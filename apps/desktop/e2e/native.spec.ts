@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { fixture } from "../../editor-web/e2e/edit-fixture.js";
 import { closeEditor, launchEditor } from "./launch.js";
 
@@ -23,13 +23,18 @@ async function setDialogs(
   settings: { input?: string; output?: string; choice?: number },
 ) {
   await app.evaluate(({ dialog }, settings) => {
-    const scope = globalThis as unknown as { __saveCalls: number; __messages: string[] };
+    const scope = globalThis as unknown as {
+      __openCalls: number;
+      __saveCalls: number;
+      __messages: string[];
+    };
+    scope.__openCalls ??= 0;
     scope.__saveCalls ??= 0;
     scope.__messages ??= [];
-    dialog.showOpenDialog = (async () => ({
-      canceled: !settings.input,
-      filePaths: settings.input ? [settings.input] : [],
-    })) as typeof dialog.showOpenDialog;
+    dialog.showOpenDialog = (async () => {
+      scope.__openCalls++;
+      return { canceled: !settings.input, filePaths: settings.input ? [settings.input] : [] };
+    }) as typeof dialog.showOpenDialog;
     dialog.showSaveDialog = (async () => {
       scope.__saveCalls++;
       return { canceled: !settings.output, filePath: settings.output };
@@ -39,6 +44,17 @@ async function setDialogs(
       return { response: settings.choice ?? 2, checkboxChecked: false };
     }) as typeof dialog.showMessageBox;
   }, settings);
+}
+/** Open through the menu and wait until the renderer has released the document lock. */
+async function open(app: ElectronApplication, page: Page) {
+  const calls = () =>
+    app.evaluate(() => (globalThis as unknown as { __openCalls?: number }).__openCalls ?? 0);
+  const before = await calls();
+  await command(app, "file.open");
+  // The native menu trails the renderer's busy state, so it can still report
+  // file.open enabled before the open has started. Wait for the dialog itself.
+  await expect.poll(calls).toBeGreaterThan(before);
+  await expect(page.getByTestId("document-drop-zone")).toHaveAttribute("aria-busy", "false");
 }
 
 test("native menus, launch/open-with WAV, scoped file access and disk save", async () => {
@@ -90,31 +106,18 @@ test("native menus, launch/open-with WAV, scoped file access and disk save", asy
     await expect(page.getByTestId("history-dirty")).toHaveText("Saved");
     expect((await readFile(output)).subarray(0, 4).toString()).toBe("RIFF");
     await setDialogs(app, {});
-    await command(app, "file.open");
-    await expect
-      .poll(() =>
-        app.evaluate(
-          ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("file.open")?.enabled,
-        ),
-      )
-      .toBe(true);
+    await open(app, page);
     await expect(page.getByTestId("document-name")).toHaveText("launch.wav");
     await command(app, "timeline.add-marker");
+    await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
     const other = path.join(directory, "other.wav");
     await writeFile(other, source);
     await setDialogs(app, { input: other, choice: 0 });
-    await command(app, "file.open");
-    await expect
-      .poll(() =>
-        app.evaluate(
-          ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("file.open")?.enabled,
-        ),
-      )
-      .toBe(true);
+    await open(app, page);
     await expect(page.getByTestId("document-name")).toHaveText("launch.wav");
     await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
     await setDialogs(app, { input: other, choice: 1 });
-    await command(app, "file.open");
+    await open(app, page);
     await expect(page.getByTestId("document-name")).toHaveText("other.wav");
   } finally {
     await closeEditor(app);

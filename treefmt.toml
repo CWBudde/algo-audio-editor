@@ -15,14 +15,15 @@ excludes = [
     "apps/editor-web/src/components/ui/**",
 ]
 
+# Go formatters come from tools/go.mod, at the versions CI uses.
 [formatter.gofumpt]
-command = "gofumpt"
-options = ["-w"]
+command = "scripts/go-tool.sh"
+options = ["gofumpt", "-w"]
 includes = ["*.go"]
 
 [formatter.gci]
-command = "gci"
-options = ["write"]
+command = "scripts/go-tool.sh"
+options = ["gci", "write"]
 includes = ["*.go"]
 priority = 1
 

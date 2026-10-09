@@ -1,6 +1,6 @@
 name: Set up toolchain
 description: >-
-  Go (from packages/kernel/go.mod), Node 24, Bun with a cached frozen install,
+  Go (from packages/kernel/go.mod, tools cached from tools/go.sum), Node 24, Bun with a cached frozen install,
   just, and optional Playwright Chromium. Shared by CI, Pages and releases.
 
 inputs:
@@ -21,7 +21,9 @@ runs:
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: packages/kernel/go.mod
-        cache-dependency-path: packages/kernel/go.sum
+        cache-dependency-path: |
+          packages/kernel/go.sum
+          tools/go.sum
     - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
       with:
         node-version: "24"

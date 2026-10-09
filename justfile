@@ -109,9 +109,9 @@ test-go-race:
 check-coverage:
     node scripts/check-coverage.mjs {{kernel}}/coverage.out
 
-# Unit tests for the CI helper scripts (coverage gate, flaky-test summary).
+# Unit tests for the CI helper scripts (coverage gate, E2E path filter, flaky-test summary).
 test-scripts:
-    node --test scripts/check-coverage.test.mjs scripts/playwright-flaky-summary.test.mjs
+    node --test scripts/check-coverage.test.mjs scripts/e2e-changed-paths.test.mjs scripts/playwright-flaky-summary.test.mjs
 
 # Verify native golden vectors and immutable storage under the actual WASM build.
 test-go-wasm:
@@ -249,10 +249,11 @@ bench-analysis-hour-wasm:
 
 lint: lint-go lint-web
 
+# golangci-lint comes from tools/go.mod, at the version CI's lint job uses.
 lint-go:
     cd {{kernel}} && go vet ./... && GOOS=js GOARCH=wasm go vet ./...
-    cd {{kernel}} && golangci-lint run ./...
-    cd {{kernel}} && GOOS=js GOARCH=wasm golangci-lint run ./...
+    cd {{kernel}} && ../../scripts/go-tool.sh golangci-lint run ./...
+    cd {{kernel}} && GOOS=js GOARCH=wasm ../../scripts/go-tool.sh golangci-lint run ./...
 
 # Same commands as CI's web lint job: `biome ci` fails on lint, format and import order.
 lint-web:
@@ -268,6 +269,7 @@ check-formatted:
 
 check-tidy:
     cd {{kernel}} && go mod tidy -diff
+    cd tools && go mod tidy -diff
 
 # ── Family hygiene (see AGENTS.md) ───────────────────────────────────────────
 

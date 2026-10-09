@@ -47,7 +47,8 @@ AudioWorklet "playback"  ◀──── SharedArrayBuffer ring buffer
 
 Requirements: Go ≥ 1.25 (the kernel module selects toolchain 1.26.8),
 [Bun](https://bun.sh) ≥ 1.4.2, Node.js ≥ 24, [just](https://just.systems), and
-for formatting `treefmt`, `gofumpt`, `gci` and `shfmt`.
+for formatting `treefmt` and `shfmt`. `gofumpt`, `gci` and `golangci-lint` are
+pinned in `tools/go.mod` and run through `scripts/go-tool.sh`.
 
 Development, production builds, typechecks, browser Playwright and desktop unit
 tests run with Bun. Recipes explicitly override Node shebangs with `--bun`, so

@@ -26,6 +26,9 @@ func (e *Engine) exportCandidate(p protocol.ProcessJobParams) (protocol.BinaryDo
 		return protocol.BinaryDocumentInfo{}, fmt.Errorf("%s: transfer exceeds output budget", method)
 	}
 	metadata := document.Metadata()
+	if metadata.Tags == nil {
+		metadata.Tags = map[string]string{}
+	}
 	info := protocol.BinaryDocumentInfo{BinaryDocumentParams: protocol.BinaryDocumentParams{Name: metadata.Name, Tags: metadata.Tags, SampleRate: document.SampleRate(), Channels: channels, Frames: frames, NextAnchorID: metadata.Timeline.NextID, Markers: make([]protocol.TimelineMarker, len(metadata.Timeline.Markers)), Regions: make([]protocol.TimelineRegion, len(metadata.Timeline.Regions))}, DataBytes: int(frames) * channels * 4}
 	for i, m := range metadata.Timeline.Markers {
 		info.Markers[i] = protocol.TimelineMarker{ID: m.ID, Frame: m.Frame, Name: m.Name, Color: m.Color}
