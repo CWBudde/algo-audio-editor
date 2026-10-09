@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
@@ -75,9 +76,11 @@ func Defaults(model string) (protocol.SpeechGenerateParams, error) {
 
 func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 
+// hasLetterOrDigit reports whether s has something to speak; the editor's
+// dialog and chain parser apply the same \p{L}/\p{N} rule.
 func hasLetterOrDigit(s string) bool {
 	for _, r := range s {
-		if r > ' ' {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
 			return true
 		}
 	}

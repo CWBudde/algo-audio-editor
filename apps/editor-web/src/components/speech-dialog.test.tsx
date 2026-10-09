@@ -116,7 +116,7 @@ it("lists models with sizes and load state, voices, placement, counter and credi
 it("validates text and advanced settings before Generate", () => {
   const actions = callbacks();
   const ui = render(
-    <SpeechDialog view={{ ...view, form: { ...form, text: "😀".repeat(5001) } }} {...actions} />,
+    <SpeechDialog view={{ ...view, form: { ...form, text: "𝔸".repeat(5001) } }} {...actions} />,
   );
   expect(ui.getByTestId("speech-text-length").textContent).toBe("5,001 / 5,000");
   expect(ui.getByRole("alert").textContent).toMatch(/up to 5,000 characters/);

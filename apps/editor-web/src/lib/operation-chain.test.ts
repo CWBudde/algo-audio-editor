@@ -204,7 +204,8 @@ it("records speech.generate at the requested cursor with the seed it used", () =
 it.each([
   [{ text: "" }, /text is empty/],
   [{ text: "   " }, /text is empty/],
-  [{ text: "😀".repeat(5001) }, /exceeds 5000/],
+  [{ text: "?!" }, /text is empty/],
+  [{ text: "𝔸".repeat(5001) }, /exceeds 5000/],
   [{ temperature: 3 }, /temperature/],
   [{ samplerSteps: 0 }, /sampler steps/],
   [{ samplerSteps: 1.5 }, /sampler steps/],
@@ -228,7 +229,7 @@ it("accepts 5000 code points of speech text and rejects the audio generator in c
     parseOperationChain(
       JSON.stringify({
         version: 1,
-        operations: [{ method: "speech.generate", params: { ...speech, text: "😀".repeat(5000) } }],
+        operations: [{ method: "speech.generate", params: { ...speech, text: "𝔸".repeat(5000) } }],
       }),
     ),
   ).not.toThrow();

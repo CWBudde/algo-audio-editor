@@ -17,6 +17,8 @@ export interface SpeechForm {
   levelText: string;
 }
 
+/** Text worth speaking has a letter or digit; internal/speech.Validate uses the same rule. */
+export const SPEAKABLE = /[\p{L}\p{N}]/u;
 export const SPEECH_CREDIT_URL = "https://huggingface.co/kyutai/pocket-tts";
 export const MAX_SPEECH_SEED = 0xffff_ffff;
 
@@ -101,7 +103,7 @@ export function speechParams(
   const model = catalog?.models.find((candidate) => candidate.name === form.model);
   if (!model?.voices.some((voice) => voice.id === form.voice)) return { error: "model" };
   const length = speechTextLength(form.text);
-  if (!length || length > MAX_SPEECH_TEXT_LENGTH || ![...form.text].some((c) => c > " "))
+  if (!length || length > MAX_SPEECH_TEXT_LENGTH || !SPEAKABLE.test(form.text))
     return { error: "text" };
   const temperature = number(form.temperatureText);
   if (temperature === undefined || temperature < 0 || temperature > 2)

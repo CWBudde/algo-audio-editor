@@ -9,6 +9,7 @@ import {
   type RecordedOperation,
   type SpeechGenerateParams,
 } from "@aae/protocol";
+import { SPEAKABLE } from "@/lib/speech-settings";
 
 export const MAX_CHAIN_OPERATIONS = 64;
 export const MAX_CHAIN_BYTES = 1024 * 1024;
@@ -76,8 +77,7 @@ function validateSpeech(params: Record<string, unknown>) {
   const { model, voice, text, temperature, samplerSteps, eosThreshold, seed, levelDb } = params;
   if (typeof model !== "string" || !model || typeof voice !== "string" || !voice)
     throw new Error("Speech needs a model and a voice.");
-  if (typeof text !== "string" || ![...text].some((character) => character > " "))
-    throw new Error("Speech text is empty.");
+  if (typeof text !== "string" || !SPEAKABLE.test(text)) throw new Error("Speech text is empty.");
   if ([...text].length > MAX_SPEECH_TEXT_LENGTH)
     throw new Error(`Speech text exceeds ${MAX_SPEECH_TEXT_LENGTH} characters.`);
   if (typeof temperature !== "number" || temperature < 0 || temperature > 2)

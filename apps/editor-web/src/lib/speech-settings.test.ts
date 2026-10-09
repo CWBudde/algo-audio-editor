@@ -73,6 +73,7 @@ describe("speechParams", () => {
   it.each([
     [{ text: "" }, "text"],
     [{ text: "  \n " }, "text"],
+    [{ text: "!!! …" }, "text"],
     [{ text: "a".repeat(5001) }, "text"],
     [{ temperatureText: "2.5" }, "temperature"],
     [{ temperatureText: "" }, "temperature"],
@@ -92,11 +93,11 @@ describe("speechParams", () => {
     expect(speechParams(ready, undefined).error).toBe("model");
   });
   it("counts Unicode code points like Go, not UTF-16 units", () => {
-    const emoji = "😀".repeat(5000);
-    expect(emoji.length).toBe(10000);
-    expect(speechTextLength(emoji)).toBe(5000);
-    expect(speechParams({ ...ready, text: emoji }, TEST_SPEECH_CATALOG).params).toBeDefined();
-    expect(speechParams({ ...ready, text: `${emoji}!` }, TEST_SPEECH_CATALOG).error).toBe("text");
+    const astral = "𝔸".repeat(5000);
+    expect(astral.length).toBe(10000);
+    expect(speechTextLength(astral)).toBe(5000);
+    expect(speechParams({ ...ready, text: astral }, TEST_SPEECH_CATALOG).params).toBeDefined();
+    expect(speechParams({ ...ready, text: `${astral}!` }, TEST_SPEECH_CATALOG).error).toBe("text");
   });
   it("keys candidates by every synthesis and level field", () => {
     const params = speechParams(ready, TEST_SPEECH_CATALOG).params;
