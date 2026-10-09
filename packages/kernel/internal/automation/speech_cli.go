@@ -63,10 +63,16 @@ func present(root string, f pockettts.File) bool {
 	return err == nil && info.Mode().IsRegular() && info.Size() == f.Size
 }
 
-// runSpeechCLI implements `aae speech list` and `aae speech download`.
+// runSpeechCLI implements `aae speech list`, `download` and `catalog`.
 func runSpeechCLI(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if len(args) == 1 && args[0] == "catalog" {
+		// The pinned catalog JSON; the web build ships it so Electron's main
+		// process downloads only catalog files.
+		_, err := stdout.Write(pockettts.CatalogJSON())
+		return err
+	}
 	if len(args) == 0 || (args[0] != "list" && args[0] != "download") {
-		return fmt.Errorf("aae speech: use `aae speech list --speech-models <dir>` or `aae speech download --speech-models <dir> --model <name> [--voice <id>]...`")
+		return fmt.Errorf("aae speech: use `aae speech list --speech-models <dir>`, `aae speech download --speech-models <dir> --model <name> [--voice <id>]...` or `aae speech catalog`")
 	}
 	command := args[0]
 	flags := flag.NewFlagSet("aae speech "+command, flag.ContinueOnError)

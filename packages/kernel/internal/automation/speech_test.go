@@ -168,10 +168,21 @@ func TestCLISpeechList(t *testing.T) {
 	}
 }
 
+func TestCLISpeechCatalogIsTheEmbeddedCatalog(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := RunCLI(context.Background(), []string{"speech", "catalog"}, &stdout, new(bytes.Buffer)); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stdout.Bytes(), pockettts.CatalogJSON()) {
+		t.Fatal("aae speech catalog differs from the embedded catalog")
+	}
+}
+
 func TestCLISpeechUsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"speech"},
 		{"speech", "bogus"},
+		{"speech", "catalog", "--speech-models", "x"},
 		{"speech", "download", "--model", "german"},
 		{"speech", "download", "--speech-models", t.TempDir()},
 		{"speech", "download", "--speech-models", t.TempDir(), "--model", "klingon"},

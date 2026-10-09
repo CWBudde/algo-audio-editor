@@ -324,5 +324,5 @@ ci: check-hooks check-formatted check-licenses lint test-go-race check-coverage 
 
 clean:
     rm -rf {{kernel}}/bin
-    rm -rf {{web}}/dist {{web}}/dist-pages {{desktop}}/dist {{web}}/public/kernel.wasm {{web}}/public/speech.wasm {{web}}/public/wasm_exec.js
+    rm -rf {{web}}/dist {{web}}/dist-pages {{desktop}}/dist {{web}}/public/kernel.wasm {{web}}/public/speech.wasm {{web}}/public/speech-catalog.json {{web}}/public/wasm_exec.js
     rm -f {{kernel}}/coverage.out

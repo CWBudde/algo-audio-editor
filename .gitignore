@@ -10,6 +10,7 @@ apps/desktop/dist/
 apps/desktop/release/
 apps/editor-web/public/kernel.wasm
 apps/editor-web/public/speech.wasm
+apps/editor-web/public/speech-catalog.json
 apps/editor-web/public/wasm_exec.js
 
 # ── Test output ──────────────────────────────────────────────────────────────

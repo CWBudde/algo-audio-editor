@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { open, readFile } from "node:fs/promises";
+import { open, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { SPEECH_MODELS_PREFIX, speechModelSegments } from "./speech-model-paths";
@@ -49,6 +49,14 @@ async function speechModelResponse(pathname: string, speechRoot: string | undefi
   if (!segments) return new Response("forbidden", { status: 403 });
   const file = path.join(speechRoot, ...segments);
   if (!file.startsWith(speechRoot + path.sep)) return new Response("forbidden", { status: 403 });
+  // The lexical check cannot see a symlinked folder below the root; resolve the
+  // parent and require it inside the resolved root. O_NOFOLLOW covers the file.
+  const [realRoot, realParent] = await Promise.all([
+    realpath(speechRoot),
+    realpath(path.dirname(file)),
+  ]);
+  if (realParent !== realRoot && !realParent.startsWith(realRoot + path.sep))
+    return new Response("forbidden", { status: 403 });
   const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   try {
     const stat = await handle.stat();

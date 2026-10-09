@@ -6,15 +6,18 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, type Stats } from "node:fs";
-import { lstat, mkdir, open, readdir, rename, rm, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile, rename, rm, unlink } from "node:fs/promises";
 import path from "node:path";
 import { app, type BrowserWindow, ipcMain, net } from "electron";
 import type { SpeechDownloadProgress, SpeechModelFile } from "../../editor-web/src/platform";
 import { trustedWindow } from "./ipc";
 import {
   allowedRedirect,
+  parseSpeechCatalog,
   parseSpeechModelFiles,
+  requireCatalogFiles,
   SPEECH_MODELS_PREFIX,
+  type SpeechCatalogFiles,
   speechModelSegments,
 } from "./speech-model-paths";
 
@@ -98,6 +101,32 @@ function request(url: string, signal: AbortSignal) {
   });
 }
 
+const missing = (error: NodeJS.ErrnoException) => {
+  if (error.code === "ENOENT") return undefined;
+  throw error;
+};
+
+/**
+ * Creates a model's folders below root one at a time. mkdir -p would follow a
+ * symlinked folder out of the root; here a symlink or file in the way is refused.
+ */
+async function ensureDirectories(root: string, segments: string[]) {
+  await mkdir(root, { recursive: true });
+  let directory = root;
+  for (const segment of segments) {
+    directory = path.join(directory, segment);
+    let stat = await lstat(directory).catch(missing);
+    if (!stat) {
+      await mkdir(directory).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "EEXIST") throw error;
+      });
+      stat = await lstat(directory);
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new Error(`Speech model folder is not a plain directory: ${segments.join("/")}`);
+  }
+}
+
 async function hashFile(file: string) {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(file)) hash.update(chunk as Buffer);
@@ -118,15 +147,33 @@ const sameFile = (cached: VerifiedHash, stat: Stats) =>
   cached.ctimeMs === stat.ctimeMs &&
   cached.ino === stat.ino;
 
-export function registerSpeechModels(applicationURL: string) {
+/** Loads the catalog JSON once; a failed read is retried on the next request. */
+export function catalogFile(file: string): () => Promise<SpeechCatalogFiles> {
+  let loaded: Promise<SpeechCatalogFiles> | undefined;
+  return () =>
+    (loaded ??= readFile(file, "utf8")
+      .then(parseSpeechCatalog)
+      .catch((error: unknown) => {
+        loaded = undefined;
+        throw new Error(
+          `Speech model catalog unavailable: ${error instanceof Error ? error.message : error}`,
+        );
+      }));
+}
+
+/**
+ * catalog yields the pinned catalog the app ships (speech-catalog.json); a
+ * request for any other file is refused before the network is touched.
+ */
+export function registerSpeechModels(
+  applicationURL: string,
+  catalog: () => Promise<SpeechCatalogFiles>,
+) {
   const verified = new Map<string, VerifiedHash>();
   let active: Download | undefined;
 
   const present = async (file: string, model: SpeechModelFile) => {
-    const stat = await lstat(file).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return undefined;
-      throw error;
-    });
+    const stat = await lstat(file).catch(missing);
     if (!stat) return false;
     if (stat.isDirectory()) throw new Error(`Speech model path is a folder: ${model.path}`);
     if (stat.isFile() && stat.size === model.size) {
@@ -198,6 +245,7 @@ export function registerSpeechModels(applicationURL: string) {
   ipcMain.handle("speech-models.ensure", async (event, input: unknown) => {
     const win = trustedWindow(event, applicationURL);
     const models = parseSpeechModelFiles(input);
+    requireCatalogFiles(models, await catalog());
     if (active) throw new Error("A speech model download is already running");
     const job: Download = { owner: win.webContents.id, controller: new AbortController() };
     active = job;
@@ -219,7 +267,7 @@ export function registerSpeechModels(applicationURL: string) {
         if (signal.aborted) throw cancelled();
         const segments = speechModelSegments(model.path) as string[];
         const file = path.join(root, ...segments);
-        await mkdir(path.dirname(file), { recursive: true });
+        await ensureDirectories(root, segments.slice(0, -1));
         await removeStaleParts(file);
         if (await present(file, model)) done += model.size;
         else

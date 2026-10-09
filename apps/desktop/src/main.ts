@@ -21,7 +21,7 @@ import {
   registerPermissions,
   sameApplication,
 } from "./security";
-import { registerSpeechModels, speechModelsRoot } from "./speech-models";
+import { catalogFile, registerSpeechModels, speechModelsRoot } from "./speech-models";
 import { registerUpdates } from "./updates";
 import { loadWindowState, persistWindowState } from "./window-state";
 
@@ -214,7 +214,10 @@ if (singleInstance) {
       registerAppProtocol();
       registerEffectPresets(DEV_URL ?? APP_URL);
       files = registerFiles(DEV_URL ?? APP_URL);
-      speechModels = registerSpeechModels(DEV_URL ?? APP_URL);
+      speechModels = registerSpeechModels(
+        DEV_URL ?? APP_URL,
+        catalogFile(path.join(WEB_ROOT, "speech-catalog.json")),
+      );
       desktop = registerDesktop(DEV_URL ?? APP_URL, () => {
         void checkUpdates();
       });

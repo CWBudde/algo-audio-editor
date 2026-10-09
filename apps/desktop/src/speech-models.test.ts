@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,8 +8,8 @@ import { Readable } from "node:stream";
 import type { BrowserWindow } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SpeechModelFile } from "../../editor-web/src/platform";
-import { parseSpeechModelFiles } from "./speech-model-paths";
-import { registerSpeechModels, SPEECH_MODELS_URL } from "./speech-models";
+import { parseSpeechCatalog, parseSpeechModelFiles } from "./speech-model-paths";
+import { catalogFile, registerSpeechModels, SPEECH_MODELS_URL } from "./speech-models";
 
 type Route =
   | { redirect: string }
@@ -115,12 +116,18 @@ const CDN = "https://us.aws.cdn.hf.co/xet-bridge-us/0123/abcdef";
 const sha256 = (data: Buffer) => createHash("sha256").update(data).digest("hex");
 const payload = (size: number, seed = 1) =>
   Buffer.from(Array.from({ length: size }, (_, index) => (index * 31 + seed) & 0xff));
-const model = (data: Buffer, file = "german/voices/juergen.safetensors"): SpeechModelFile => ({
-  url: hubURL(path.basename(file)),
-  sha256: sha256(data),
-  size: data.length,
-  path: file,
-});
+/** The shipped catalog as the tests see it: every file model() creates is pinned. */
+const pinned = new Map<string, SpeechModelFile>();
+const model = (data: Buffer, file = "german/voices/juergen.safetensors"): SpeechModelFile => {
+  const entry = {
+    url: hubURL(path.basename(file)),
+    sha256: sha256(data),
+    size: data.length,
+    path: file,
+  };
+  pinned.set(file, entry);
+  return entry;
+};
 const serve = (
   url: string,
   data: Buffer,
@@ -168,7 +175,7 @@ beforeEach(async () => {
   electron.requests.length = 0;
   win = createWindow(1);
   other = createWindow(2);
-  speech = registerSpeechModels(applicationURL);
+  speech = registerSpeechModels(applicationURL, async () => pinned);
   speech.attach(win as unknown as BrowserWindow);
   speech.attach(other as unknown as BrowserWindow);
 });
@@ -263,6 +270,62 @@ describe("speech model request validation", () => {
   });
 });
 
+describe("speech model catalog", () => {
+  it("refuses files that are not exactly the shipped catalog's before any network access", async () => {
+    const data = payload(16);
+    const valid = model(data, "german/voices/anna.safetensors");
+    for (const request of [
+      { ...valid, path: "german/voices/unknown.safetensors" },
+      { ...valid, sha256: sha256(payload(16, 9)) },
+      { ...valid, size: 17 },
+      { ...valid, url: hubURL("other.safetensors") },
+    ])
+      await expect(invoke("ensure", win, [request])).rejects.toThrow(
+        "is not in the speech model catalog",
+      );
+    expect(electron.requests).toEqual([]);
+  });
+
+  it("indexes the go-pocket-tts catalog JSON by path", () => {
+    const weights = model(payload(8), "german/model.safetensors");
+    const tokenizer = model(payload(4), "german/tokenizer.json");
+    const voice = model(payload(2), "german/voices/juergen.safetensors");
+    const json = JSON.stringify({
+      default: "german",
+      models: [{ name: "german", weights, tokenizer, voices: [{ id: "juergen", ...voice }] }],
+    });
+    expect([...parseSpeechCatalog(json).values()]).toEqual([weights, tokenizer, voice]);
+    expect(() => parseSpeechCatalog("{}")).toThrow("Invalid speech model catalog");
+    expect(() =>
+      parseSpeechCatalog(
+        JSON.stringify({
+          models: [
+            { weights: { ...weights, url: "https://evil.example/" }, tokenizer, voices: [] },
+          ],
+        }),
+      ),
+    ).toThrow("Invalid speech model request");
+  });
+
+  // Vitest runs in apps/desktop; the file exists after scripts/build-wasm.mjs.
+  const shipped = path.resolve("..", "editor-web", "public", "speech-catalog.json");
+  it.skipIf(!existsSync(shipped))("accepts the catalog the web build ships", async () => {
+    const files = parseSpeechCatalog(await readFile(shipped, "utf8"));
+    expect(files.size).toBeGreaterThan(6);
+    expect(files.get("german/model.safetensors")?.url).toMatch(/^https:\/\/huggingface\.co\//);
+  });
+
+  it("reports a missing catalog and reads it once it exists", async () => {
+    const file = path.join(userData, "speech-catalog.json");
+    const load = catalogFile(file);
+    await expect(load()).rejects.toThrow("Speech model catalog unavailable");
+    const weights = model(payload(8), "german/model.safetensors");
+    const tokenizer = model(payload(4), "german/tokenizer.json");
+    await writeFile(file, JSON.stringify({ models: [{ weights, tokenizer, voices: [] }] }));
+    expect((await load()).get(weights.path)).toEqual(weights);
+  });
+});
+
 describe("speech model downloads", () => {
   it("follows an allowed CDN redirect, writes the verified file atomically and reports progress", async () => {
     const weights = payload(64, 3);
@@ -330,6 +393,19 @@ describe("speech model downloads", () => {
     expect(electron.requests).toHaveLength(1);
     expect(await readFile(outside)).toEqual(data);
     expect(await tree()).toEqual([file.path]);
+  });
+
+  it("refuses a symlinked model folder instead of writing through it", async () => {
+    const data = payload(16);
+    const file = model(data);
+    const outside = path.join(userData, "outside");
+    await mkdir(outside);
+    await mkdir(root, { recursive: true });
+    await symlink(outside, path.join(root, "german"), "dir");
+    serve(file.url, data);
+    await expect(invoke("ensure", win, [file])).rejects.toThrow("not a plain directory");
+    expect(electron.requests).toEqual([]);
+    expect(await readdir(outside)).toEqual([]);
   });
 
   it("removes stale partial files left by an interrupted run", async () => {

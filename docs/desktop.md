@@ -73,7 +73,12 @@ catalog entries, and the main process validates each one as untrusted input: a
 revision-pinned `https://huggingface.co/<org>/<repo>/resolve/<40-hex>/<file>` URL, a
 lower-case SHA-256, a size of at most 4 GiB and a safe relative path ending in
 `.safetensors`, `tokenizer.model` or `tokenizer.json` (at most 40 files, no
-duplicates). Requests use Chromium's network stack with the system proxy, no cookies
+duplicates). Every entry must also equal, in URL, SHA-256 and size, the file at its
+path in `speech-catalog.json`, the pinned go-pocket-tts catalog that
+`scripts/build-wasm.mjs` writes with `aae speech catalog` and the app ships next to
+its web build; a compromised renderer cannot fetch anything else. Folders below
+`userData/speech-models` are created one at a time, and a symlink or file in their
+place stops the download. Requests use Chromium's network stack with the system proxy, no cookies
 or credentials and no HTTP cache. Redirects are followed manually, at most five,
 and only to `https://huggingface.co` or `https://*.hf.co` (the Hugging Face Xet/LFS
 CDN); any other target aborts the download.
@@ -90,8 +95,9 @@ navigation and closing the requesting window abort it, and the request rejects w
 
 The renderer then fetches `app://editor/speech-models/<path>`, so its CSP stays
 `connect-src 'self'`. The protocol serves only catalog-shaped paths below that
-folder, without following a final symlink, streaming the file with the same
-COOP/COEP/CSP headers. Removing speech models deletes the whole folder; it is
+folder: the resolved parent must lie inside the resolved model folder, and the
+file itself is opened without following a symlink. It streams the file with
+the same COOP/COEP/CSP headers. Removing speech models deletes the whole folder; it is
 refused while a download runs. Deleting `userData/speech-models` manually while
 the app is closed has the same effect. In `just desktop-hot` the renderer origin is
 the Vite server, which cannot read `app://` model files; use `just desktop-dev`.

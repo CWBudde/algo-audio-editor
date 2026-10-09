@@ -116,3 +116,43 @@ export function parseSpeechModelFiles(input: unknown): SpeechModelFile[] {
     return { url, sha256, size, path: path as string };
   });
 }
+
+/** The pinned catalog files by path: the only files main downloads. */
+export type SpeechCatalogFiles = ReadonlyMap<string, SpeechModelFile>;
+
+/**
+ * Indexes the go-pocket-tts catalog JSON the web build ships as
+ * speech-catalog.json. Every entry must itself be a valid request.
+ */
+export function parseSpeechCatalog(json: string): SpeechCatalogFiles {
+  const catalog = JSON.parse(json) as { models?: unknown };
+  if (!Array.isArray(catalog.models)) throw new Error("Invalid speech model catalog");
+  const files: unknown[] = [];
+  for (const model of catalog.models as Record<string, unknown>[]) {
+    files.push(model.weights, model.tokenizer);
+    if (!Array.isArray(model.voices)) throw new Error("Invalid speech model catalog");
+    for (const { id: _id, ...voice } of model.voices as Record<string, unknown>[])
+      files.push(voice);
+  }
+  const index = new Map<string, SpeechModelFile>();
+  for (let offset = 0; offset < files.length; offset += MAX_SPEECH_MODEL_FILES)
+    for (const file of parseSpeechModelFiles(files.slice(offset, offset + MAX_SPEECH_MODEL_FILES)))
+      index.set(file.path, file);
+  return index;
+}
+
+/** Rejects requested files that are not exactly the catalog's pinned file at their path. */
+export function requireCatalogFiles(files: SpeechModelFile[], catalog: SpeechCatalogFiles) {
+  for (const file of files) {
+    const pinned = catalog.get(file.path);
+    if (
+      !pinned ||
+      pinned.url !== file.url ||
+      pinned.sha256 !== file.sha256 ||
+      pinned.size !== file.size
+    )
+      throw new Error(
+        `Invalid speech model request: ${file.path} is not in the speech model catalog`,
+      );
+  }
+}

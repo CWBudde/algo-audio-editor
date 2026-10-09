@@ -98,6 +98,19 @@ describe("speech model route", () => {
     expect(await response.text()).toBe("forbidden");
   });
 
+  it("refuses a model folder that is a symlink out of the root", async () => {
+    const outside = path.join(directory, "outside");
+    await mkdir(outside);
+    await writeFile(path.join(outside, "model.safetensors"), "private");
+    await symlink(outside, path.join(speechRoot, "linked"), "dir");
+    const response = await appResponse(
+      "app://editor/speech-models/linked/model.safetensors",
+      webRoot,
+      speechRoot,
+    );
+    expect(response.status).toBe(403);
+  });
+
   it("returns 404 for missing files, folders, symlinks and an unconfigured root", async () => {
     await mkdir(path.join(speechRoot, "german", "folder.safetensors"));
     await symlink(

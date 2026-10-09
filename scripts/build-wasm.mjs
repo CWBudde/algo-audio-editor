@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,6 +39,14 @@ for (const program of programs) {
     "-o", output,
   ], { stdio: "inherit" });
 }
+// The pinned speech model catalog, served with the build: Electron's main
+// process downloads only files listed in it.
+const catalog = execFileSync("go", ["run", "./cmd/aae", "speech", "catalog"], {
+  cwd: kernel,
+  env: { ...process.env, GOOS: "", GOARCH: "" },
+  maxBuffer: 16 << 20,
+});
+writeFileSync(path.join(destination, "speech-catalog.json"), catalog);
 const goroot = execFileSync("go", ["env", "GOROOT"], { encoding: "utf8" }).trim();
 const runtime = ["lib", "misc"]
   .map(directory => path.join(goroot, directory, "wasm/wasm_exec.js"))
