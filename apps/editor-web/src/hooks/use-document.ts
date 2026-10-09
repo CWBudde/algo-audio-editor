@@ -25,6 +25,13 @@ interface DocumentOptions {
   onSaved?(history: HistoryListResult): void;
 }
 
+/** Electron asks through its native dialog; the browser's native prompt mirrors its wording. */
+async function confirmReplace(name: string) {
+  const bridge = desktopBridge();
+  if (bridge) return bridge.confirmReplace(name);
+  return window.confirm(`Discard changes to ${name}?\n\nThe document has unsaved changes.`);
+}
+
 /** Owns document revisions and serializes file and edit workflows. */
 export function useDocument(client: KernelClient | undefined, options: DocumentOptions) {
   const {
@@ -83,10 +90,10 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
       try {
         if (file.size > 1024 * 1024 * 1024) throw new Error("File exceeds the 1 GiB import limit.");
         const current = currentInfo.current;
-        if (current && desktopBridge()) {
+        if (current) {
           const history = await target.call("history.list", { documentId: current.documentId });
           if (!active()) return;
-          if (history.dirty && !(await desktopBridge()?.confirmReplace(current.name))) return;
+          if (history.dirty && !(await confirmReplace(current.name))) return;
         }
         const stopping = latest.current.options.beforeOpen();
         const [stopped, reading] = await Promise.allSettled([

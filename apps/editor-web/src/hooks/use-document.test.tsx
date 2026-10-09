@@ -3,6 +3,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KernelClient, type WorkerLike } from "@/kernel/client";
 import type { WorkerReply, WorkerRequest } from "@/kernel/messages";
+import { desktopFixture } from "@/lib/desktop-test-fixture";
 import { chooseAudioFile, chooseSaveTarget } from "@/lib/file-access";
 import { useDocument } from "./use-document";
 
@@ -52,6 +53,7 @@ class DocumentWorker implements WorkerLike {
   holdSave = false;
   rejectExport = false;
   rejectSave = false;
+  history: HistoryListResult = dirtyHistory;
   postMessage(request: WorkerRequest) {
     this.sent.push(request);
     if (request.op !== "call") return;
@@ -72,7 +74,7 @@ class DocumentWorker implements WorkerLike {
               request.method === "doc.export" || request.method === "timeline.export"
                 ? exported
                 : request.method === "history.list"
-                  ? dirtyHistory
+                  ? this.history
                   : request.method === "doc.mark-saved"
                     ? cleanHistory
                     : { ...info, name: (request.params as { name: string }).name },
@@ -350,6 +352,7 @@ describe("useDocument", () => {
 
   it("handles an early read rejection and keeps the import lock until shutdown settles", async () => {
     const worker = new DocumentWorker();
+    worker.history = cleanHistory;
     const client = new KernelClient(worker);
     const callbacks = options();
     const { result } = renderHook(() => useDocument(client, callbacks));
@@ -484,6 +487,7 @@ describe("useDocument", () => {
 
   it("keeps the previous document after a failed import and reports the error", async () => {
     const worker = new DocumentWorker();
+    worker.history = cleanHistory;
     const client = new KernelClient(worker);
     const callbacks = options();
     const { result } = renderHook(() => useDocument(client, callbacks));
@@ -812,6 +816,70 @@ describe("useDocument", () => {
     const { result } = renderHook(() => useDocument(client, options()));
     await act(async () => result.current.open());
     expect(result.current.info).toEqual(info);
+  });
+
+  it("asks in the browser before replacing a dirty document and keeps it when declined", async () => {
+    const confirm = vi.fn().mockReturnValue(false);
+    vi.stubGlobal("confirm", confirm);
+    const worker = new DocumentWorker();
+    const callbacks = options();
+    const client = new KernelClient(worker);
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openFile(file()));
+    const replacement = file("other.wav");
+    await act(async () => result.current.openFile(replacement));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0][0]).toContain("Discard changes to stereo.wav?");
+    expect(replacement.arrayBuffer).not.toHaveBeenCalled();
+    expect(opened(worker)).toHaveLength(1);
+    expect(callbacks.beforeOpen).toHaveBeenCalledTimes(1);
+    expect(result.current.info?.name).toBe("stereo.wav");
+    expect(result.current.busy).toBe(false);
+  });
+
+  it("replaces a dirty browser document once the user discards its changes", async () => {
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal("confirm", confirm);
+    const worker = new DocumentWorker();
+    const client = new KernelClient(worker);
+    const { result } = renderHook(() => useDocument(client, options()));
+    await act(async () => result.current.openFile(file()));
+    await act(async () => result.current.openFile(file("other.wav")));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(opened(worker)).toHaveLength(2);
+    expect(result.current.info?.name).toBe("other.wav");
+  });
+
+  it("replaces a clean document without asking", async () => {
+    const confirm = vi.fn().mockReturnValue(false);
+    vi.stubGlobal("confirm", confirm);
+    const worker = new DocumentWorker();
+    worker.history = cleanHistory;
+    const client = new KernelClient(worker);
+    const { result } = renderHook(() => useDocument(client, options()));
+    await act(async () => result.current.openFile(file()));
+    await act(async () => result.current.openFile(file("other.wav")));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(result.current.info?.name).toBe("other.wav");
+  });
+
+  it("asks through the native desktop dialog instead of the browser prompt", async () => {
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal("confirm", confirm);
+    const bridge = desktopFixture();
+    window.aaeDesktop = bridge;
+    try {
+      const worker = new DocumentWorker();
+      const client = new KernelClient(worker);
+      const { result } = renderHook(() => useDocument(client, options()));
+      await act(async () => result.current.openFile(file()));
+      await act(async () => result.current.openFile(file("other.wav")));
+      expect(bridge.confirmReplace).toHaveBeenCalledWith("stereo.wav");
+      expect(confirm).not.toHaveBeenCalled();
+      expect(opened(worker)).toHaveLength(1);
+    } finally {
+      delete window.aaeDesktop;
+    }
   });
 });
 

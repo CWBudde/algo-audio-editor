@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { expect, test } from "@playwright/test";
-import { info, LEFT, load, RIGHT, samples, select } from "./edit-fixture.ts";
+import { info, LEFT, load, openDiscarding, RIGHT, samples, select } from "./edit-fixture.ts";
 import { exportDownload, openExport, parseWAV, sourceState } from "./export-fixture.ts";
 import { captureKernelWorker } from "./kernel-probe.ts";
 import { revealControl } from "./ui-disclosures.ts";
@@ -87,9 +87,11 @@ test("selection exports the live right channel and cropped/rebased WAV annotatio
   expect(await sourceState(page)).toEqual(before);
   expect(await samples(page)).toEqual([LEFT, RIGHT]);
   await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
-  await page
-    .getByTestId("audio-file-input")
-    .setInputFiles({ name: download.suggestedFilename(), mimeType: "audio/wav", buffer: bytes });
+  await openDiscarding(page, {
+    name: download.suggestedFilename(),
+    mimeType: "audio/wav",
+    buffer: bytes,
+  });
   await expect.poll(async () => (await info(page)).documentId).not.toBe(before.document.documentId);
   const reopened = (await sourceState(page)).timeline;
   expect(reopened.markers).toEqual([expect.objectContaining({ name: "Inside cue", frame: 1 })]);

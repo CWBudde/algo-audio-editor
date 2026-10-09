@@ -14,6 +14,7 @@ import {
   info,
   LEFT,
   load,
+  openDiscarding,
   RIGHT,
   samples,
   select,
@@ -248,9 +249,11 @@ test("cancelled and failed saves stay dirty, failed open retains history, reopen
   await save(page);
   await expect(page.getByText("Could not save audio", { exact: true })).toBeVisible();
   expect(await history(page)).toEqual(current);
-  await page
-    .getByTestId("audio-file-input")
-    .setInputFiles({ name: "broken.wav", mimeType: "audio/wav", buffer: Buffer.from("invalid") });
+  await openDiscarding(page, {
+    name: "broken.wav",
+    mimeType: "audio/wav",
+    buffer: Buffer.from("invalid"),
+  });
   await expect(page.getByText("Could not open audio", { exact: true })).toBeVisible();
   expect(await history(page)).toEqual(current);
   await load(page);
