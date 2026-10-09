@@ -96,7 +96,7 @@ var methodRegistry = map[string]methodSpec{
 		return e.navigateHistory(protocol.MethodEditRedo, p.DocumentID, "")
 	}),
 	protocol.MethodMarkSaved:              typedMethod(0, (*Engine).markSaved),
-	protocol.MethodProcessStart:           typedMethod(allowProcessing, (*Engine).startProcess),
+	protocol.MethodProcessStart:           binaryMethod(allowProcessing, (*Engine).startProcess),
 	protocol.MethodProcessStep:            typedMethod(allowProcessing, (*Engine).stepProcess),
 	protocol.MethodProcessStepBatch:       typedMethod(allowProcessing, (*Engine).stepProcessBatch),
 	protocol.MethodProcessCancel:          typedMethod(allowProcessing, (*Engine).cancelProcess),

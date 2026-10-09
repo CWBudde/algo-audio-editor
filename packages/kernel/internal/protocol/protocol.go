@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 18
+const Version = 19
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -319,32 +319,62 @@ type EditResult struct {
 // publishes it; preview playback and cancellation leave the document unchanged.
 type ProcessStartParams struct {
 	SelectionResult
-	Operation      OperationName    `json:"operation"`
-	GainDB         float64          `json:"gainDb"`
-	Target         *float64         `json:"target,omitempty"`
-	Curve          string           `json:"curve,omitempty"`
-	DurationFrames int64            `json:"durationFrames,omitempty"`
-	ChannelMode    string           `json:"channelMode,omitempty"`
-	Channel        int              `json:"channel,omitempty"`
-	SampleRate     int              `json:"sampleRate,omitempty"`
-	Quality        string           `json:"quality,omitempty"`
-	Generator      string           `json:"generator,omitempty"`
-	Frequency      float64          `json:"frequency,omitempty"`
-	EndFrequency   float64          `json:"endFrequency,omitempty"`
-	LevelDB        float64          `json:"levelDb,omitempty"`
-	Seed           uint64           `json:"seed,omitempty"`
-	FFTSize        int              `json:"fftSize,omitempty"`
-	SpectralMask   *SpectralMask    `json:"spectralMask,omitempty"`
-	NoiseProfile   *SelectionResult `json:"noiseProfile,omitempty"`
-	ReductionDB    float64          `json:"reductionDb,omitempty"`
-	NoiseMethod    string           `json:"noiseMethod,omitempty"`
-	Sensitivity    float64          `json:"sensitivity,omitempty"`
-	ClipThreshold  float64          `json:"clipThreshold,omitempty"`
-	MaxGap         int              `json:"maxGap,omitempty"`
-	DurationRatio  float64          `json:"durationRatio,omitempty"`
-	HumHz          float64          `json:"humHz,omitempty"`
-	HumQ           float64          `json:"humQ,omitempty"`
-	Harmonics      int              `json:"harmonics,omitempty"`
+	Operation      OperationName `json:"operation"`
+	GainDB         float64       `json:"gainDb"`
+	Target         *float64      `json:"target,omitempty"`
+	Curve          string        `json:"curve,omitempty"`
+	DurationFrames int64         `json:"durationFrames,omitempty"`
+	ChannelMode    string        `json:"channelMode,omitempty"`
+	Channel        int           `json:"channel,omitempty"`
+	SampleRate     int           `json:"sampleRate,omitempty"`
+	Quality        string        `json:"quality,omitempty"`
+	Generator      string        `json:"generator,omitempty"`
+	Frequency      float64       `json:"frequency,omitempty"`
+	EndFrequency   float64       `json:"endFrequency,omitempty"`
+	LevelDB        float64       `json:"levelDb,omitempty"`
+	Seed           uint64        `json:"seed,omitempty"`
+	// SourceSampleRate is the rate of the mono little-endian float32 PCM that
+	// the "audio" generator takes as the call's binary input.
+	SourceSampleRate int              `json:"sourceSampleRate,omitempty"`
+	FFTSize          int              `json:"fftSize,omitempty"`
+	SpectralMask     *SpectralMask    `json:"spectralMask,omitempty"`
+	NoiseProfile     *SelectionResult `json:"noiseProfile,omitempty"`
+	ReductionDB      float64          `json:"reductionDb,omitempty"`
+	NoiseMethod      string           `json:"noiseMethod,omitempty"`
+	Sensitivity      float64          `json:"sensitivity,omitempty"`
+	ClipThreshold    float64          `json:"clipThreshold,omitempty"`
+	MaxGap           int              `json:"maxGap,omitempty"`
+	DurationRatio    float64          `json:"durationRatio,omitempty"`
+	HumHz            float64          `json:"humHz,omitempty"`
+	HumQ             float64          `json:"humQ,omitempty"`
+	Harmonics        int              `json:"harmonics,omitempty"`
+}
+
+// ChainSpeechGenerate is the operation-chain method that speaks text and
+// places it like the "audio" generator. It is not a kernel method: the UI and
+// native runners synthesize with go-pocket-tts, then call process.start.
+const ChainSpeechGenerate = "speech.generate"
+
+// GeneratorAudio places the PCM passed with process.start: speech keeps its
+// own length, resampled to the document rate.
+const GeneratorAudio = "audio"
+
+// MaxSpeechTextRunes bounds the text of one speech.generate step.
+const MaxSpeechTextRunes = 5000
+
+// SpeechGenerateParams are the parameters of a speech.generate chain step.
+// Model and Voice name go-pocket-tts catalog entries; Seed reproduces the
+// speech for one build, platform and worker count. LevelDB scales it.
+type SpeechGenerateParams struct {
+	SelectionResult
+	Model        string  `json:"model"`
+	Voice        string  `json:"voice"`
+	Text         string  `json:"text"`
+	Temperature  float64 `json:"temperature"`
+	SamplerSteps int     `json:"samplerSteps"`
+	EOSThreshold float64 `json:"eosThreshold"`
+	Seed         uint64  `json:"seed"`
+	LevelDB      float64 `json:"levelDb,omitempty"`
 }
 
 // SpectralPoint is selection geometry, never audio data.

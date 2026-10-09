@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 18;
+export const PROTOCOL_VERSION = 19;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -327,6 +327,13 @@ export type ProcessStartParams = SelectionResult &
         levelDb: number;
         seed: number;
       }
+    | {
+        /** Places the mono float32 PCM sent as binary input at its own length. */
+        operation: "generate";
+        generator: "audio";
+        sourceSampleRate: number;
+        levelDb?: number;
+      }
   );
 
 /** Private output geometry; source coordinates remain in the job envelope. */
@@ -541,6 +548,20 @@ export interface EffectPreviewResult extends SelectionResult {
 type RecordedParams<T extends SelectionResult> = T extends unknown
   ? Omit<T, keyof SelectionResult> & Partial<SelectionRange>
   : never;
+/** speech.generate is a chain method, not a kernel method: runners synthesize
+ * with go-pocket-tts and place the result with the "audio" generator. */
+export const CHAIN_SPEECH_GENERATE = "speech.generate";
+export const MAX_SPEECH_TEXT_LENGTH = 5000;
+export interface SpeechGenerateParams extends SelectionResult {
+  model: string;
+  voice: string;
+  text: string;
+  temperature: number;
+  samplerSteps: number;
+  eosThreshold: number;
+  seed: number;
+  levelDb?: number;
+}
 export type RecordedOperation = { range?: "document" } & (
   | { method: "edit.apply"; params: RecordedParams<EditApplyParams> }
   | {

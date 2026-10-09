@@ -160,7 +160,7 @@ func TestNormalizeEngineValidationAndSelectedNonfiniteAtomicity(t *testing.T) {
 	} {
 		params := processParams(e, 0, 2, 1, 0)
 		params.Operation, params.Target = protocol.OperationName(test.operation), test.target
-		if _, err := e.startProcess(params); err == nil {
+		if _, err := e.startProcess(params, nil); err == nil {
 			t.Fatalf("invalid normalization parameters accepted: %+v", params)
 		}
 	}

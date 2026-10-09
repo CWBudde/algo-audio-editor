@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 
@@ -28,10 +29,14 @@ type processingJob struct {
 	historyState  string
 }
 
-func (e *Engine) startProcess(p protocol.ProcessStartParams) (protocol.ProcessJobResult, error) {
+func (e *Engine) startProcess(p protocol.ProcessStartParams, input []byte) (protocol.ProcessJobResult, error) {
 	const method = protocol.MethodProcessStart
 	if err := e.validateDocumentID(method, p.DocumentID); err != nil {
 		return protocol.ProcessJobResult{}, err
+	}
+	audio, err := decodeProcessAudio(p, input)
+	if err != nil {
+		return protocol.ProcessJobResult{}, fmt.Errorf("%s: %w", method, err)
 	}
 	if e.jobs.processJob != nil {
 		return protocol.ProcessJobResult{}, fmt.Errorf("%s: processing job is already active", method)
@@ -60,7 +65,7 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams) (protocol.ProcessJo
 	} else if selection.Start == selection.End && p.Operation != protocol.OperationCrossfade && p.Operation != protocol.OperationGenerate {
 		selection.Start, selection.End = 0, e.doc.document.Frames()
 	}
-	builder, err := e.prepareProcess(p, selection)
+	builder, err := e.prepareProcess(p, selection, audio)
 	if err != nil {
 		return protocol.ProcessJobResult{}, fmt.Errorf("%s: prepare processing: %w", method, err)
 	}
@@ -133,7 +138,7 @@ func validateProcessParameters(p protocol.ProcessStartParams) error {
 	return nil
 }
 
-func (e *Engine) prepareProcess(p protocol.ProcessStartParams, selection protocol.SelectionRange) (processing.Stepper, error) {
+func (e *Engine) prepareProcess(p protocol.ProcessStartParams, selection protocol.SelectionRange, audio []float32) (processing.Stepper, error) {
 	selected := ops.Range{Start: selection.Start, End: selection.End, ChannelMask: selection.ChannelMask}
 	limits := processing.Limits{MaxOutputBytes: e.processStorageLimit()}
 	if p.Operation == protocol.OperationGain {
@@ -159,6 +164,7 @@ func (e *Engine) prepareProcess(p protocol.ProcessStartParams, selection protoco
 		Operation: p.Operation, Curve: p.Curve, DurationFrames: p.DurationFrames, Restoration: restorationSettings,
 		ChannelMode: p.ChannelMode, Channel: p.Channel, SampleRate: p.SampleRate, Quality: p.Quality,
 		Generator: p.Generator, Frequency: p.Frequency, EndFrequency: p.EndFrequency, LevelDB: p.LevelDB, Seed: p.Seed,
+		Audio: audio, AudioRate: p.SourceSampleRate,
 	}, limits)
 }
 
@@ -351,4 +357,24 @@ func (e *Engine) commitProcess(p protocol.ProcessJobParams) (protocol.EditResult
 	e.playback.transport, e.playback.source = nil, sourceStopped
 	e.jobs.processJob = nil
 	return e.editResult(true), nil
+}
+
+// decodeProcessAudio copies the audio generator's little-endian float32 PCM
+// out of the call input, which the engine does not retain. Every other
+// operation must come without binary input or a source rate.
+func decodeProcessAudio(p protocol.ProcessStartParams, input []byte) ([]float32, error) {
+	if p.Operation != protocol.OperationGenerate || p.Generator != protocol.GeneratorAudio {
+		if len(input) > 0 || p.SourceSampleRate != 0 {
+			return nil, fmt.Errorf("binary input and sourceSampleRate need the audio generator")
+		}
+		return nil, nil
+	}
+	if len(input) == 0 || len(input)%4 != 0 {
+		return nil, fmt.Errorf("audio generator needs mono float32 PCM as binary input")
+	}
+	audio := make([]float32, len(input)/4)
+	for i := range audio {
+		audio[i] = math.Float32frombits(binary.LittleEndian.Uint32(input[4*i:]))
+	}
+	return audio, nil
 }

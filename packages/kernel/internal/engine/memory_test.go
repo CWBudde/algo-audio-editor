@@ -174,7 +174,7 @@ func TestHistoryUsesOwnerCeiling(t *testing.T) {
 		t.Fatal("history uses a separate ceiling")
 	}
 	before := e.editResult(false)
-	if _, err := e.startProcess(processParams(e, 0, e.doc.document.Frames(), 1, 6)); err == nil {
+	if _, err := e.startProcess(processParams(e, 0, e.doc.document.Frames(), 1, 6), nil); err == nil {
 		t.Fatal("candidate ignored retained history")
 	}
 	if !reflect.DeepEqual(before, e.editResult(false)) {

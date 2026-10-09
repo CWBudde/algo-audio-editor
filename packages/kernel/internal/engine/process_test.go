@@ -28,7 +28,7 @@ func jobParams(result protocol.ProcessJobResult) protocol.ProcessJobParams {
 
 func startEngineProcess(t testing.TB, e *Engine, params protocol.ProcessStartParams) protocol.ProcessJobResult {
 	t.Helper()
-	result, err := e.startProcess(params)
+	result, err := e.startProcess(params, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestProcessCancelledStepsAndStaleIdentities(t *testing.T) {
 	if _, err := e.commitProcess(jobParams(first)); err == nil {
 		t.Fatal("cancelled job committed")
 	}
-	if _, err := e.startProcess(processParams(e, 0, 4, 1, 1)); err == nil || e.jobs.processJob != current {
+	if _, err := e.startProcess(processParams(e, 0, 4, 1, 1), nil); err == nil || e.jobs.processJob != current {
 		t.Fatal("start replaced active work")
 	}
 	if _, err := e.cancelProcess(jobParams(second)); err != nil {
@@ -299,7 +299,7 @@ func TestProcessStartValidationAndFailureKeepOrdinaryPlayback(t *testing.T) {
 		processParams(e, 0, 4, 1, math.NaN()), processParams(e, 0, 4, 1, math.Inf(1)),
 		processParams(e, 0, 4, 1, -121), processParams(e, 0, 4, 1, 61),
 	} {
-		if _, err := e.startProcess(params); err == nil || e.jobs.processJob != nil || e.playback.transport != transport || !transport.playing {
+		if _, err := e.startProcess(params, nil); err == nil || e.jobs.processJob != nil || e.playback.transport != transport || !transport.playing {
 			t.Fatal("invalid start changed playback/job state")
 		}
 	}
@@ -428,18 +428,18 @@ func TestProcessCollapsedRangeUndoRestoresOriginalCursor(t *testing.T) {
 
 func TestProcessEmptyDocumentAndIdentitySequenceGuard(t *testing.T) {
 	e, _ := openEditorFixture(t, nil, 1)
-	if _, err := e.startProcess(processParams(e, 0, 0, 1, 6)); err == nil || e.jobs.processJob != nil {
+	if _, err := e.startProcess(processParams(e, 0, 0, 1, 6), nil); err == nil || e.jobs.processJob != nil {
 		t.Fatal("processing accepted an empty document")
 	}
 	e, _ = openEditorFixture(t, []float32{.25}, 1)
 	e.jobs.processSequence = math.MaxUint64
-	if _, err := e.startProcess(processParams(e, 0, 1, 1, 6)); err == nil || e.jobs.processJob != nil {
+	if _, err := e.startProcess(processParams(e, 0, 1, 1, 6), nil); err == nil || e.jobs.processJob != nil {
 		t.Fatal("job sequence wrapped")
 	}
 	p := processParams(e, 0, 1, 1, 6)
 	p.Operation = "unsupported"
 	e.jobs.processSequence = 0
-	if _, err := e.startProcess(p); err == nil || e.jobs.processSequence != 0 {
+	if _, err := e.startProcess(p, nil); err == nil || e.jobs.processSequence != 0 {
 		t.Fatal("unsupported operation consumed an identity")
 	}
 }
@@ -497,7 +497,7 @@ func TestProcessOutputBudgetRejectsLogicalLargeInputBeforeAllocating(t *testing.
 	document := logicalProcessDocument(t, int64(maxProcessOutputBytes/4)+1, 1)
 	e := processEngineWithDocument(t, document)
 	before, memory := e.editResult(false), e.documentMemory()
-	if _, err := e.startProcess(processParams(e, 0, document.Frames(), 1, 6)); err == nil || !strings.Contains(err.Error(), "budget") {
+	if _, err := e.startProcess(processParams(e, 0, document.Frames(), 1, 6), nil); err == nil || !strings.Contains(err.Error(), "budget") {
 		t.Fatal("materialization budget was bypassed")
 	}
 	if e.jobs.processJob != nil || e.jobs.processSequence != 0 || !reflect.DeepEqual(before, e.editResult(false)) || e.documentMemory() != memory {
