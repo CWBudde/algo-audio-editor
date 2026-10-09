@@ -181,7 +181,7 @@ async function collectGoSources({ root, modfile }) {
     ["js", "wasm"],
   ];
   for (const [GOOS, GOARCH] of targets) {
-    const commands = GOOS === "js" ? ["./cmd/kernel"] : ["./cmd/aae", "./cmd/aae-mcp"];
+    const commands = GOOS === "js" ? ["./cmd/kernel", "./cmd/speech"] : ["./cmd/aae", "./cmd/aae-mcp"];
     const packages = parseGoJSONStream(
       run(["list", "-mod=readonly", "-deps", "-json", ...commands], { GOOS, GOARCH }),
     );
