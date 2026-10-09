@@ -38,21 +38,53 @@ func prepareAudio(settings Settings, rate int, limits Limits) ([]float32, error)
 	if err != nil {
 		return nil, fmt.Errorf("process.new: resample audio: %w", err)
 	}
-	// The float64 working copies cost four times the float32 result.
-	if err := outputBudget(frames, 4, limits); err != nil {
+	if err := outputBudget(frames, 1, limits); err != nil {
 		return nil, fmt.Errorf("process.new: resample audio: %w", err)
 	}
-	in := make([]float64, len(settings.Audio))
-	for i, v := range settings.Audio {
-		in[i] = float64(v)
-	}
-	out, err := resample.ResampleAligned(in, float64(settings.AudioRate), float64(rate), resample.WithQuality(resample.QualityBalanced))
+	// The resample operation's bounded stream, so the kernel links no second
+	// resampler: chunks of input never produce more than one block.
+	plan, err := resample.NewStreamPlan(settings.AudioRate, rate, audiobuf.BlockFrames, resample.QualityBalanced)
 	if err != nil {
 		return nil, fmt.Errorf("process.new: resample audio: %w", err)
 	}
-	audio := make([]float32, len(out))
-	for i, v := range out {
-		audio[i] = float32(v)
+	chunk, err := plan.InputFramesForOutputLimit(audiobuf.BlockFrames)
+	if err != nil {
+		return nil, fmt.Errorf("process.new: resample audio: %w", err)
+	}
+	if plan, err = resample.NewStreamPlan(settings.AudioRate, rate, chunk, resample.QualityBalanced); err != nil {
+		return nil, fmt.Errorf("process.new: resample audio: %w", err)
+	}
+	stream, err := plan.NewStream(int64(len(settings.Audio)))
+	if err != nil {
+		return nil, fmt.Errorf("process.new: resample audio: %w", err)
+	}
+	audio := make([]float32, 0, frames)
+	in, out := make([]float64, chunk), make([]float64, audiobuf.BlockFrames)
+	keep := func(n int) {
+		for _, v := range out[:n] {
+			audio = append(audio, float32(v))
+		}
+	}
+	for offset := 0; offset < len(settings.Audio); offset += chunk {
+		n := min(chunk, len(settings.Audio)-offset)
+		for i, v := range settings.Audio[offset : offset+n] {
+			in[i] = float64(v)
+		}
+		written, err := stream.ProcessInto(out, in[:n])
+		if err != nil {
+			return nil, fmt.Errorf("process.new: resample audio: %w", err)
+		}
+		keep(written)
+	}
+	for !stream.Done() {
+		written, _, err := stream.FlushInto(out)
+		if err != nil {
+			return nil, fmt.Errorf("process.new: resample audio: %w", err)
+		}
+		keep(written)
+	}
+	if int64(len(audio)) != frames {
+		return nil, fmt.Errorf("process.new: resample audio: produced %d of %d frames", len(audio), frames)
 	}
 	return audio, nil
 }
