@@ -30,6 +30,7 @@ import { useSelection } from "@/hooks/use-selection";
 import { useSpeech } from "@/hooks/use-speech";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import { DEFAULT_SPECTRAL_SETTINGS, type SpectralSettings } from "@/lib/analysis-settings";
+import { copyDiagnostics } from "@/lib/diagnostics";
 import {
   cancelExtractionWindow,
   openExtractedChannel,
@@ -77,6 +78,7 @@ export function useAppController() {
   const [desktopClosing, setDesktopClosing] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [informationOpen, setInformationOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [metersOpen, setMetersOpen] = useState(false);
   const [spectrumOpen, setSpectrumOpen] = useState(false);
   const [spectralView, setSpectralView] = useState<"waveform" | "spectrogram" | "split">(
@@ -475,6 +477,7 @@ export function useAppController() {
           effects.view ||
           exporting.view ||
           informationOpen ||
+          shortcutsOpen ||
           metadata.view ||
           analysis.view,
       ),
@@ -628,6 +631,16 @@ export function useAppController() {
         const range = selection;
         if (range) speech.open(range);
       },
+      "help.shortcuts": () => setShortcutsOpen(true),
+      "help.diagnostics": async () => {
+        await copyDiagnostics({
+          kernel,
+          sampleRate: engine?.sampleRate,
+          stats: engine?.stats(),
+          memory,
+        });
+        toast.success("Diagnostics copied to the clipboard");
+      },
       "help.about": () => setInformationOpen(true),
     },
   });
@@ -751,6 +764,8 @@ export function useAppController() {
     selectionEditor,
     setFollow,
     setInformationOpen,
+    setShortcutsOpen,
+    shortcutsOpen,
     setLoop,
     setMetersOpen,
     setPaletteOpen,

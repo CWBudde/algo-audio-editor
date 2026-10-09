@@ -6,6 +6,7 @@ import { EditToolbar, PasteConversionDialog } from "@/components/edit-toolbar";
 import { HistoryPanel } from "@/components/history-panel";
 import { IconAction } from "@/components/icon-action";
 import { LivePlaybackMeters } from "@/components/live-playback-meters";
+import { ShortcutsDialog } from "@/components/shortcuts-dialog";
 import { SpectrumPanel } from "@/components/spectrum-panel";
 import { StatusBar } from "@/components/status-bar";
 import { TransportBar } from "@/components/transport-bar";
@@ -14,6 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { WaveformPlaceholder } from "@/components/waveform-placeholder";
 import { WaveformView } from "@/components/waveform-view";
 import type { useAppController } from "@/hooks/use-app-controller";
+import { detectShortcutPlatform } from "@/lib/commands";
 import { Redo2, Undo2 } from "@/lib/icons";
 
 const AutomationDialog = lazy(() =>
@@ -93,7 +95,9 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
     setPaletteOpen,
     setSilenceValue,
     setSpectralSelection,
+    setShortcutsOpen,
     setSpectrumOpen,
+    shortcutsOpen,
     silenceValue,
     spectralSettings,
     spectralView,
@@ -102,6 +106,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
     waveformView,
   } = controller;
   const closeInformation = useCallback(() => setInformationOpen(false), [setInformationOpen]);
+  const closeShortcuts = useCallback(() => setShortcutsOpen(false), [setShortcutsOpen]);
   const closeSpectrum = useCallback(() => setSpectrumOpen(false), [setSpectrumOpen]);
   const closeMeters = useCallback(() => setMetersOpen(false), [setMetersOpen]);
   const play = useCallback(() => execute("transport.toggle-playback"), [execute]);
@@ -401,6 +406,11 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
         engine={engine}
         memory={memory}
         fallbackFocusRef={informationButton}
+      />
+      <ShortcutsDialog
+        open={shortcutsOpen}
+        platform={detectShortcutPlatform()}
+        onClose={closeShortcuts}
       />
       {paletteOpen && (
         <Suspense fallback={<p role="status">Opening…</p>}>

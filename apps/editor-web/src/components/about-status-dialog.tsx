@@ -1,13 +1,13 @@
 import type { DocumentMemoryResult } from "@aae/protocol";
-import { type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import type { AudioEngine } from "@/audio/audio-engine";
 import type { RingBufferStats } from "@/audio/ring-buffer";
 import { ThirdPartyNotices } from "@/components/third-party-notices";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { KernelState } from "@/hooks/use-kernel";
-import { formatBytes } from "@/lib/format-bytes";
-import { desktopBridge } from "@/platform";
+import { useRestoringModal } from "@/hooks/use-restoring-modal";
+import { diagnosticItems } from "@/lib/diagnostics";
 
 interface AboutStatusDialogProps {
   open: boolean;
@@ -52,41 +52,8 @@ export function AboutStatusDialog({
   }, [engine]);
   const stats = engine ? liveStats : suppliedStats;
   const id = useId();
-  const dialog = useRef<HTMLDialogElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
-  const opener = useRef<HTMLElement | undefined>(undefined);
-  const latestOpen = useRef(open);
-  latestOpen.current = open;
-  useLayoutEffect(() => {
-    const element = dialog.current;
-    if (!element) return;
-    if (!open) {
-      // Restore after React's commit-time focus restoration, once the launcher is enabled again.
-      const target = opener.current?.isConnected ? opener.current : fallbackFocusRef?.current;
-      if (opener.current) target?.focus({ preventScroll: true });
-      opener.current = undefined;
-      return;
-    }
-    const active = document.activeElement;
-    opener.current = active instanceof HTMLElement ? active : undefined;
-    // Menu items can disappear when their popup closes. Restore the owning trigger instead.
-    if (opener.current?.closest("[role='menu']")) {
-      opener.current =
-        document.querySelector<HTMLElement>("[aria-haspopup='menu'][aria-expanded='true']") ??
-        opener.current;
-    }
-    if (!element.open) element.showModal();
-    closeButton.current?.focus();
-    return () => {
-      if (element.open) element.close();
-      if (!latestOpen.current) return;
-      const target = opener.current?.isConnected ? opener.current : fallbackFocusRef?.current;
-      target?.focus({ preventScroll: true });
-      opener.current = undefined;
-    };
-  }, [open, fallbackFocusRef]);
-  const hello = kernel.status === "ready" ? kernel.hello : undefined;
-  const desktop = desktopBridge();
+  const dialog = useRestoringModal(open, closeButton, fallbackFocusRef);
   return (
     <dialog
       ref={dialog}
@@ -122,38 +89,9 @@ export function AboutStatusDialog({
       </Badge>
       {kernel.status === "error" && <p className="mt-2 text-sm text-destructive">{kernel.error}</p>}
       <dl className="studio-section mt-3 divide-y divide-border/50 border px-3 text-xs [&>div]:py-2">
-        <Item
-          label="Kernel"
-          value={hello ? `${hello.kernelVersion} (${hello.goVersion})` : "–"}
-          testId="kernel-version"
-        />
-        <Item label="Protocol" value={hello ? `ABI v${hello.protocolVersion}` : "–"} />
-        <Item
-          label="Build"
-          value={`${import.meta.env.VITE_BUILD_CHANNEL} build`}
-          testId="build-channel"
-        />
-        <Item label="Commit" value={import.meta.env.VITE_BUILD_COMMIT} testId="build-commit" />
-        <Item label="Built (UTC)" value={hello?.buildTime || "–"} testId="build-time" />
-        <Item label="Device rate" value={`${sampleRate ?? hello?.sampleRate ?? "–"} Hz`} />
-        <Item
-          label="Memory"
-          value={memory ? formatBytes(memory.sampleBytes + memory.peakBytes) : "–"}
-          testId="document-memory"
-        />
-        <Item
-          label="Isolated"
-          value={globalThis.crossOriginIsolated ? "yes" : "no"}
-          testId="cross-origin-isolated"
-        />
-        <Item label="Played" value={String(stats?.consumedFrames ?? 0)} testId="frames-played" />
-        <Item label="Buffered" value={String(stats?.bufferedFrames ?? 0)} />
-        <Item label="Underruns" value={String(stats?.underrunFrames ?? 0)} testId="underruns" />
-        <Item
-          label="Platform"
-          value={desktop ? `Electron ${desktop.versions.electron}` : "Browser"}
-          testId="platform"
-        />
+        {diagnosticItems({ kernel, sampleRate, stats, memory }).map((item) => (
+          <Item key={item.label} {...item} />
+        ))}
       </dl>
       {open && <ThirdPartyNotices />}
       <div className="studio-dialog-actions mt-4 flex justify-end border-t pt-3">

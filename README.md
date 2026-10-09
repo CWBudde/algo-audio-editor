@@ -333,6 +333,9 @@ palette. Search by command name, menu or shortcut; arrow keys choose an
 available command, Enter runs it and Escape closes the palette. Unavailable
 and planned commands remain visible. Menus, the palette and keyboard commands
 share the same registry and recheck availability before execution.
+Help → Keyboard shortcuts lists every binding from that registry with this
+platform's keys. Help → Copy diagnostics copies the About facts (versions,
+build, isolation, playback counters, platform) as plain text for bug reports.
 
 File Open/Save/Export use Ctrl/Cmd+O/S/Shift+E. Export WAV writes a copy without
 marking the working document saved. Zoom uses Ctrl/Cmd+=/−/0; Select all uses

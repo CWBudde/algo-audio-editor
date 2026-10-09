@@ -51,6 +51,7 @@ const bridge = {
   completeClose: (request: string, saved: boolean) =>
     ipcRenderer.invoke("desktop.complete-close", request, saved),
   confirmReplace: (name: string) => ipcRenderer.invoke("desktop.confirm-replace", name),
+  copyText: (text: string): Promise<void> => ipcRenderer.invoke("desktop.copy-text", text),
   deleteEffectIR: (id: string): Promise<void> => ipcRenderer.invoke("effects.ir.delete", id),
   loadEffectIR: (id: string): Promise<ArrayBuffer> => ipcRenderer.invoke("effects.ir.load", id),
   saveEffectIR: (id: string, data: ArrayBuffer): Promise<void> =>

@@ -19,5 +19,6 @@ export function desktopFixture(): DesktopBridge {
     onSaveBeforeClose: vi.fn().mockReturnValue(() => {}),
     completeClose: vi.fn().mockResolvedValue(undefined),
     confirmReplace: vi.fn().mockResolvedValue(false),
+    copyText: vi.fn().mockResolvedValue(undefined),
   };
 }
