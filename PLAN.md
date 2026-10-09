@@ -204,7 +204,8 @@ After the tag: Phases 32, 33, 34 and 16, then 19 (1.0 gate), 24, 25, 26, with 20
 
 - [x] Kernel `audio` generator for `process.start` with binary PCM, ABI 19; `speech.generate` chain step; `aae speech list|download`, `--speech-models` for `aae` and `aae-mcp`, MCP `generate_speech`/`list_speech_models`; `speech.wasm` bridge (2026-10-09). Native CLI and MCP export byte-identical speech for a seed (opt-in `AAE_SPEECH_MODELS` tests).
 - [x] Speech worker, dialog, macro recording/replay and Electron model downloads (2026-10-09).
-- [ ] Tag go-pocket-tts `v0.2.0` (its public-API PR) and replace the pseudo-version in `packages/kernel/go.mod`; rerun `just licenses`.
+- [x] Tag go-pocket-tts `v0.2.0` (its public-API PR) and replace the pseudo-version in `packages/kernel/go.mod`; rerun `just licenses` (2026-10-09).
+- [ ] `just check-deps` stops at `github.com/cwbudde/go-call-pocket-tts`, which go-pocket-tts requires for its CLI backend at an untagged pseudo-version (never linked here). Tag it and release go-pocket-tts with that tag.
 - [ ] Browser acceptance with real models: cold download, progress, cancel during download and synthesis, 24-layer memory on the reference laptop. Record timings in `docs/benchmarks/`.
 - [ ] Live Pages check that Hugging Face downloads pass the isolation service worker in Chromium, Firefox and Safari.
 

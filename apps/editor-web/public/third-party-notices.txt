@@ -317,7 +317,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 For more information, please refer to <http://unlicense.org/>
 
 ========================================================================
-github.com/cwbudde/go-pocket-tts v0.0.0-20261009074845-9faba38024e7 (go)
+github.com/cwbudde/go-pocket-tts v0.2.0 (go)
 License: MIT
 
 --- LICENSE ---

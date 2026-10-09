@@ -9,7 +9,7 @@ require (
 	github.com/cwbudde/algo-dsp v0.12.4
 	github.com/cwbudde/algo-vecmath v0.1.3
 	github.com/cwbudde/flac v0.1.0
-	github.com/cwbudde/go-pocket-tts v0.0.0-20261009074845-9faba38024e7
+	github.com/cwbudde/go-pocket-tts v0.2.0
 	github.com/cwbudde/wav v0.1.4
 	github.com/go-audio/audio v1.0.0
 	github.com/go-audio/riff v1.0.0
