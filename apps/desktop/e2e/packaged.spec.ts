@@ -29,9 +29,12 @@ test("hardened packaged app loads bundled resources with sandboxed preload", asy
   ]) {
     const upstream = await readFile(path.join(desktopRoot, "node_modules/electron/dist", source));
     expect(upstream.byteLength).toBeGreaterThan(0);
-    expect(await readFile(path.join(resources, "licenses", output))).toEqual(upstream);
-    if (process.platform !== "darwin") {
-      expect(await readFile(path.join(packageRoot, output))).toEqual(upstream);
+    // Compare bytes directly: toEqual walks the 20 MB Chromium notice element by
+    // element and alone took most of the test timeout on CI runners.
+    const copies = [path.join(resources, "licenses", output)];
+    if (process.platform !== "darwin") copies.push(path.join(packageRoot, output));
+    for (const copy of copies) {
+      expect(upstream.equals(await readFile(copy)), `${copy} matches ${source}`).toBe(true);
     }
   }
   const notices = await readFile(path.join(resources, "web/third-party-notices.txt"), "utf8");
