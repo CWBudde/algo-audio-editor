@@ -25,6 +25,12 @@ export interface ExportSettings {
    * an explicit dither choice removes it.
    */
   autoDitherSource?: { bitDepth: number; float: boolean };
+  /**
+   * Present while the dither follows an explicit preferred default, so it
+   * returns once an integer encoding is selected; an explicit dither choice
+   * removes it.
+   */
+  preferredDither?: ExportDither;
 }
 
 /** How the export dialog seeds its settings; Save and batch use none of it. */
@@ -56,7 +62,7 @@ export function defaultExportSettings(
   };
   if (defaults.dither === "auto")
     settings.autoDitherSource = { bitDepth: info.bitDepth, float: info.float };
-  else if (defaults.dither) settings.dither = defaults.dither;
+  else if (defaults.dither) settings.preferredDither = defaults.dither;
   const preferred = defaults.format === "source" ? undefined : defaults.format;
   return updateExportSettings(settings, preferred ? { format: preferred } : {});
 }
@@ -78,7 +84,10 @@ export function updateExportSettings(
   change: Partial<ExportSettings>,
 ): ExportSettings {
   const settings = { ...previous, ...change };
-  if (change.dither !== undefined) delete settings.autoDitherSource;
+  if (change.dither !== undefined) {
+    delete settings.autoDitherSource;
+    delete settings.preferredDither;
+  }
   if (isLossyFormat(settings.format)) {
     settings.bitrate ??= 128;
     settings.dither = "none";
@@ -93,6 +102,11 @@ export function updateExportSettings(
     settings.noiseShaping = "none";
   }
   if (settings.autoDitherSource) settings.dither = automaticDither(settings);
+  else if (settings.preferredDither)
+    settings.dither =
+      settings.encoding === "pcm" && !isLossyFormat(settings.format)
+        ? settings.preferredDither
+        : "none";
   return settings;
 }
 

@@ -78,3 +78,20 @@ it("applies an explicit preferred dither, still cleared for float output", () =>
     defaultExportSettings(source({ bitDepth: 32, float: true }), { dither: "gaussian" }).dither,
   ).toBe("none");
 });
+
+it("restores an explicit preferred dither once an integer encoding is selected", () => {
+  const info = source({ bitDepth: 32, float: true });
+  let settings = defaultExportSettings(info, { dither: "gaussian" });
+  expect(settings.dither).toBe("none");
+  settings = updateExportSettings(settings, { encoding: "pcm" });
+  expect(settings.dither).toBe("gaussian");
+  expect(exportParams(info, all, settings)?.dither).toBe("gaussian");
+  settings = updateExportSettings(settings, { format: "opus" });
+  expect(settings.dither).toBe("none");
+  settings = updateExportSettings(settings, { format: "flac" });
+  expect(settings.dither).toBe("gaussian");
+  settings = updateExportSettings(settings, { dither: "none" });
+  settings = updateExportSettings(settings, { format: "wav", encoding: "float" });
+  settings = updateExportSettings(settings, { encoding: "pcm" });
+  expect(settings.dither).toBe("none");
+});
