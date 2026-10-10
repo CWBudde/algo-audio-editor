@@ -1,19 +1,6 @@
 import path from "node:path";
-import { type ElectronApplication, expect, test } from "@playwright/test";
-import { closeEditor, launchEditor } from "./launch.js";
-
-async function command(app: ElectronApplication, id: string) {
-  await expect
-    .poll(() =>
-      app.evaluate(({ Menu, BrowserWindow }, id) => {
-        const item = Menu.getApplicationMenu()?.getMenuItemById(id);
-        if (!item?.enabled) return false;
-        item.click(item, BrowserWindow.getAllWindows()[0], {} as Electron.KeyboardEvent);
-        return true;
-      }, id),
-    )
-    .toBe(true);
-}
+import { expect, test } from "@playwright/test";
+import { closeEditor, menuCommand as command, launchEditor } from "./launch.js";
 
 test("native Help menu lists shortcuts and copies diagnostics through the main process", async () => {
   const app = await launchEditor({ args: [path.join(__dirname, "..")] });

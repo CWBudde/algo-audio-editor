@@ -29,6 +29,8 @@ const (
 	// MethodDocumentOpen imports detected audio bytes supplied separately from the JSON payload.
 	MethodDocumentOpen    = "doc.open"
 	MethodDocumentOpenPCM = "doc.openPCM"
+	// MethodDocumentNew replaces the document with silence in a chosen format.
+	MethodDocumentNew = "doc.new"
 	// MethodDocumentInfo returns the active document's format and dimensions.
 	MethodDocumentInfo = "doc.info"
 	// MethodDocumentExport encodes audio bytes retrieved via takeData.
@@ -313,6 +315,15 @@ type EditResult struct {
 	Clipboard ClipboardInfo      `json:"clipboard"`
 	Changed   bool               `json:"changed"`
 	History   HistoryListResult  `json:"history"`
+}
+
+// DocumentNewParams describes a new silent document. Frames may be zero; an
+// empty name becomes "Untitled".
+type DocumentNewParams struct {
+	Name       string `json:"name,omitempty"`
+	SampleRate int    `json:"sampleRate"`
+	Channels   int    `json:"channels"`
+	Frames     int64  `json:"frames"`
 }
 
 // ProcessStartParams builds a private candidate in bounded worker slices. Only commit

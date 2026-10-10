@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { type ElectronApplication, _electron as electron } from "@playwright/test";
+import { type ElectronApplication, _electron as electron, expect } from "@playwright/test";
 
 /** Give each real application an isolated profile and deterministic dialogs. */
 export async function launchEditor(options: Parameters<typeof electron.launch>[0]) {
@@ -36,4 +36,18 @@ export async function closeEditor(app: ElectronApplication) {
   // also skips the unsaved-work guard, which tests must not wait on.
   await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
   await app.close().catch(() => {});
+}
+
+/** Click a native application-menu item by command id once it is enabled. */
+export async function menuCommand(app: ElectronApplication, id: string) {
+  await expect
+    .poll(() =>
+      app.evaluate(({ Menu, BrowserWindow }, id) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById(id);
+        if (!item?.enabled) return false;
+        item.click(item, BrowserWindow.getAllWindows()[0], {} as Electron.KeyboardEvent);
+        return true;
+      }, id),
+    )
+    .toBe(true);
 }

@@ -58,6 +58,7 @@ var methodRegistry = map[string]methodSpec{
 	protocol.MethodDocumentOpenPCM: binaryMethod(0, func(e *Engine, p protocol.BinaryDocumentParams, input []byte) (protocol.DocumentInfoResult, error) {
 		return e.importBinaryDocumentMode(p, input, true)
 	}),
+	protocol.MethodDocumentNew: typedMethod(0, (*Engine).newDocument),
 	protocol.MethodDocumentImportBinary: binaryMethod(0, func(e *Engine, p protocol.BinaryDocumentParams, input []byte) (protocol.DocumentInfoResult, error) {
 		return e.importBinaryDocumentMode(p, input, false)
 	}),

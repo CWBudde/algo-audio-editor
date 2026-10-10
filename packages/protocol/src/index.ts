@@ -350,6 +350,14 @@ export interface ProcessCandidate extends SelectionRange {
 }
 
 /** Metadata accompanying planar little-endian float32 window-handoff bytes. */
+/** A new silent document; frames may be zero and an empty name becomes "Untitled". */
+export interface DocumentNewParams {
+  name?: string;
+  sampleRate: number;
+  channels: number;
+  frames: number;
+}
+
 export interface BinaryDocumentParams {
   name: string;
   tags: Record<string, string>;
@@ -802,6 +810,7 @@ export interface KernelMethods {
   "process.commit": { params: ProcessJobParams; result: EditResult };
   "process.exportCandidate": { params: ProcessJobParams; result: BinaryDocumentResult };
   "doc.openPCM": { params: BinaryDocumentParams; result: DocumentInfoResult };
+  "doc.new": { params: DocumentNewParams; result: DocumentInfoResult };
   "doc.importBinary": { params: BinaryDocumentParams; result: DocumentInfoResult };
 }
 

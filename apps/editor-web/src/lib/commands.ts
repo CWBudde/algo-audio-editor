@@ -420,7 +420,8 @@ const definitions: readonly Definition[] = [
     enabled: (c) =>
       processAvailable(c) && c.selection?.channelMask === 2 ** (c.info?.channels ?? 0) - 1,
   },
-  { id: "file.new", label: "New…", menu: "File", enabled: () => false },
+  // No Ctrl/Cmd+N: browsers reserve it for a new window before the page sees it.
+  { id: "file.new", label: "New…", menu: "File", enabled: available },
   {
     id: "file.open",
     label: "Open…",

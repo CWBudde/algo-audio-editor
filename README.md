@@ -319,7 +319,11 @@ changes. Save marks only the successfully written history state as saved;
 undo/redo back to that state becomes clean, while export alone does not. With
 File System Access, the write and close must succeed. The download fallback
 can observe only handoff to the browser, not disk completion or cancellation.
-Opening another file resets history, so Open, drag-and-drop and the demo ask
+File → New creates a clean, untitled document of silence: choose a sample rate
+from 8 to 384 kHz, one to eight channels and a length (0 s gives an empty
+document to generate or paste into). It is stored as 32-bit float like any
+other working document. Opening another file or a new document resets history,
+so New, Open, drag-and-drop and the demo ask
 before discarding unsaved changes (a native dialog in Electron, the browser's
 confirm prompt otherwise). Electron protects dirty documents with Save, Discard
 or Cancel when closing; cancelled or failed saves keep the window open. Browser
