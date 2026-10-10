@@ -29,6 +29,8 @@ export interface ExportSettings {
 
 /** How the export dialog seeds its settings; Save and batch use none of it. */
 export interface ExportDefaults {
+  /** "source" keeps a FLAC/AIFF source's container, as Save does; otherwise WAV. */
+  format?: "source" | DocumentExportParams["format"];
   /** "auto" applies TPDF when an integer export at ≤16 bits reduces resolution. */
   dither?: "auto" | ExportDither;
 }
@@ -55,7 +57,8 @@ export function defaultExportSettings(
   if (defaults.dither === "auto")
     settings.autoDitherSource = { bitDepth: info.bitDepth, float: info.float };
   else if (defaults.dither) settings.dither = defaults.dither;
-  return updateExportSettings(settings, {});
+  const preferred = defaults.format === "source" ? undefined : defaults.format;
+  return updateExportSettings(settings, preferred ? { format: preferred } : {});
 }
 
 /** TPDF only where requantizing loses resolution: integer ≤16 bits below the source. */

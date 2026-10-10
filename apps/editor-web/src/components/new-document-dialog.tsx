@@ -50,80 +50,82 @@ export function NewDocumentDialog({
       <h2 id={`${id}-title`} className="studio-dialog-heading text-lg font-semibold tracking-tight">
         New document
       </h2>
-      <form
-        className="mt-3 space-y-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (valid) onCreate({ sampleRate, channels, frames: Math.round(seconds * sampleRate) });
-        }}
-      >
-        <label className="block text-xs font-medium text-muted-foreground">
-          Sample rate
-          <select
-            ref={rateField}
-            value={sampleRate}
-            className="studio-field mt-1 w-full border px-3 py-2 text-sm text-foreground"
-            onChange={(event) => setSampleRate(Number(event.target.value))}
-          >
-            {SAMPLE_RATES.map((rate) => (
-              <option key={rate} value={rate}>
-                {rate.toLocaleString("en-US")} Hz
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-xs font-medium text-muted-foreground">
-          Channels
-          <select
-            value={channels}
-            className="studio-field mt-1 w-full border px-3 py-2 text-sm text-foreground"
-            onChange={(event) => setChannels(Number(event.target.value))}
-          >
-            {CHANNELS.map((count) => (
-              <option key={count} value={count}>
-                {count === 1 ? "1 (mono)" : count === 2 ? "2 (stereo)" : String(count)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-xs font-medium text-muted-foreground">
-          Length (seconds)
-          <input
-            type="text"
-            inputMode="decimal"
-            value={lengthText}
-            aria-invalid={!valid}
-            aria-describedby={valid ? `${id}-help` : `${id}-error`}
-            className="studio-field mt-1 w-full border px-3 py-2 text-sm text-foreground"
-            onChange={(event) => setLengthText(event.target.value)}
-          />
-        </label>
-        {valid ? (
-          <p id={`${id}-help`} className="text-xs text-muted-foreground">
-            The document starts as silence of this length; 0 creates an empty document.
-          </p>
-        ) : (
-          <p id={`${id}-error`} role="alert" className="text-sm text-destructive">
-            Enter a length between 0 and 86,400 seconds.
-          </p>
-        )}
-        <div className="studio-dialog-actions flex justify-end gap-2 border-t pt-3">
-          <button
-            type="button"
-            className="studio-button border px-3 py-2 text-sm"
-            onClick={onClose}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="studio-button studio-button-primary border px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
-            disabled={!valid}
-          >
-            Create
-          </button>
-        </div>
-      </form>
+      {open && (
+        <form
+          className="mt-3 space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (valid) onCreate({ sampleRate, channels, frames: Math.round(seconds * sampleRate) });
+          }}
+        >
+          <label className="block text-xs font-medium text-muted-foreground">
+            Sample rate
+            <select
+              ref={rateField}
+              value={sampleRate}
+              className="studio-field mt-1 w-full border px-3 py-2 text-sm text-foreground"
+              onChange={(event) => setSampleRate(Number(event.target.value))}
+            >
+              {SAMPLE_RATES.map((rate) => (
+                <option key={rate} value={rate}>
+                  {rate.toLocaleString("en-US")} Hz
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs font-medium text-muted-foreground">
+            Channels
+            <select
+              value={channels}
+              className="studio-field mt-1 w-full border px-3 py-2 text-sm text-foreground"
+              onChange={(event) => setChannels(Number(event.target.value))}
+            >
+              {CHANNELS.map((count) => (
+                <option key={count} value={count}>
+                  {count === 1 ? "1 (mono)" : count === 2 ? "2 (stereo)" : String(count)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs font-medium text-muted-foreground">
+            Length (seconds)
+            <input
+              type="text"
+              inputMode="decimal"
+              value={lengthText}
+              aria-invalid={!valid}
+              aria-describedby={valid ? `${id}-help` : `${id}-error`}
+              className="studio-field mt-1 w-full border px-3 py-2 text-sm text-foreground"
+              onChange={(event) => setLengthText(event.target.value)}
+            />
+          </label>
+          {valid ? (
+            <p id={`${id}-help`} className="text-xs text-muted-foreground">
+              The document starts as silence of this length; 0 creates an empty document.
+            </p>
+          ) : (
+            <p id={`${id}-error`} role="alert" className="text-sm text-destructive">
+              Enter a length between 0 and 86,400 seconds.
+            </p>
+          )}
+          <div className="studio-dialog-actions flex justify-end gap-2 border-t pt-3">
+            <button
+              type="button"
+              className="studio-button border px-3 py-2 text-sm"
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="studio-button studio-button-primary border px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
+              disabled={!valid}
+            >
+              Create
+            </button>
+          </div>
+        </form>
+      )}
     </dialog>
   );
 }

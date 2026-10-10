@@ -27,6 +27,7 @@ export type CommandId =
   | "edit.mute"
   | "edit.insert-silence"
   | "edit.select-all"
+  | "edit.preferences"
   | "timeline.add-marker"
   | "timeline.add-region"
   | "timeline.export-csv"
@@ -171,6 +172,8 @@ export const COMMAND_MENUS: readonly { label: string; items: readonly (CommandId
       "edit.insert-silence",
       "-",
       "edit.select-all",
+      "-",
+      "edit.preferences",
     ],
   },
   {
@@ -513,6 +516,14 @@ const definitions: readonly Definition[] = [
     menu: "Edit",
     enabled: documentAvailable,
     shortcuts: [mod("a")],
+  },
+  {
+    id: "edit.preferences",
+    label: "Preferences…",
+    menu: "Edit",
+    enabled: (c) => !c.modalOpen,
+    shortcuts: [mod(",")],
+    globalInText: true,
   },
   {
     id: "process.amplify",

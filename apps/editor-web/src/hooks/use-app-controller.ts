@@ -81,6 +81,7 @@ export function useAppController() {
   const [informationOpen, setInformationOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newDocumentOpen, setNewDocumentOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [metersOpen, setMetersOpen] = useState(false);
   const [spectrumOpen, setSpectrumOpen] = useState(false);
   const [spectralView, setSpectralView] = useState<"waveform" | "spectrogram" | "split">(
@@ -489,6 +490,7 @@ export function useAppController() {
           informationOpen ||
           shortcutsOpen ||
           newDocumentOpen ||
+          preferencesOpen ||
           metadata.view ||
           analysis.view,
       ),
@@ -643,6 +645,7 @@ export function useAppController() {
         const range = selection;
         if (range) speech.open(range);
       },
+      "edit.preferences": () => setPreferencesOpen(true),
       "help.shortcuts": () => setShortcutsOpen(true),
       "help.diagnostics": async () => {
         await copyDiagnostics({
@@ -781,6 +784,8 @@ export function useAppController() {
     newDocumentOpen,
     setNewDocumentOpen,
     createDocument,
+    preferencesOpen,
+    setPreferencesOpen,
     setLoop,
     setMetersOpen,
     setPaletteOpen,

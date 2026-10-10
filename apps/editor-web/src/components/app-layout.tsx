@@ -7,6 +7,7 @@ import { HistoryPanel } from "@/components/history-panel";
 import { IconAction } from "@/components/icon-action";
 import { LivePlaybackMeters } from "@/components/live-playback-meters";
 import { NewDocumentDialog } from "@/components/new-document-dialog";
+import { PreferencesDialog } from "@/components/preferences-dialog";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
 import { SpectrumPanel } from "@/components/spectrum-panel";
 import { StatusBar } from "@/components/status-bar";
@@ -102,6 +103,8 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
     newDocumentOpen,
     setNewDocumentOpen,
     createDocument,
+    preferencesOpen,
+    setPreferencesOpen,
     silenceValue,
     spectralSettings,
     spectralView,
@@ -112,6 +115,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
   const closeInformation = useCallback(() => setInformationOpen(false), [setInformationOpen]);
   const closeShortcuts = useCallback(() => setShortcutsOpen(false), [setShortcutsOpen]);
   const closeNewDocument = useCallback(() => setNewDocumentOpen(false), [setNewDocumentOpen]);
+  const closePreferences = useCallback(() => setPreferencesOpen(false), [setPreferencesOpen]);
   const closeSpectrum = useCallback(() => setSpectrumOpen(false), [setSpectrumOpen]);
   const closeMeters = useCallback(() => setMetersOpen(false), [setMetersOpen]);
   const play = useCallback(() => execute("transport.toggle-playback"), [execute]);
@@ -422,6 +426,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
         onCreate={createDocument}
         onClose={closeNewDocument}
       />
+      <PreferencesDialog open={preferencesOpen} onClose={closePreferences} />
       {paletteOpen && (
         <Suspense fallback={<p role="status">Opening…</p>}>
           <CommandPalette

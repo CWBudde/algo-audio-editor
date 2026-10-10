@@ -3,9 +3,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { type ElectronApplication, _electron as electron, expect } from "@playwright/test";
 
-/** Give each real application an isolated profile and deterministic dialogs. */
-export async function launchEditor(options: Parameters<typeof electron.launch>[0]) {
-  const directory = await mkdtemp(path.join(tmpdir(), "aae-desktop-"));
+/**
+ * Give each real application an isolated profile and deterministic dialogs. Pass
+ * `userData` to relaunch on a profile the caller owns (and removes) instead.
+ */
+export async function launchEditor(
+  options: Parameters<typeof electron.launch>[0],
+  { userData }: { userData?: string } = {},
+) {
+  const directory = userData ?? (await mkdtemp(path.join(tmpdir(), "aae-desktop-")));
   const app = await electron.launch({
     ...options,
     // Without a GPU (CI under xvfb), the first accelerated 2D canvas makes the
@@ -15,9 +21,10 @@ export async function launchEditor(options: Parameters<typeof electron.launch>[0
     args: [...(options?.args ?? []), "--disable-gpu"],
     env: { ...process.env, ...options?.env, AAE_USER_DATA: directory },
   });
-  app.on("close", () => {
-    void rm(directory, { recursive: true, force: true });
-  });
+  if (!userData)
+    app.on("close", () => {
+      void rm(directory, { recursive: true, force: true });
+    });
   await app.evaluate(({ dialog }) => {
     dialog.showMessageBox = (async (...args: unknown[]) => {
       const options = args.at(-1) as { buttons?: string[] };

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { KernelClient } from "@/kernel/client";
 import { chooseSaveTarget } from "@/lib/file-access";
 import { encoderSupport, exportLossy } from "@/lib/lossy-export";
+import { updatePreferences } from "@/lib/preferences";
 import { useExport } from "./use-export";
 
 vi.mock("@/lib/file-access", async (original) => ({
@@ -147,6 +148,17 @@ it("defaults to TPDF dither when the chosen depth drops below the source's", asy
     "doc.export",
     expect.objectContaining({ bitDepth: 16, dither: "triangular" }),
   );
+});
+it("opens with the preferred export format and dither", () => {
+  updatePreferences({ exportFormat: "flac", exportDither: "rectangular" });
+  const f = fixture();
+  act(() => f.result.current.open(range));
+  expect(f.result.current.view?.settings).toMatchObject({
+    format: "flac",
+    encoding: "pcm",
+    bitDepth: 24,
+    dither: "rectangular",
+  });
 });
 it("clears integer quality settings on float format and keeps valid depth on switching back", () => {
   const f = fixture();

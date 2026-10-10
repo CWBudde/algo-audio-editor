@@ -56,3 +56,25 @@ it("keeps an explicit dither choice across later format and depth changes", () =
   settings = updateExportSettings(settings, { bitDepth: 8 });
   expect(settings.dither).toBe("none");
 });
+
+it.each([
+  ["source", source({ format: "flac", bitDepth: 16 }), "flac", "pcm", 16],
+  ["wav", source({ format: "flac", bitDepth: 16 }), "wav", "pcm", 16],
+  ["flac", source({ bitDepth: 32, float: true }), "flac", "pcm", 24],
+  ["aiff", source({ bitDepth: 24 }), "aiff", "pcm", 24],
+] as const)("applies the preferred %s export format", (format, info, want, encoding, depth) => {
+  expect(defaultExportSettings(info, { format })).toMatchObject({
+    format: want,
+    encoding,
+    bitDepth: depth,
+  });
+});
+
+it("applies an explicit preferred dither, still cleared for float output", () => {
+  expect(defaultExportSettings(source({ bitDepth: 16 }), { dither: "gaussian" }).dither).toBe(
+    "gaussian",
+  );
+  expect(
+    defaultExportSettings(source({ bitDepth: 32, float: true }), { dither: "gaussian" }).dither,
+  ).toBe("none");
+});

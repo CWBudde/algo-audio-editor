@@ -341,6 +341,12 @@ Help → Keyboard shortcuts lists every binding from that registry with this
 platform's keys. Help → Copy diagnostics copies the About facts (versions,
 build, isolation, playback counters, platform) as plain text for bug reports.
 
+Edit → Preferences (Ctrl/Cmd+,) sets the export dialog's default format and
+dither, the waveform time format and snapping. Changes apply at once and are kept
+in browser storage for the next session (per profile in Electron); the waveform's
+own time-format and snap controls change the same settings. Save is unaffected:
+it keeps the source format without dither.
+
 File Open/Save/Export use Ctrl/Cmd+O/S/Shift+E. Export WAV writes a copy without
 marking the working document saved. Zoom uses Ctrl/Cmd+=/−/0; Select all uses
 Ctrl/Cmd+A, Delete removes selected audio, Space toggles playback, and Home/End
