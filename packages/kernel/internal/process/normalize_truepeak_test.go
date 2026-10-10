@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
 
@@ -139,5 +140,20 @@ func TestNormalizeTruePeakCeilingRejectsInvalidUse(t *testing.T) {
 	}
 	if err := started.LimitTruePeak(-1); err == nil {
 		t.Fatal("ceiling accepted after analysis started")
+	}
+}
+
+func TestNormalizePeakCancelledWhileCopyingForTruePeak(t *testing.T) {
+	input := quarterRateTone(4800, .1)
+	normalizer, err := NewNormalizer(fixture(t, input), ops.Range{End: 4800, ChannelMask: 1}, protocol.OperationNormalizePeak, -1, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Step and the sample-peak scan pass; the true-peak copy sees the cancellation.
+	if _, err := normalizer.Step(&operationCancelBoundary{remaining: 3}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Step = %v, want cancellation", err)
+	}
+	if _, err := normalizer.Result(); err == nil || normalizer.Status().TruePeak != nil {
+		t.Fatal("a cancelled analysis produced a result or a true peak")
 	}
 }
