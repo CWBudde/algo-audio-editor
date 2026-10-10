@@ -242,7 +242,7 @@
           "type": "integer"
         },
         "dither": {
-          "description": "none or tpdf",
+          "description": "none (default), rectangular, triangular (TPDF), gaussian or fast-gaussian",
           "type": "string"
         },
         "documentId": {
@@ -469,7 +469,7 @@
           "type": "integer"
         },
         "dither": {
-          "description": "none or tpdf",
+          "description": "none (default), rectangular, triangular (TPDF), gaussian or fast-gaussian",
           "type": "string"
         },
         "documentId": {

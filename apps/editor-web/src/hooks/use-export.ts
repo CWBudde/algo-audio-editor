@@ -133,7 +133,7 @@ export function useExport(options: ExportOptions) {
         client,
         info,
         selection: { ...selection },
-        settings: defaultExportSettings(info),
+        settings: defaultExportSettings(info, { dither: "auto" }),
         phase: "idle",
         closing: false,
         probe: 0,

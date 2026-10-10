@@ -132,6 +132,7 @@ export function matchesProcessSettings(
   job: ProcessJobResult | undefined,
   operation: ProcessOperation,
   value: number | undefined,
+  ceiling?: number,
 ): boolean {
   return Boolean(
     job?.state === "ready" &&
@@ -140,9 +141,14 @@ export function matchesProcessSettings(
       (operation === "gain"
         ? job.gainDb === value
         : operation === "normalize-peak" || operation === "normalize-loudness"
-          ? job.target === value
+          ? job.target === value && job.truePeakCeiling === ceiling
           : true),
   );
+}
+
+/** Output a PCM export or D/A converter would clip: sample or true peak above 0 dBFS. */
+export function exceedsFullScale(job: ProcessJobResult): boolean {
+  return job.peak > 1 || job.nonFinite || (job.truePeak ?? 0) > 1;
 }
 
 /** Own a shared document lock until a candidate is committed or discarded. */
@@ -434,7 +440,7 @@ export function useProcess(options: ProcessOptions) {
             return;
           }
           update(s, { phase: "ready", job: s.job, ready: true });
-          if ((s.job.peak > 1 || s.job.nonFinite) && !allowClipping) {
+          if (exceedsFullScale(s.job) && !allowClipping) {
             if (operation === "extract-channel") s.cancelExtract?.();
             return;
           }

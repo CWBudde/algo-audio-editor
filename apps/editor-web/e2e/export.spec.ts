@@ -26,6 +26,11 @@ for (const [encoding, depths] of [
       await expect(dialog.getByLabel("Bit depth", { exact: true })).toHaveValue("32");
       await dialog.getByLabel("Format", { exact: true }).selectOption(encoding);
       await dialog.getByLabel("Bit depth", { exact: true }).selectOption(String(depth));
+      if (encoding === "pcm" && depth <= 16) {
+        // Reducing the float source to ≤16 bits defaults to TPDF; check exact quantization.
+        await expect(dialog.getByLabel("Dither", { exact: true })).toHaveValue("triangular");
+        await dialog.getByLabel("Dither", { exact: true }).selectOption("none");
+      }
       const { bytes, download } = await exportDownload(page);
       expect(download.suggestedFilename()).toBe("edit-48000.wav");
       const output = parseWAV(bytes);
@@ -109,6 +114,12 @@ test("all dither distributions and noise shapers write bounded quantized audio a
   let dialog = await openExport(page);
   await dialog.getByLabel("Format", { exact: true }).selectOption("pcm");
   await dialog.getByLabel("Bit depth", { exact: true }).selectOption("16");
+  // Float to 16-bit PCM loses resolution, so TPDF is the default there.
+  await expect(dialog.getByLabel("Dither", { exact: true })).toHaveValue("triangular");
+  await dialog.getByLabel("Bit depth", { exact: true }).selectOption("24");
+  await expect(dialog.getByLabel("Dither", { exact: true })).toHaveValue("none");
+  await dialog.getByLabel("Bit depth", { exact: true }).selectOption("16");
+  await dialog.getByLabel("Dither", { exact: true }).selectOption("none");
   const baseline = parseWAV((await exportDownload(page)).bytes).data;
   for (const [dither, shaping] of [
     ...["rectangular", "triangular", "gaussian", "fast-gaussian"].map((dither) => [dither, "none"]),

@@ -358,3 +358,45 @@ func BenchmarkEngineNormalizeTenMinuteStereo(b *testing.B) {
 		})
 	}
 }
+
+func TestNormalizeEngineTruePeakCeiling(t *testing.T) {
+	input := make([]float32, 48000)
+	for i := range input {
+		input[i] = float32(.1 * math.Sin(2*math.Pi*1000*float64(i)/48000))
+	}
+	e, _ := openEditorFixture(t, input, 1)
+	params := normalizationParams(e, 0, 48000, 1, "normalize-loudness", -3)
+	params.TruePeakCeiling = normalizeTarget(-6)
+	started := startEngineProcess(t, e, params)
+	if started.TruePeakCeiling == nil || *started.TruePeakCeiling != -6 || started.TruePeak != nil {
+		t.Fatalf("started job %+v", started)
+	}
+	result := finishEngineNormalization(t, e, started)
+	if !result.CeilingLimited || result.TruePeak == nil || *result.TruePeak > math.Pow(10, -6.0/20) || result.OutputLUFS == nil || *result.OutputLUFS > -3.5 {
+		t.Fatalf("ceiling-limited result %+v", result)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil || !strings.Contains(string(encoded), `"truePeak":`) || !strings.Contains(string(encoded), `"ceilingLimited":true`) {
+		t.Fatalf("encoded result %s %v", encoded, err)
+	}
+	if _, err := e.cancelProcess(jobParams(result)); err != nil {
+		t.Fatal(err)
+	}
+	gain := processParams(e, 0, 48000, 1, -1)
+	gain.TruePeakCeiling = normalizeTarget(-1)
+	peak := normalizationParams(e, 0, 48000, 1, "normalize-peak", -1)
+	peak.TruePeakCeiling = normalizeTarget(-1)
+	high := normalizationParams(e, 0, 48000, 1, "normalize-loudness", -23)
+	high.TruePeakCeiling = normalizeTarget(.5)
+	low := normalizationParams(e, 0, 48000, 1, "normalize-loudness", -23)
+	low.TruePeakCeiling = normalizeTarget(-61)
+	for _, invalid := range []protocol.ProcessStartParams{gain, peak, high, low} {
+		if _, err := e.startProcess(invalid, nil); err == nil {
+			t.Fatalf("invalid ceiling accepted: %s %v", invalid.Operation, *invalid.TruePeakCeiling)
+		}
+	}
+	unlimited := finishEngineNormalization(t, e, startEngineProcess(t, e, normalizationParams(e, 0, 48000, 1, "normalize-peak", 0)))
+	if unlimited.TruePeak == nil || *unlimited.TruePeak < 1 || unlimited.CeilingLimited || unlimited.TruePeakCeiling != nil {
+		t.Fatalf("peak normalization true peak %+v", unlimited)
+	}
+}

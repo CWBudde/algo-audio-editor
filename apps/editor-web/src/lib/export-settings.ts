@@ -20,17 +20,31 @@ export interface ExportSettings {
   scope: ExportScope;
   dither: ExportDither;
   noiseShaping: ExportNoiseShaping;
+  /**
+   * Present while the dither follows the automatic rule for this source;
+   * an explicit dither choice removes it.
+   */
+  autoDitherSource?: { bitDepth: number; float: boolean };
+}
+
+/** How the export dialog seeds its settings; Save and batch use none of it. */
+export interface ExportDefaults {
+  /** "auto" applies TPDF when an integer export at ≤16 bits reduces resolution. */
+  dither?: "auto" | ExportDither;
 }
 
 export const PCM_DEPTHS = [8, 16, 24, 32] as const;
 export const FLOAT_DEPTHS = [32, 64] as const;
 
-export function defaultExportSettings(info: DocumentInfoResult): ExportSettings {
+export function defaultExportSettings(
+  info: DocumentInfoResult,
+  defaults: ExportDefaults = {},
+): ExportSettings {
   const format = info.format === "flac" || info.format === "aiff" ? info.format : "wav";
   const encoding = format === "wav" && info.float ? "float" : "pcm";
   const depths: readonly number[] =
     format === "flac" ? [8, 16, 24] : encoding === "float" ? FLOAT_DEPTHS : PCM_DEPTHS;
-  return {
+  const settings: ExportSettings = {
     format,
     encoding,
     bitDepth: depths.includes(info.bitDepth) ? info.bitDepth : encoding === "float" ? 32 : 24,
@@ -38,6 +52,22 @@ export function defaultExportSettings(info: DocumentInfoResult): ExportSettings 
     dither: "none",
     noiseShaping: "none",
   };
+  if (defaults.dither === "auto")
+    settings.autoDitherSource = { bitDepth: info.bitDepth, float: info.float };
+  else if (defaults.dither) settings.dither = defaults.dither;
+  return updateExportSettings(settings, {});
+}
+
+/** TPDF only where requantizing loses resolution: integer ≤16 bits below the source. */
+function automaticDither(settings: ExportSettings): ExportDither {
+  const source = settings.autoDitherSource;
+  return source &&
+    settings.encoding === "pcm" &&
+    !isLossyFormat(settings.format) &&
+    settings.bitDepth <= 16 &&
+    (source.float || source.bitDepth > settings.bitDepth)
+    ? "triangular"
+    : "none";
 }
 
 export function updateExportSettings(
@@ -45,6 +75,7 @@ export function updateExportSettings(
   change: Partial<ExportSettings>,
 ): ExportSettings {
   const settings = { ...previous, ...change };
+  if (change.dither !== undefined) delete settings.autoDitherSource;
   if (isLossyFormat(settings.format)) {
     settings.bitrate ??= 128;
     settings.dither = "none";
@@ -58,6 +89,7 @@ export function updateExportSettings(
     settings.dither = "none";
     settings.noiseShaping = "none";
   }
+  if (settings.autoDitherSource) settings.dither = automaticDither(settings);
   return settings;
 }
 

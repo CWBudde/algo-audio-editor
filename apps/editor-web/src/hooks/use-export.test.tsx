@@ -136,6 +136,18 @@ it("exports the selected time and channel snapshot with matching filename and qu
     }),
   );
 });
+it("defaults to TPDF dither when the chosen depth drops below the source's", async () => {
+  const f = fixture();
+  act(() => f.result.current.open(range));
+  expect(f.result.current.view?.settings.dither).toBe("none");
+  act(() => f.result.current.setSettings({ bitDepth: 16 }));
+  expect(f.result.current.view?.settings.dither).toBe("triangular");
+  await act(async () => f.result.current.submit());
+  expect(f.call).toHaveBeenCalledWith(
+    "doc.export",
+    expect.objectContaining({ bitDepth: 16, dither: "triangular" }),
+  );
+});
 it("clears integer quality settings on float format and keeps valid depth on switching back", () => {
   const f = fixture();
   act(() => f.result.current.open(range));

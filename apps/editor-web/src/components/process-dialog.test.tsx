@@ -153,6 +153,7 @@ it("keeps Cancel available while processing and displays native progress", () =>
     inputLufs: null,
     predictedLufs: null,
     outputLufs: null,
+    truePeak: null,
     planningSteps: 0,
   };
   const ui = render(<ProcessDialog view={{ ...view, phase: "processing", job }} {...actions} />);
@@ -188,6 +189,7 @@ it("warns only for the prepared settings and requires explicit Apply anyway", ()
     inputLufs: null,
     predictedLufs: null,
     outputLufs: null,
+    truePeak: null,
     planningSteps: 0,
   };
   const ui = render(<ProcessDialog view={{ ...view, phase: "ready", job }} {...actions} />);
@@ -285,6 +287,7 @@ const normalizedJob = (change: Partial<ProcessJobResult> = {}): ProcessJobResult
   peak: 0.25,
   nonFinite: false,
   planningSteps: 0,
+  truePeak: 0.3,
   ...change,
 });
 
@@ -452,3 +455,88 @@ it.each([
     expect((ui.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(false);
   },
 );
+
+it("warns when only the output true peak exceeds full scale", () => {
+  const actions = callbacks();
+  const job = normalizedJob({ peak: 0.9, truePeak: 1.1 });
+  const ui = render(
+    <ProcessDialog
+      view={{ ...view, operation: "normalize-loudness", parameterText: "-23", phase: "ready", job }}
+      {...actions}
+    />,
+  );
+  expect(ui.getByText("Output true peak: +0.83 dBTP")).toBeDefined();
+  expect(ui.getByRole("alert").textContent).toContain("true peak exceeds 0 dBTP");
+  fireEvent.click(ui.getByRole("button", { name: "Apply anyway" }));
+  expect(actions.onApply).toHaveBeenCalledWith(true);
+});
+
+it("offers a true-peak ceiling for loudness normalization only", () => {
+  const actions = { ...callbacks(), onSettingsChange: vi.fn() };
+  const settings = defaultProcessSettings(view.info);
+  const loudness = { ...view, operation: "normalize-loudness" as const, parameterText: "-14" };
+  const ui = render(<ProcessDialog view={{ ...loudness, settings }} {...actions} />);
+  fireEvent.click(ui.getByRole("checkbox", { name: "Limit true peak" }));
+  expect(actions.onSettingsChange).toHaveBeenCalledWith({ ceilingEnabled: true });
+  expect(ui.queryByLabelText("True-peak ceiling (dBTP)")).toBeNull();
+  const enabled = { ...settings, ceilingEnabled: true };
+  ui.rerender(<ProcessDialog view={{ ...loudness, settings: enabled }} {...actions} />);
+  const ceiling = ui.getByLabelText("True-peak ceiling (dBTP)") as HTMLInputElement;
+  expect(ceiling.value).toBe("-1");
+  fireEvent.change(ceiling, { target: { value: "-2" } });
+  expect(actions.onSettingsChange).toHaveBeenLastCalledWith({ ceilingText: "-2" });
+  ui.rerender(
+    <ProcessDialog
+      view={{ ...loudness, settings: { ...enabled, ceilingText: "1" } }}
+      {...actions}
+    />,
+  );
+  expect(ui.getByRole("alert").textContent).toContain("between −60 and 0 dBTP");
+  expect((ui.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled).toBe(true);
+  ui.rerender(
+    <ProcessDialog
+      view={{ ...view, operation: "normalize-peak", parameterText: "-1", settings: enabled }}
+      {...actions}
+    />,
+  );
+  expect(ui.queryByRole("checkbox", { name: "Limit true peak" })).toBeNull();
+});
+
+it("explains a ceiling-limited result and treats the ceiling as part of the settings", () => {
+  const actions = callbacks();
+  const job = normalizedJob({
+    target: -14,
+    truePeakCeiling: -1,
+    ceilingLimited: true,
+    gainDb: 5,
+    predictedLufs: -16.2,
+    outputLufs: -16.2,
+    truePeak: 0.891,
+  });
+  const settings = { ...defaultProcessSettings(view.info), ceilingEnabled: true };
+  const ready = {
+    ...view,
+    operation: "normalize-loudness" as const,
+    parameterText: "-14",
+    phase: "ready" as const,
+    job,
+    previewing: true,
+  };
+  const ui = render(<ProcessDialog view={{ ...ready, settings }} {...actions} />);
+  expect(ui.getByText(/Limited by the −1.0 dBTP ceiling/)).toBeDefined();
+  expect(ui.queryByText(/Settings changed/)).toBeNull();
+  ui.rerender(
+    <ProcessDialog
+      view={{ ...ready, settings: { ...settings, ceilingText: "-2" } }}
+      {...actions}
+    />,
+  );
+  expect(ui.getByText(/Settings changed/)).toBeDefined();
+  ui.rerender(
+    <ProcessDialog
+      view={{ ...ready, settings: { ...settings, ceilingEnabled: false } }}
+      {...actions}
+    />,
+  );
+  expect(ui.getByText(/Settings changed/)).toBeDefined();
+});

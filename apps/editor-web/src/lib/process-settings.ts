@@ -30,6 +30,9 @@ export interface ProcessSettings {
   humHz: 50 | 60;
   humQText: string;
   harmonicsText: string;
+  /** Loudness normalization caps its gain at this true peak (dBTP) when enabled. */
+  ceilingEnabled: boolean;
+  ceilingText: string;
 }
 
 export const PROCESS_TITLES: Record<ProcessStartParams["operation"], string> = {
@@ -80,6 +83,8 @@ export function defaultProcessSettings(info: DocumentInfoResult, seed = 1): Proc
     humHz: 50,
     humQText: "30",
     harmonicsText: "8",
+    ceilingEnabled: false,
+    ceilingText: "-1",
   };
 }
 
@@ -87,6 +92,19 @@ function finite(text: string, minimum: number, maximum: number): number | undefi
   if (!text.trim()) return;
   const value = Number(text);
   return Number.isFinite(value) && value >= minimum && value <= maximum ? value : undefined;
+}
+
+function normalizationParams(
+  base: SelectionResult,
+  operation: "normalize-peak" | "normalize-loudness",
+  target: number | undefined,
+): ProcessStartParams | undefined {
+  return target === undefined ? undefined : { ...base, operation, target };
+}
+
+/** The true-peak ceiling (dBTP) a request carries, if any. */
+export function truePeakCeiling(params: ProcessStartParams | undefined): number | undefined {
+  return params?.operation === "normalize-loudness" ? params.truePeakCeiling : undefined;
 }
 
 /** Only metadata and parameter validation live here; the kernel owns all DSP. */
@@ -188,9 +206,15 @@ export function processParams(
       return gainDb === undefined ? undefined : { ...base, operation, gainDb };
     }
     case "normalize-peak":
+      return normalizationParams(base, operation, finite(parameterText, -120, 0));
     case "normalize-loudness": {
-      const target = finite(parameterText, operation === "normalize-peak" ? -120 : -69, 0);
-      return target === undefined ? undefined : { ...base, operation, target };
+      const target = finite(parameterText, -69, 0);
+      if (!settings.ceilingEnabled || target === undefined)
+        return normalizationParams(base, operation, target);
+      const truePeakCeiling = finite(settings.ceilingText, -60, 0);
+      return truePeakCeiling === undefined
+        ? undefined
+        : { ...base, operation, target, truePeakCeiling };
     }
     case "fade-in":
     case "fade-out":

@@ -36,6 +36,7 @@ const running: ProcessJobResult = {
   inputLufs: null,
   predictedLufs: null,
   outputLufs: null,
+  truePeak: null,
   peak: 0,
   nonFinite: false,
 };
