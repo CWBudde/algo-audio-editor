@@ -201,6 +201,10 @@ Long jobs show progress and yield between bounded kernel chunks so Cancel can
 discard their private output. The dialog holds the shared document lock until
 Apply or Cancel completes. Samples above full scale are not clipped by gain;
 a predicted-peak/nonfinite warning requires a separate Apply anyway action.
+Normalization also reports the output true peak (BS.1770 4× oversampling) and
+asks the same when only the true peak exceeds 0 dBTP. Loudness normalization
+can limit its gain to a true-peak ceiling (Limit true peak, −60 to 0 dBTP); a
+limited result is quieter than the target and says so.
 Private output, peak/block overhead and undo state must fit the shared kernel
 storage budget; jobs reserve their candidate storage before processing starts.
 
