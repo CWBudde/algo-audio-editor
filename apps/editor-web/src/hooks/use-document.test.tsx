@@ -881,6 +881,40 @@ describe("useDocument", () => {
       delete window.aaeDesktop;
     }
   });
+
+  it("creates a silent document after stopping playback", async () => {
+    const worker = new DocumentWorker();
+    const callbacks = options();
+    const client = new KernelClient(worker);
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    const params = { name: "Untitled", sampleRate: 48000, channels: 2, frames: 96000 };
+    await act(async () => result.current.create(params));
+    const created = worker.sent.filter((r) => r.op === "call" && r.method === "doc.new");
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({ params });
+    expect(callbacks.beforeOpen).toHaveBeenCalledTimes(1);
+    expect(result.current.info?.name).toBe("Untitled");
+    expect(result.current.busy).toBe(false);
+  });
+
+  it("asks before a new document replaces unsaved changes", async () => {
+    const confirm = vi.fn().mockReturnValue(false);
+    vi.stubGlobal("confirm", confirm);
+    const worker = new DocumentWorker();
+    const callbacks = options();
+    const client = new KernelClient(worker);
+    const { result } = renderHook(() => useDocument(client, callbacks));
+    await act(async () => result.current.openFile(file()));
+    const params = { name: "Untitled", sampleRate: 48000, channels: 1, frames: 0 };
+    await act(async () => result.current.create(params));
+    expect(confirm.mock.calls[0][0]).toContain("Discard changes to stereo.wav?");
+    expect(worker.sent.some((r) => r.op === "call" && r.method === "doc.new")).toBe(false);
+    expect(callbacks.beforeOpen).toHaveBeenCalledTimes(1);
+    expect(result.current.info?.name).toBe("stereo.wav");
+    confirm.mockReturnValue(true);
+    await act(async () => result.current.create(params));
+    expect(result.current.info?.name).toBe("Untitled");
+  });
 });
 
 it("refetches a rejected mutation identity and ignores an older info reply", async () => {

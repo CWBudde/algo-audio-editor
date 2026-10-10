@@ -26,6 +26,7 @@ const progress: ProcessJobResult = {
   totalFrames: 20,
   peak: 0.5,
   nonFinite: false,
+  truePeak: null,
 };
 
 it.each(["gain", "normalize-peak", "normalize-loudness"] as const)(
@@ -137,6 +138,7 @@ describe("processing runner", () => {
       inputLufs: -18,
       predictedLufs: -23,
       planningSteps: 1,
+      truePeak: 0.15,
     };
     const values: ProcessJobResult[] = [
       loudnessAnalysis,
@@ -217,7 +219,7 @@ describe("processing runner", () => {
 
   it("accepts the raw JSON wire golden also checked against Go serialization", () => {
     const values: unknown[] = JSON.parse(processWireGolden);
-    expect(values).toHaveLength(3);
+    expect(values).toHaveLength(4);
     for (const value of values) expect(validProcessProgress(value, params)).toBe(true);
   });
   it("yields a task between every bounded Go chunk, reports progress, and never commits", async () => {
@@ -329,6 +331,12 @@ describe("processing runner", () => {
     { peak: -1 },
     { nonFinite: "yes" },
     { state: "ready", processedFrames: 19 },
+    { truePeak: undefined },
+    { truePeak: -1 },
+    { truePeak: Number.POSITIVE_INFINITY },
+    { truePeak: 0.5 },
+    { truePeakCeiling: -1 },
+    { ceilingLimited: true },
   ])("rejects malformed progress %j", async (changes) => {
     const value = { ...progress, ...changes } as ProcessJobResult;
     expect(validProcessProgress(value, params)).toBe(false);
@@ -365,6 +373,7 @@ describe("processing runner", () => {
       processedFrames: 0,
       gainResolved: true,
       gainDb: 11.041199826559248,
+      truePeak: 0.95,
     };
     expect(validProcessProgress(peakAnalysis, params)).toBe(true);
     expect(validProcessProgress(processing, params, peakAnalysis)).toBe(true);
@@ -394,6 +403,7 @@ describe("processing runner", () => {
       gainDb: -5,
       inputLufs: -18,
       predictedLufs: -23,
+      truePeak: 0.15,
     };
     const verifying: ProcessJobResult = {
       ...processing,
@@ -450,6 +460,7 @@ describe("processing runner", () => {
       state: "ready",
       inputPeak: 0,
       unchangedReason: "silent",
+      truePeak: 0,
     };
     const start = { ...loudnessAnalysis, inputPeak: 0, processedFrames: 0 };
     expect(validProcessProgress(silent, params, start)).toBe(true);
@@ -547,4 +558,75 @@ it("accepts ABI 15 restoration phases while fencing profile/target progress and 
     "remove-hum",
   ] as const)
     expect(validProcessProgress({ ...progress, operation, gainDb: 0 }, params)).toBe(true);
+});
+
+describe("true-peak ceiling progress", () => {
+  const resolved: ProcessJobResult = {
+    ...loudnessAnalysis,
+    truePeakCeiling: -1,
+    phase: "processing",
+    phaseIndex: 1,
+    processedFrames: 0,
+    gainResolved: true,
+    gainDb: 3,
+    inputLufs: -26,
+    predictedLufs: -23,
+    truePeak: 0.5,
+  };
+  const limited: ProcessJobResult = {
+    ...resolved,
+    gainDb: 2,
+    predictedLufs: -24,
+    truePeak: 0.891,
+    ceilingLimited: true,
+  };
+
+  it("accepts a ceiling on loudness jobs, before and after the gain resolves", () => {
+    expect(validProcessProgress({ ...loudnessAnalysis, truePeakCeiling: -1 }, params)).toBe(true);
+    expect(validProcessProgress(resolved, params)).toBe(true);
+    expect(validProcessProgress(limited, params)).toBe(true);
+    expect(
+      validProcessProgress(
+        {
+          ...limited,
+          state: "ready",
+          phase: "verifying",
+          phaseIndex: 2,
+          processedFrames: 20,
+          outputLufs: -24,
+        },
+        params,
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    { truePeakCeiling: 0.5 },
+    { truePeakCeiling: -61 },
+    { truePeakCeiling: undefined },
+    { truePeak: null },
+    { predictedLufs: -22 },
+  ])("rejects inconsistent ceiling-limited progress %j", (changes) => {
+    expect(validProcessProgress({ ...limited, ...changes }, params)).toBe(false);
+  });
+
+  it("rejects a resolved loudness job without a true peak and a changed ceiling", () => {
+    expect(validProcessProgress({ ...resolved, truePeak: null }, params)).toBe(false);
+    expect(validProcessProgress({ ...limited, truePeakCeiling: -2 }, params, limited)).toBe(false);
+    expect(validProcessProgress({ ...limited, truePeak: 0.5 }, params, limited)).toBe(false);
+  });
+
+  it("accepts a peak-normalization true peak above full scale", () => {
+    const peak: ProcessJobResult = {
+      ...peakAnalysis,
+      phase: "processing",
+      phaseIndex: 1,
+      processedFrames: 0,
+      gainResolved: true,
+      gainDb: 6,
+      truePeak: 1.2,
+    };
+    expect(validProcessProgress(peak, params)).toBe(true);
+    expect(validProcessProgress({ ...peak, truePeakCeiling: -1 }, params)).toBe(false);
+  });
 });

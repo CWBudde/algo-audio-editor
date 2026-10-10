@@ -208,3 +208,25 @@ it("validates duration, hum and short-gap limits before submitting restoration",
     processParams(info, range, "remove-hum", "", { ...settings, harmonicsText: "17" }),
   ).toBeUndefined();
 });
+
+it("adds a validated true-peak ceiling to loudness normalization only", () => {
+  expect(settings.ceilingEnabled).toBe(false);
+  expect(processParams(info, range, "normalize-loudness", "-23", settings)).toEqual({
+    documentId: "d",
+    ...range,
+    operation: "normalize-loudness",
+    target: -23,
+  });
+  const limited = { ...settings, ceilingEnabled: true, ceilingText: "-1" };
+  expect(processParams(info, range, "normalize-loudness", "-14", limited)).toMatchObject({
+    target: -14,
+    truePeakCeiling: -1,
+  });
+  expect(processParams(info, range, "normalize-peak", "-1", limited)).not.toHaveProperty(
+    "truePeakCeiling",
+  );
+  for (const ceilingText of ["", "0.5", "-61", "NaN"])
+    expect(
+      processParams(info, range, "normalize-loudness", "-14", { ...limited, ceilingText }),
+    ).toBeUndefined();
+});

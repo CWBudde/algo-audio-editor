@@ -86,6 +86,11 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams, input []byte) (prot
 		value := *p.Target
 		target = &value
 	}
+	var ceiling *float64
+	if p.TruePeakCeiling != nil {
+		value := *p.TruePeakCeiling
+		ceiling = &value
+	}
 	e.jobs.processSequence++
 	e.jobs.processJob = &processingJob{
 		reservedBytes: reservation,
@@ -93,7 +98,7 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams, input []byte) (prot
 			SelectionResult: protocol.SelectionResult{DocumentID: p.DocumentID, SelectionRange: selection},
 			JobID:           fmt.Sprintf("process-%d", e.jobs.processSequence), State: protocol.JobRunning, Operation: p.Operation,
 			GainDB: gainDB, TotalFrames: selection.End - selection.Start,
-			Phase: phase, PhaseCount: phaseCount, GainResolved: gainResolved, Target: target,
+			Phase: phase, PhaseCount: phaseCount, GainResolved: gainResolved, Target: target, TruePeakCeiling: ceiling,
 		},
 		builder: builder, before: historySnapshot{document: e.doc.document, editor: before},
 		historyState: e.historyState.history.CurrentID(),
@@ -108,6 +113,15 @@ func (e *Engine) startProcess(p protocol.ProcessStartParams, input []byte) (prot
 
 func validateProcessParameters(p protocol.ProcessStartParams) error {
 	const method = protocol.MethodProcessStart
+	if p.TruePeakCeiling != nil {
+		ceiling := *p.TruePeakCeiling
+		if p.Operation != protocol.OperationNormalizeLoudness {
+			return fmt.Errorf("%s: a true-peak ceiling requires loudness normalization", method)
+		}
+		if math.IsNaN(ceiling) || math.IsInf(ceiling, 0) || ceiling < processing.MinTruePeakCeiling || ceiling > 0 {
+			return fmt.Errorf("%s: true-peak ceiling must be finite in [%g, 0] dBTP", method, processing.MinTruePeakCeiling)
+		}
+	}
 	if p.Operation == protocol.OperationGain {
 		if p.Target != nil || math.IsNaN(p.GainDB) || math.IsInf(p.GainDB, 0) || p.GainDB < -120 || p.GainDB > 60 {
 			return fmt.Errorf("%s: gain requires finite dB in [-120, 60] and no target", method)
@@ -145,7 +159,15 @@ func (e *Engine) prepareProcess(p protocol.ProcessStartParams, selection protoco
 		return processing.NewBuilder(e.doc.document, selected, processing.Gain{DB: p.GainDB}, limits)
 	}
 	if p.Operation == protocol.OperationNormalizePeak || p.Operation == protocol.OperationNormalizeLoudness {
-		return processing.NewNormalizer(e.doc.document, selected, p.Operation, *p.Target, limits)
+		normalizer, err := processing.NewNormalizer(e.doc.document, selected, p.Operation, *p.Target, limits)
+		if err != nil || p.TruePeakCeiling == nil {
+			return normalizer, err
+		}
+		if err := normalizer.LimitTruePeak(*p.TruePeakCeiling); err != nil {
+			normalizer.Cancel()
+			return nil, err
+		}
+		return normalizer, nil
 	}
 	if p.Seed > math.MaxUint32 {
 		return nil, fmt.Errorf("noise seed must be uint32")
@@ -178,6 +200,7 @@ func (e *Engine) refreshProcessStatus(job *processingJob) {
 		job.result.PlanningSteps = status.PlanningSteps
 		job.result.InputLUFS, job.result.PredictedLUFS, job.result.OutputLUFS = status.InputLUFS, status.PredictedLUFS, status.OutputLUFS
 		job.result.UnchangedReason = status.UnchangedReason
+		job.result.TruePeak, job.result.CeilingLimited = status.TruePeak, status.CeilingLimited
 	}
 	format := protocol.ProcessCandidate{SampleRate: e.doc.document.SampleRate(), Channels: e.doc.document.Channels(), Frames: e.doc.document.Frames(), SelectionRange: job.result.SelectionRange}
 	if provider, ok := job.builder.(interface{ OutputFormat() (int, int, int64) }); ok {

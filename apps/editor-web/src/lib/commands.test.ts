@@ -115,15 +115,25 @@ describe("central command registry", () => {
     ).toMatchObject({ shortcutLabel: "Cmd+Shift+E", ariaShortcut: "Meta+Shift+E" });
   });
 
-  it("disables missing actions and planned commands without exposing fake shortcuts", () => {
+  it("opens Preferences from Edit with Ctrl/Cmd+comma, with or without a document", () => {
+    expect(enabled("edit.preferences", { info: undefined })).toBe(true);
+    expect(enabled("edit.preferences", { modalOpen: true })).toBe(false);
+    expect(matchCommandShortcut(key(",", { ctrlKey: true }), "other")?.id).toBe("edit.preferences");
+    expect(matchCommandShortcut(key(",", { metaKey: true }), "mac")?.id).toBe("edit.preferences");
+    expect(
+      resolveCommands(context, "mac", actions).find((command) => command.id === "edit.preferences"),
+    ).toMatchObject({ menu: "Edit", shortcutLabel: "Cmd+," });
+  });
+
+  it("disables missing actions and leaves New without the browser-reserved shortcut", () => {
     expect(resolveCommands(context, "other", {}).every((command) => !command.enabled)).toBe(true);
-    for (const id of ["file.new"] as const) {
-      expect(enabled(id)).toBe(false);
-      expect(
-        resolveCommands(context, "other", actions).find((command) => command.id === id)
-          ?.shortcutLabel,
-      ).toBeUndefined();
-    }
+    expect(enabled("file.new")).toBe(true);
+    expect(enabled("file.new", { info: undefined })).toBe(true);
+    expect(enabled("file.new", { busy: true })).toBe(false);
+    expect(
+      resolveCommands(context, "other", actions).find((command) => command.id === "file.new")
+        ?.shortcutLabel,
+    ).toBeUndefined();
     expect(matchCommandShortcut(key("n", { ctrlKey: true }), "other")).toBeUndefined();
   });
 

@@ -34,6 +34,7 @@ import { useWaveformKeyboard } from "@/components/waveform/use-waveform-keyboard
 import { useWaveformPointer } from "@/components/waveform/use-waveform-pointer";
 import { useWaveformViewport } from "@/components/waveform/use-waveform-viewport";
 import { usePeaks } from "@/hooks/use-peaks";
+import { usePreferences } from "@/hooks/use-preferences";
 import { type SelectionOptions, useSelection } from "@/hooks/use-selection";
 import type { KernelClient } from "@/kernel/client";
 import { DEFAULT_SPECTRAL_SETTINGS } from "@/lib/analysis-settings";
@@ -260,7 +261,10 @@ function WaveformContent({
         }
       : undefined,
   );
-  const [timeFormat, setTimeFormat] = useState<TimeFormat>("seconds");
+  // Time format and snapping are persisted preferences, shared with the Preferences dialog.
+  const [preferences, setPreferences] = usePreferences();
+  const { timeFormat } = preferences;
+  const { zero: snapZero, markers: snapMarkers, ticks: snapTicks } = preferences.snap;
   const [amplitudeScale, setAmplitudeScale] = useState<AmplitudeScale>("linear");
   const [verticalZoom, setVerticalZoom] = useState(1);
   const changeVerticalZoom = useCallback(
@@ -279,9 +283,6 @@ function WaveformContent({
   }, [client, info.documentId]);
   const [sampleMode, setSampleMode] = useState<SampleDisplayMode>("linear");
   const scrollbar = useRef<HTMLDivElement>(null);
-  const [snapZero, setSnapZero] = useState(false);
-  const [snapMarkers, setSnapMarkers] = useState(false);
-  const [snapTicks, setSnapTicks] = useState(false);
   const [anchorName, setAnchorName] = useState("");
   const [anchorColor, setAnchorColor] = useState("#a78bfa");
   const overviewDrag = useRef<{ pointer: number; x: number; viewport: FrameRange } | undefined>(
@@ -618,7 +619,9 @@ function WaveformContent({
                   aria-label="Time format"
                   className="rounded border bg-background p-1"
                   value={timeFormat}
-                  onChange={(event) => setTimeFormat(event.target.value as TimeFormat)}
+                  onChange={(event) =>
+                    setPreferences({ timeFormat: event.target.value as TimeFormat })
+                  }
                 >
                   <option value="samples">Samples</option>
                   <option value="seconds">Seconds</option>
@@ -703,7 +706,7 @@ function WaveformContent({
                   type="checkbox"
                   checked={snapZero}
                   onChange={(event) => {
-                    setSnapZero(event.target.checked);
+                    setPreferences({ snap: { ...preferences.snap, zero: event.target.checked } });
                   }}
                 />{" "}
                 Zero crossings
@@ -713,7 +716,9 @@ function WaveformContent({
                   type="checkbox"
                   checked={snapMarkers}
                   onChange={(event) => {
-                    setSnapMarkers(event.target.checked);
+                    setPreferences({
+                      snap: { ...preferences.snap, markers: event.target.checked },
+                    });
                   }}
                 />{" "}
                 Markers / regions
@@ -723,7 +728,7 @@ function WaveformContent({
                   type="checkbox"
                   checked={snapTicks}
                   onChange={(event) => {
-                    setSnapTicks(event.target.checked);
+                    setPreferences({ snap: { ...preferences.snap, ticks: event.target.checked } });
                   }}
                 />{" "}
                 Ruler ticks

@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef } from "react";
 import {
+  exceedsFullScale,
   matchesProcessSettings,
   type ProcessOperation,
   type ProcessView,
@@ -10,6 +11,7 @@ import {
   PROCESS_TITLES,
   type ProcessSettings,
   processParams,
+  truePeakCeiling,
 } from "@/lib/process-settings";
 import { ProcessControls } from "./process-controls";
 
@@ -73,22 +75,26 @@ export function ProcessDialog({
     view?.operation === "normalize-peak" || view?.operation === "normalize-loudness";
   const numeric =
     view?.operation === "gain" || view?.operation === "spectral-attenuate" || normalize;
-  const valid = Boolean(
-    view &&
-      processParams(
-        view.info,
-        view.selection,
-        view.operation,
-        view.parameterText,
-        view.settings ?? defaultProcessSettings(view.info),
-      ),
-  );
+  const settings = view ? (view.settings ?? defaultProcessSettings(view.info)) : undefined;
+  const params =
+    view && settings
+      ? processParams(view.info, view.selection, view.operation, view.parameterText, settings)
+      : undefined;
+  const valid = Boolean(params);
   const working =
     view?.phase === "processing" || view?.phase === "committing" || view?.phase === "cancelling";
   const ready = view
-    ? (view.ready ?? matchesProcessSettings(view.job, view.operation, value))
+    ? (view.ready ??
+      matchesProcessSettings(view.job, view.operation, value, truePeakCeiling(params)))
     : false;
-  const warning = Boolean(ready && view?.job && (view.job.peak > 1 || view.job.nonFinite));
+  const warning = Boolean(ready && view?.job && exceedsFullScale(view.job));
+  const sampleClipping = Boolean(view?.job && (view.job.peak > 1 || view.job.nonFinite));
+  const ceilingInvalid = Boolean(
+    view?.operation === "normalize-loudness" &&
+      settings?.ceilingEnabled &&
+      value !== undefined &&
+      !valid,
+  );
   const cancellable = view?.phase !== "committing" && view?.phase !== "cancelling";
   return (
     <dialog
@@ -185,6 +191,49 @@ export function ProcessDialog({
               )}
             </>
           )}
+          {view.operation === "normalize-loudness" && settings && (
+            <div className="mt-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.ceilingEnabled}
+                  disabled={working}
+                  onChange={(event) => onSettingsChange?.({ ceilingEnabled: event.target.checked })}
+                />
+                Limit true peak
+              </label>
+              {settings.ceilingEnabled && (
+                <>
+                  <label
+                    className="mt-2 block text-xs font-medium text-muted-foreground"
+                    htmlFor={`${id}-ceiling`}
+                  >
+                    True-peak ceiling (dBTP)
+                  </label>
+                  <input
+                    id={`${id}-ceiling`}
+                    type="text"
+                    inputMode="decimal"
+                    value={settings.ceilingText}
+                    disabled={working}
+                    aria-invalid={ceilingInvalid}
+                    aria-describedby={ceilingInvalid ? `${id}-ceiling-error` : undefined}
+                    className="studio-field mt-1 w-full border px-3 py-2 text-sm"
+                    onChange={(event) => onSettingsChange?.({ ceilingText: event.target.value })}
+                  />
+                  {ceilingInvalid && (
+                    <p
+                      id={`${id}-ceiling-error`}
+                      role="alert"
+                      className="mt-1 text-sm text-destructive"
+                    >
+                      Enter a finite ceiling between −60 and 0 dBTP.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           {view.operation === "spectral-attenuate" && value !== undefined && !valid && (
             <p role="alert" className="mt-2 text-sm text-destructive">
               Choose finite frequency bounds from 0 Hz to half the sample rate, with the upper bound
@@ -258,7 +307,16 @@ export function ProcessDialog({
                 {numeric && view.job.gainResolved && view.job.unchangedReason !== "silent" && (
                   <p>Resolved gain: {view.job.gainDb.toFixed(3)} dB</p>
                 )}
+                {view.job.truePeak !== null && (
+                  <p>Output true peak: {decibels(view.job.truePeak)} dBTP</p>
+                )}
                 {normalize && <p>Input sample peak: {view.job.inputPeak.toFixed(6)}</p>}
+                {view.job.ceilingLimited && view.job.truePeakCeiling !== undefined && (
+                  <p>
+                    Limited by the {signed(view.job.truePeakCeiling, 1)} dBTP ceiling: the output is
+                    quieter than the target.
+                  </p>
+                )}
                 {view.operation === "normalize-loudness" && (
                   <>
                     <p>
@@ -280,8 +338,10 @@ export function ProcessDialog({
             )}
             {warning && (
               <p role="alert" className="mt-2 text-sm text-warning">
-                The processed result exceeds full scale or contains nonfinite samples. PCM export
-                may clip. Apply anyway to keep this result.
+                {sampleClipping
+                  ? "The processed result exceeds full scale or contains nonfinite samples. PCM export may clip."
+                  : "The processed result's true peak exceeds 0 dBTP. Inter-sample peaks may clip in D/A conversion or lossy encoding."}{" "}
+                Apply anyway to keep this result.
               </p>
             )}
             {view.previewing && !ready && (
@@ -332,4 +392,14 @@ export function ProcessDialog({
       )}
     </dialog>
   );
+}
+
+/** Signed decimal with a typographic minus, as the dialog's other dB texts. */
+function signed(value: number, digits: number): string {
+  const text = Math.abs(value).toFixed(digits);
+  return Number(text) === 0 ? text : `${value < 0 ? "−" : "+"}${text}`;
+}
+
+function decibels(linear: number): string {
+  return linear > 0 ? signed(20 * Math.log10(linear), 2) : "−∞";
 }

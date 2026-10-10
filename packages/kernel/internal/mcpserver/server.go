@@ -70,7 +70,7 @@ type exportArgs struct {
 	BitDepth     int     `json:"bitDepth"`
 	Float        bool    `json:"float,omitempty"`
 	Scope        string  `json:"scope,omitempty" jsonschema:"document (default) or selection"`
-	Dither       string  `json:"dither,omitempty" jsonschema:"none or tpdf"`
+	Dither       string  `json:"dither,omitempty" jsonschema:"none (default), rectangular, triangular (TPDF), gaussian or fast-gaussian"`
 	NoiseShaping string  `json:"noiseShaping,omitempty"`
 	Seed         *uint32 `json:"seed,omitempty"`
 	Overwrite    bool    `json:"overwrite,omitempty" jsonschema:"explicit permission to replace an existing destination"`

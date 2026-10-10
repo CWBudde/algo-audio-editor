@@ -1,4 +1,9 @@
-import type { DocumentInfoResult, HistoryListResult, TimelineExportParams } from "@aae/protocol";
+import type {
+  DocumentInfoResult,
+  DocumentNewParams,
+  HistoryListResult,
+  TimelineExportParams,
+} from "@aae/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useKernelSession } from "@/hooks/use-kernel-session";
 import type { KernelClient } from "@/kernel/client";
@@ -84,17 +89,21 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     [capture, latest, operation],
   );
 
+  /** False when the user keeps a dirty document, or the operation went stale. */
+  const mayReplace = useCallback(async (target: KernelClient, active: () => boolean) => {
+    const current = currentInfo.current;
+    if (!current) return true;
+    const history = await target.call("history.list", { documentId: current.documentId });
+    if (!active()) return false;
+    return !history.dirty || confirmReplace(current.name);
+  }, []);
+
   const importFile = useCallback(
     async (target: KernelClient, active: () => boolean, file: File) => {
       let success = false;
       try {
         if (file.size > 1024 * 1024 * 1024) throw new Error("File exceeds the 1 GiB import limit.");
-        const current = currentInfo.current;
-        if (current) {
-          const history = await target.call("history.list", { documentId: current.documentId });
-          if (!active()) return;
-          if (history.dirty && !(await confirmReplace(current.name))) return;
-        }
+        if (currentInfo.current && !(await mayReplace(target, active))) return;
         const stopping = latest.current.options.beforeOpen();
         const [stopped, reading] = await Promise.allSettled([
           stopping,
@@ -113,7 +122,21 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
         await finishNativeOpen(file, success);
       }
     },
-    [latest],
+    [latest, mayReplace],
+  );
+
+  const create = useCallback(
+    (params: DocumentNewParams) =>
+      run("Could not create a document", async (target, active) => {
+        if (currentInfo.current && !(await mayReplace(target, active))) return;
+        await latest.current.options.beforeOpen();
+        if (!active()) return;
+        const info = await target.call("doc.new", params);
+        if (!active()) return;
+        currentInfo.current = info;
+        setSnapshot({ client: target, info });
+      }),
+    [latest, mayReplace, run],
   );
 
   const openFile = useCallback(
@@ -287,6 +310,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     open,
     openFile,
     openDemo,
+    create,
     openNativeFile,
     save,
     saveAndWait,

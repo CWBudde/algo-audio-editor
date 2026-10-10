@@ -52,6 +52,7 @@ const initialJob: ProcessJobResult = {
   inputLufs: null,
   predictedLufs: null,
   outputLufs: null,
+  truePeak: null,
   planningSteps: 0,
 };
 function deferred<T>() {
@@ -103,6 +104,7 @@ function setup(operation: ProcessOperation = "gain", overrides: Partial<ProcessO
       inputLufs: job.operation === "normalize-loudness" ? -35 : null,
       predictedLufs: job.operation === "normalize-loudness" ? (job.target ?? null) : null,
       outputLufs: job.operation === "normalize-loudness" ? (job.target ?? null) : null,
+      truePeak: job.operation.startsWith("normalize") ? 0.3 : null,
     }),
   );
   const options: ProcessOptions = {

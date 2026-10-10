@@ -108,6 +108,43 @@ test("LUFS normalization reports truthful linked source/output telemetry and rea
   expect((await history(page)).entries).toHaveLength(saved.entries.length + 1);
 });
 
+test("normalization warns when only the true peak exceeds full scale", async ({ page }) => {
+  // A tone at a quarter of the sample rate, 45° out of phase: every sample sits
+  // 3 dB below the waveform's true peak.
+  const quarter = Array.from({ length: 48000 }, (_, frame) =>
+    Math.fround(0.25 * Math.sin((Math.PI / 2) * frame + Math.PI / 4)),
+  );
+  await load(page, [quarter, quarter]);
+  const saved = await history(page);
+  const dialog = await normalize(page, "normalize-peak", "-1");
+  await dialog.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("true peak exceeds 0 dBTP");
+  const reading = await dialog.getByText(/Output true peak:/).textContent();
+  expect(Number(reading?.match(/\+(\d+\.\d+) dBTP/)?.[1])).toBeGreaterThan(1.9);
+  expect(await history(page)).toEqual(saved);
+  await dialog.getByRole("button", { name: "Apply anyway" }).click();
+  await expect(dialog).not.toBeVisible();
+  expect((await history(page)).entries).toHaveLength(saved.entries.length + 1);
+});
+
+test("a true-peak ceiling caps loudness normalization below the target", async ({ page }) => {
+  await load(page, tone(48000 * 2));
+  const dialog = await normalize(page, "normalize-loudness", "-0.5");
+  await dialog.getByRole("checkbox", { name: "Limit true peak" }).check();
+  await dialog.getByLabel("True-peak ceiling (dBTP)").fill("-3");
+  await dialog.getByRole("button", { name: "Preview", exact: true }).click();
+  await expect(dialog.getByTestId("process-status")).toContainText("Previewing");
+  await expect(dialog.getByText(/Limited by the −3\.0 dBTP ceiling/)).toBeVisible();
+  await expect(dialog.getByRole("alert")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  // The 1 kHz tone's true peak is within 0.01 dB of its sample peak, so the
+  // capped gain lands the sample peak just below −3 dBFS.
+  const peak = (await samples(page))[0][12];
+  expect(peak).toBeLessThanOrEqual(10 ** (-3 / 20));
+  expect(peak).toBeGreaterThan(10 ** (-3.02 / 20));
+});
+
 test("positive below-gate source normalizes without an invented source LUFS reading", async ({
   page,
 }) => {

@@ -201,6 +201,10 @@ Long jobs show progress and yield between bounded kernel chunks so Cancel can
 discard their private output. The dialog holds the shared document lock until
 Apply or Cancel completes. Samples above full scale are not clipped by gain;
 a predicted-peak/nonfinite warning requires a separate Apply anyway action.
+Normalization also reports the output true peak (BS.1770 4× oversampling) and
+asks the same when only the true peak exceeds 0 dBTP. Loudness normalization
+can limit its gain to a true-peak ceiling (Limit true peak, −60 to 0 dBTP); a
+limited result is quieter than the target and says so.
 Private output, peak/block overhead and undo state must fit the shared kernel
 storage budget; jobs reserve their candidate storage before processing starts.
 
@@ -319,7 +323,11 @@ changes. Save marks only the successfully written history state as saved;
 undo/redo back to that state becomes clean, while export alone does not. With
 File System Access, the write and close must succeed. The download fallback
 can observe only handoff to the browser, not disk completion or cancellation.
-Opening another file resets history, so Open, drag-and-drop and the demo ask
+File → New creates a clean, untitled document of silence: choose a sample rate
+from 8 to 384 kHz, one to eight channels and a length (0 s gives an empty
+document to generate or paste into). It is stored as 32-bit float like any
+other working document. Opening another file or a new document resets history,
+so New, Open, drag-and-drop and the demo ask
 before discarding unsaved changes (a native dialog in Electron, the browser's
 confirm prompt otherwise). Electron protects dirty documents with Save, Discard
 or Cancel when closing; cancelled or failed saves keep the window open. Browser
@@ -336,6 +344,12 @@ share the same registry and recheck availability before execution.
 Help → Keyboard shortcuts lists every binding from that registry with this
 platform's keys. Help → Copy diagnostics copies the About facts (versions,
 build, isolation, playback counters, platform) as plain text for bug reports.
+
+Edit → Preferences (Ctrl/Cmd+,) sets the export dialog's default format and
+dither, the waveform time format and snapping. Changes apply at once and are kept
+in browser storage for the next session (per profile in Electron); the waveform's
+own time-format and snap controls change the same settings. Save is unaffected:
+it keeps the source format without dither.
 
 File Open/Save/Export use Ctrl/Cmd+O/S/Shift+E. Export WAV writes a copy without
 marking the working document saved. Zoom uses Ctrl/Cmd+=/−/0; Select all uses

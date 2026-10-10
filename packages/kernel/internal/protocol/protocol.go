@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 19
+const Version = 20
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -29,6 +29,8 @@ const (
 	// MethodDocumentOpen imports detected audio bytes supplied separately from the JSON payload.
 	MethodDocumentOpen    = "doc.open"
 	MethodDocumentOpenPCM = "doc.openPCM"
+	// MethodDocumentNew replaces the document with silence in a chosen format.
+	MethodDocumentNew = "doc.new"
 	// MethodDocumentInfo returns the active document's format and dimensions.
 	MethodDocumentInfo = "doc.info"
 	// MethodDocumentExport encodes audio bytes retrieved via takeData.
@@ -315,24 +317,35 @@ type EditResult struct {
 	History   HistoryListResult  `json:"history"`
 }
 
+// DocumentNewParams describes a new silent document. Frames may be zero; an
+// empty name becomes "Untitled".
+type DocumentNewParams struct {
+	Name       string `json:"name,omitempty"`
+	SampleRate int    `json:"sampleRate"`
+	Channels   int    `json:"channels"`
+	Frames     int64  `json:"frames"`
+}
+
 // ProcessStartParams builds a private candidate in bounded worker slices. Only commit
 // publishes it; preview playback and cancellation leave the document unchanged.
 type ProcessStartParams struct {
 	SelectionResult
-	Operation      OperationName `json:"operation"`
-	GainDB         float64       `json:"gainDb"`
-	Target         *float64      `json:"target,omitempty"`
-	Curve          string        `json:"curve,omitempty"`
-	DurationFrames int64         `json:"durationFrames,omitempty"`
-	ChannelMode    string        `json:"channelMode,omitempty"`
-	Channel        int           `json:"channel,omitempty"`
-	SampleRate     int           `json:"sampleRate,omitempty"`
-	Quality        string        `json:"quality,omitempty"`
-	Generator      string        `json:"generator,omitempty"`
-	Frequency      float64       `json:"frequency,omitempty"`
-	EndFrequency   float64       `json:"endFrequency,omitempty"`
-	LevelDB        float64       `json:"levelDb,omitempty"`
-	Seed           uint64        `json:"seed,omitempty"`
+	Operation OperationName `json:"operation"`
+	GainDB    float64       `json:"gainDb"`
+	Target    *float64      `json:"target,omitempty"`
+	// TruePeakCeiling (dBTP) caps loudness-normalization gain; nothing else accepts it.
+	TruePeakCeiling *float64 `json:"truePeakCeiling,omitempty"`
+	Curve           string   `json:"curve,omitempty"`
+	DurationFrames  int64    `json:"durationFrames,omitempty"`
+	ChannelMode     string   `json:"channelMode,omitempty"`
+	Channel         int      `json:"channel,omitempty"`
+	SampleRate      int      `json:"sampleRate,omitempty"`
+	Quality         string   `json:"quality,omitempty"`
+	Generator       string   `json:"generator,omitempty"`
+	Frequency       float64  `json:"frequency,omitempty"`
+	EndFrequency    float64  `json:"endFrequency,omitempty"`
+	LevelDB         float64  `json:"levelDb,omitempty"`
+	Seed            uint64   `json:"seed,omitempty"`
 	// SourceSampleRate is the rate of the mono little-endian float32 PCM that
 	// the "audio" generator takes as the call's binary input.
 	SourceSampleRate int              `json:"sourceSampleRate,omitempty"`
@@ -467,6 +480,12 @@ type ProcessJobResult struct {
 	OutputLUFS      *float64          `json:"outputLufs"`
 	Target          *float64          `json:"target,omitempty"`
 	UnchangedReason string            `json:"unchangedReason,omitempty"`
+	// TruePeakCeiling echoes the requested ceiling. TruePeak is the output's
+	// 4x-oversampled linear maximum, set by normalization once its gain is
+	// resolved. CeilingLimited reports that the ceiling lowered that gain.
+	TruePeakCeiling *float64 `json:"truePeakCeiling,omitempty"`
+	TruePeak        *float64 `json:"truePeak"`
+	CeilingLimited  bool     `json:"ceilingLimited,omitempty"`
 }
 
 // HistoryListParams identifies the document whose history is requested.

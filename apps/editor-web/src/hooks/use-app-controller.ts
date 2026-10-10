@@ -1,5 +1,6 @@
 import type {
   ClipboardInfo,
+  DocumentNewParams,
   EditOperation,
   EditResult,
   HistoryListResult,
@@ -79,6 +80,8 @@ export function useAppController() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [informationOpen, setInformationOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [newDocumentOpen, setNewDocumentOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [metersOpen, setMetersOpen] = useState(false);
   const [spectrumOpen, setSpectrumOpen] = useState(false);
   const [spectralView, setSpectralView] = useState<"waveform" | "spectrogram" | "split">(
@@ -125,6 +128,14 @@ export function useAppController() {
     reportError: (action, error) => reportError(action)(error),
     onSaved: (history) => acceptHistory.current?.(history),
   });
+  const { create } = doc;
+  const createDocument = useCallback(
+    (params: DocumentNewParams) => {
+      setNewDocumentOpen(false);
+      void create(params);
+    },
+    [create],
+  );
 
   useEffect(() => {
     if (
@@ -478,6 +489,8 @@ export function useAppController() {
           exporting.view ||
           informationOpen ||
           shortcutsOpen ||
+          newDocumentOpen ||
+          preferencesOpen ||
           metadata.view ||
           analysis.view,
       ),
@@ -542,6 +555,7 @@ export function useAppController() {
         const range = selection;
         if (range) effects.open(range);
       },
+      "file.new": () => setNewDocumentOpen(true),
       "file.open": async () => {
         await doc.open();
       },
@@ -631,6 +645,7 @@ export function useAppController() {
         const range = selection;
         if (range) speech.open(range);
       },
+      "edit.preferences": () => setPreferencesOpen(true),
       "help.shortcuts": () => setShortcutsOpen(true),
       "help.diagnostics": async () => {
         await copyDiagnostics({
@@ -766,6 +781,11 @@ export function useAppController() {
     setInformationOpen,
     setShortcutsOpen,
     shortcutsOpen,
+    newDocumentOpen,
+    setNewDocumentOpen,
+    createDocument,
+    preferencesOpen,
+    setPreferencesOpen,
     setLoop,
     setMetersOpen,
     setPaletteOpen,

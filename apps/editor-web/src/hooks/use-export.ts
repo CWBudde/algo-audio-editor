@@ -20,6 +20,7 @@ import {
   exportLossy,
   LOSSY_BITRATES,
 } from "@/lib/lossy-export";
+import { getPreferences } from "@/lib/preferences";
 
 export interface ExportOptions {
   client?: KernelClient;
@@ -129,11 +130,15 @@ export function useExport(options: ExportOptions) {
       const initial = latest.current;
       const { client, info } = initial;
       if (!mounted.current || !client || !info || initial.busy || session.current) return;
+      const preferences = getPreferences();
       const s: Session = {
         client,
         info,
         selection: { ...selection },
-        settings: defaultExportSettings(info),
+        settings: defaultExportSettings(info, {
+          format: preferences.exportFormat,
+          dither: preferences.exportDither,
+        }),
         phase: "idle",
         closing: false,
         probe: 0,

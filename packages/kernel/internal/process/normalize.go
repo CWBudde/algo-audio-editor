@@ -12,6 +12,7 @@ import (
 	"github.com/cwbudde/algo-audio-editor/packages/kernel/internal/protocol"
 	"github.com/cwbudde/algo-dsp/dsp/signal"
 	"github.com/cwbudde/algo-dsp/measure/loudness"
+	"github.com/cwbudde/algo-dsp/measure/truepeak"
 )
 
 const normalizationPlanWork = 4096
@@ -30,6 +31,14 @@ type NormalizationStatus struct {
 	PredictedLUFS   *float64
 	OutputLUFS      *float64
 	UnchangedReason string
+	// InputTruePeak is the 4x-oversampled linear maximum of the selected
+	// source. TruePeak is the output's, derived from it and the linear gain,
+	// and stays nil until the gain is resolved.
+	InputTruePeak float64
+	TruePeak      *float64
+	// CeilingLimited reports that a true-peak ceiling lowered the loudness gain,
+	// so the output is quieter than the requested target.
+	CeilingLimited bool
 }
 
 // Normalizer first measures a linked selected program, delegates all gain and
@@ -48,6 +57,9 @@ type Normalizer struct {
 	feed           audiobuf.TargetFeedBuffer
 	analyzer       *loudness.TargetAnalyzer
 	verification   *loudness.TargetAnalyzer
+	truePeak       *truepeak.Meter
+	channelPeaks   []float64
+	ceiling        *float64
 	builder        *Builder
 	result         audiobuf.Document
 	status         NormalizationStatus
@@ -80,10 +92,14 @@ func NewNormalizer(document audiobuf.Document, selected ops.Range, operation pro
 		source: document, selected: selected, operation: operation, target: target, limits: limits,
 		channels: make([]audiobuf.Channel, 0, count), status: NormalizationStatus{Phase: protocol.PhaseAnalyzing, PhaseCount: 2},
 		progress: Progress{FramesTotal: selected.End - selected.Start},
+		storage:  make([]float32, count*audiobuf.BlockFrames), block: make([][]float32, count), channelPeaks: make([]float64, count),
 	}
+	meter, err := truepeak.NewMeter(count)
+	if err != nil {
+		return nil, fmt.Errorf("process.normalize: prepare true peak: %w", err)
+	}
+	n.truePeak = meter
 	if operation == protocol.OperationNormalizeLoudness {
-		n.storage = make([]float32, count*audiobuf.BlockFrames)
-		n.block = make([][]float32, count)
 		indices := make([]int, 0, count)
 		for channel := range document.Channels() {
 			if selected.ChannelMask&(1<<channel) != 0 {
@@ -115,6 +131,26 @@ func NewNormalizer(document audiobuf.Document, selected ops.Range, operation pro
 	}
 	return n, nil
 }
+
+// LimitTruePeak caps the loudness gain so the output true peak stays at or
+// below ceiling dBTP. It applies only to loudness normalization and only
+// before analysis starts; the output is then quieter than the target.
+func (n *Normalizer) LimitTruePeak(ceiling float64) error {
+	if n.operation != protocol.OperationNormalizeLoudness {
+		return fmt.Errorf("process.normalize: a true-peak ceiling requires loudness normalization")
+	}
+	if math.IsNaN(ceiling) || math.IsInf(ceiling, 0) || ceiling < MinTruePeakCeiling || ceiling > 0 {
+		return fmt.Errorf("process.normalize: true-peak ceiling must be finite in [%g, 0] dBTP", MinTruePeakCeiling)
+	}
+	if n.failure != nil || n.status.Phase != protocol.PhaseAnalyzing || n.progress.FramesDone != 0 {
+		return fmt.Errorf("process.normalize: true-peak ceiling must be set before analysis")
+	}
+	n.ceiling = &ceiling
+	return nil
+}
+
+// MinTruePeakCeiling is the lowest accepted true-peak ceiling in dBTP.
+const MinTruePeakCeiling = -60.0
 
 // Status returns phase-aware control metadata without exposing audio samples.
 func (n *Normalizer) Status() NormalizationStatus { return n.status }
@@ -174,36 +210,69 @@ func (n *Normalizer) readBlock(ctx context.Context, frames int) error {
 	return nil
 }
 
-func (n *Normalizer) processLoudnessBlock(ctx context.Context, analyzer *loudness.TargetAnalyzer, frames int) error {
+func (n *Normalizer) processLoudnessBlock(ctx context.Context, analyzer *loudness.TargetAnalyzer, frames int) (bool, error) {
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("process.normalize: %w", err)
+		return false, fmt.Errorf("process.normalize: %w", err)
 	}
 	// The concrete feed adapter certifies only finiteness and exact sample peak
 	// from immutable storage. Both source and candidate still undergo actual
 	// independent K filtering, complete-window accumulation and gated analysis.
 	fed, err := n.feed.Feed(analyzer, n.channels, n.selected.Start+n.progress.FramesDone, frames)
 	if err != nil {
-		return fmt.Errorf("process.normalize: feed loudness: %w", err)
+		return false, fmt.Errorf("process.normalize: feed loudness: %w", err)
 	}
 	if !fed {
 		if err := n.readBlock(ctx, frames); err != nil {
-			return err
+			return false, err
 		}
 		if err := analyzer.ProcessPlanar32(n.block); err != nil {
-			return fmt.Errorf("process.normalize: analyze copied range: %w", err)
+			return false, fmt.Errorf("process.normalize: analyze copied range: %w", err)
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("process.normalize: %w", err)
+		return false, fmt.Errorf("process.normalize: %w", err)
 	}
+	return !fed, nil
+}
+
+// measureTruePeak feeds one finite source block to the upstream oversampling
+// meter, copying it first unless loudness analysis already did.
+func (n *Normalizer) measureTruePeak(ctx context.Context, frames int, copied bool) error {
+	if !copied {
+		if err := n.readBlock(ctx, frames); err != nil {
+			return err
+		}
+	}
+	if err := n.truePeak.ProcessPlanar32(n.block); err != nil {
+		return fmt.Errorf("process.normalize: measure true peak: %w", err)
+	}
+	return nil
+}
+
+// finishTruePeak flushes the meter's filter tail once and keeps the linked
+// maximum over the selected channels.
+func (n *Normalizer) finishTruePeak() error {
+	if n.truePeak == nil {
+		return nil
+	}
+	n.truePeak.Flush()
+	if err := n.truePeak.PeaksInto(n.channelPeaks); err != nil {
+		return fmt.Errorf("process.normalize: true peak: %w", err)
+	}
+	for _, peak := range n.channelPeaks {
+		n.status.InputTruePeak = math.Max(n.status.InputTruePeak, peak)
+	}
+	n.truePeak = nil
 	return nil
 }
 
 func (n *Normalizer) analyze(ctx context.Context) (Progress, error) {
 	if n.progress.FramesDone < n.progress.FramesTotal {
 		frames := int(min(int64(audiobuf.BlockFrames), n.progress.FramesTotal-n.progress.FramesDone))
+		copied := false
 		if n.analyzer != nil {
-			if err := n.processLoudnessBlock(ctx, n.analyzer, frames); err != nil {
+			var err error
+			if copied, err = n.processLoudnessBlock(ctx, n.analyzer, frames); err != nil {
 				return n.fail(fmt.Errorf("process.normalize: analyze loudness: %w", err))
 			}
 			n.status.InputPeak = n.analyzer.SamplePeak()
@@ -223,8 +292,14 @@ func (n *Normalizer) analyze(ctx context.Context) (Progress, error) {
 				n.status.InputPeak = math.Max(n.status.InputPeak, peak)
 			}
 		}
+		if err := n.measureTruePeak(ctx, frames, copied); err != nil {
+			return n.fail(err)
+		}
 		n.progress.FramesDone += int64(frames)
 		return n.progress, nil
+	}
+	if err := n.finishTruePeak(); err != nil {
+		return n.fail(err)
 	}
 	// A genuinely silent program cannot be amplified. Keep its signed zeros and
 	// original document/storage exactly, without inventing a loudness reading.
@@ -232,6 +307,8 @@ func (n *Normalizer) analyze(ctx context.Context) (Progress, error) {
 		return n.fail(fmt.Errorf("process.normalize: %w", loudness.ErrTooShort))
 	}
 	if n.status.InputPeak == 0 {
+		silent := 0.0
+		n.status.TruePeak = &silent
 		n.identity, n.status.GainResolved, n.progress.Done = true, true, true
 		n.status.UnchangedReason = "silent"
 		n.status.PhaseIndex = n.status.PhaseCount - 1
@@ -285,6 +362,24 @@ func (n *Normalizer) startBuilder(db, coefficient float64) (Progress, error) {
 	if math.IsNaN(db) || math.IsInf(db, 0) || math.IsNaN(coefficient) || math.IsInf(coefficient, 0) || coefficient <= 0 {
 		return n.fail(fmt.Errorf("process.normalize: invalid resolved gain"))
 	}
+	if n.ceiling != nil {
+		// The gain is linear, so the output true peak is the input's scaled by
+		// it: capping the gain is enough, no limiter is involved.
+		limit, err := signal.PlanPeakNormalization(n.status.InputTruePeak, *n.ceiling)
+		if err != nil {
+			return n.fail(fmt.Errorf("process.normalize: plan true-peak ceiling: %w", err))
+		}
+		if limit.GainDB < db {
+			if n.status.PredictedLUFS != nil {
+				predicted := *n.status.PredictedLUFS + limit.GainDB - db
+				n.status.PredictedLUFS = &predicted
+			}
+			db, coefficient = limit.GainDB, limit.Gain
+			n.status.CeilingLimited = true
+		}
+	}
+	truePeak := n.status.InputTruePeak * coefficient
+	n.status.TruePeak = &truePeak
 	builder, err := NewBuilder(n.source, n.selected, LinearGain{Factor: coefficient}, n.limits)
 	if err != nil {
 		return n.fail(fmt.Errorf("process.normalize: prepare output: %w", err))
@@ -305,7 +400,7 @@ func (n *Normalizer) startBuilder(db, coefficient float64) (Progress, error) {
 }
 
 func (n *Normalizer) releaseAnalysis() {
-	n.analyzer = nil
+	n.analyzer, n.truePeak = nil, nil
 	// Retain source channels/scratch only when a candidate verification scan
 	// will be required. Otherwise the output builder owns its bounded scratch.
 	if !n.verifyInput {
@@ -368,7 +463,7 @@ func (n *Normalizer) materialize(ctx context.Context) (Progress, error) {
 
 func (n *Normalizer) verify(ctx context.Context) (Progress, error) {
 	if !n.verifyInput {
-		if n.status.PredictedLUFS == nil || math.Abs(*n.status.PredictedLUFS-n.target) > 0.01 {
+		if n.status.PredictedLUFS == nil || (!n.status.CeilingLimited && math.Abs(*n.status.PredictedLUFS-n.target) > 0.01) {
 			return n.fail(fmt.Errorf("process.normalize: predicted target is inaccurate"))
 		}
 		n.progress.FramesDone, n.progress.Done = n.progress.FramesTotal, true
@@ -376,7 +471,7 @@ func (n *Normalizer) verify(ctx context.Context) (Progress, error) {
 	}
 	if n.progress.FramesDone < n.progress.FramesTotal {
 		frames := int(min(int64(audiobuf.BlockFrames), n.progress.FramesTotal-n.progress.FramesDone))
-		if err := n.processLoudnessBlock(ctx, n.verification, frames); err != nil {
+		if _, err := n.processLoudnessBlock(ctx, n.verification, frames); err != nil {
 			return n.fail(fmt.Errorf("process.normalize: verify output: %w", err))
 		}
 		n.progress.FramesDone += int64(frames)
@@ -394,7 +489,9 @@ func (n *Normalizer) verify(ctx context.Context) (Progress, error) {
 	if err != nil {
 		return n.fail(fmt.Errorf("process.normalize: verification result: %w", err))
 	}
-	if math.Abs(result.LUFS-n.target) > 0.01 {
+	// A ceiling-limited candidate misses the target by design; its measured
+	// loudness is still reported.
+	if !n.status.CeilingLimited && math.Abs(result.LUFS-n.target) > 0.01 {
 		return n.fail(fmt.Errorf("process.normalize: output %.6f LUFS deviates from target %.6f LUFS", result.LUFS, n.target))
 	}
 	actual := result.LUFS
@@ -437,7 +534,7 @@ func (n *Normalizer) fail(err error) (Progress, error) {
 	}
 	n.builder = nil
 	n.source, n.result = audiobuf.Document{}, audiobuf.Document{}
-	n.channels, n.storage, n.block, n.analyzer, n.verification = nil, nil, nil, nil, nil
+	n.channels, n.storage, n.block, n.analyzer, n.verification, n.truePeak = nil, nil, nil, nil, nil, nil
 	n.failure = err
 	n.progress.Done = false
 	return n.progress, err

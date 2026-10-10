@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 19;
+export const PROTOCOL_VERSION = 20;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -311,7 +311,13 @@ export type ProcessStartParams = SelectionResult &
     | { operation: "declip"; clipThreshold: number; maxGap: number }
     | { operation: "time-stretch"; durationRatio: number }
     | { operation: "remove-hum"; humHz: 50 | 60; humQ: number; harmonics: number }
-    | { operation: "normalize-peak" | "normalize-loudness"; target: number }
+    | { operation: "normalize-peak"; target: number }
+    | {
+        operation: "normalize-loudness";
+        target: number;
+        /** dBTP in [-60, 0]; caps the gain so the output true peak stays below it. */
+        truePeakCeiling?: number;
+      }
     | { operation: "fade-in" | "fade-out"; curve: FadeCurve }
     | { operation: "crossfade"; curve: FadeCurve; durationFrames: number }
     | { operation: "reverse" | "invert" | "remove-dc" | "mono-to-stereo" }
@@ -338,6 +344,14 @@ export type ProcessStartParams = SelectionResult &
 
 /** Private output geometry; source coordinates remain in the job envelope. */
 export interface ProcessCandidate extends SelectionRange {
+  sampleRate: number;
+  channels: number;
+  frames: number;
+}
+
+/** A new silent document; frames may be zero and an empty name becomes "Untitled". */
+export interface DocumentNewParams {
+  name?: string;
   sampleRate: number;
   channels: number;
   frames: number;
@@ -400,6 +414,16 @@ export interface ProcessJobResult extends SelectionResult {
   /** Maximum finite absolute float32 output; nonfinite values are separate. */
   peak: number;
   nonFinite: boolean;
+  /** Requested true-peak ceiling (dBTP); loudness normalization only. */
+  truePeakCeiling?: number;
+  /**
+   * Output 4x-oversampled linear peak, derived from the measured input and the
+   * resolved linear gain. Null until normalization resolves its gain, and for
+   * every other operation.
+   */
+  truePeak: number | null;
+  /** The ceiling lowered the gain, so the output is quieter than the target. */
+  ceilingLimited?: boolean;
 }
 
 export interface HistoryListParams {
@@ -786,6 +810,7 @@ export interface KernelMethods {
   "process.commit": { params: ProcessJobParams; result: EditResult };
   "process.exportCandidate": { params: ProcessJobParams; result: BinaryDocumentResult };
   "doc.openPCM": { params: BinaryDocumentParams; result: DocumentInfoResult };
+  "doc.new": { params: DocumentNewParams; result: DocumentInfoResult };
   "doc.importBinary": { params: BinaryDocumentParams; result: DocumentInfoResult };
 }
 

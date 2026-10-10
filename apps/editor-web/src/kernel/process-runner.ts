@@ -68,6 +68,8 @@ export function validProcessProgress(
     !finiteNullable(p.inputLufs) ||
     !finiteNullable(p.predictedLufs) ||
     !finiteNullable(p.outputLufs) ||
+    !finiteNullable(p.truePeak) ||
+    (p.truePeak ?? 0) < 0 ||
     typeof p.gainResolved !== "boolean" ||
     typeof p.nonFinite !== "boolean"
   )
@@ -166,8 +168,29 @@ export function validProcessProgress(
     (p.inputLufs !== null || p.predictedLufs !== null || p.outputLufs !== null)
   )
     return false;
+  // Normalization reports the output true peak exactly when its gain is known;
+  // a ceiling exists only for loudness and bounds that peak.
+  if ((normalize && p.gainResolved) !== (p.truePeak !== null)) return false;
+  const ceiling = p.truePeakCeiling;
+  const limited = p.ceilingLimited === true;
+  if (p.ceilingLimited !== undefined && !limited) return false;
+  if (
+    ceiling !== undefined &&
+    (p.operation !== "normalize-loudness" ||
+      !Number.isFinite(ceiling) ||
+      ceiling > 0 ||
+      ceiling < -60 ||
+      (p.truePeak ?? 0) > 10 ** (ceiling / 20) * (1 + 1e-9))
+  )
+    return false;
+  if (limited && (ceiling === undefined || !p.gainResolved)) return false;
   if (p.outputLufs !== null && p.phase !== "verifying") return false;
-  if (p.outputLufs !== null && Math.abs((p.outputLufs ?? 0) - (p.target ?? 0)) > 0.01) return false;
+  // A ceiling-limited candidate is quieter than its target by design.
+  const missesTarget = (value: number | null | undefined) =>
+    limited
+      ? (value ?? 0) > (p.target ?? 0) + 0.01
+      : Math.abs((value ?? 0) - (p.target ?? 0)) > 0.01;
+  if (p.outputLufs !== null && missesTarget(p.outputLufs)) return false;
   const silent = p.unchangedReason === "silent";
   if (p.unchangedReason !== undefined && !silent) return false;
   if (
@@ -188,7 +211,7 @@ export function validProcessProgress(
     p.operation === "normalize-loudness" &&
     p.gainResolved &&
     !silent &&
-    (p.predictedLufs === null || Math.abs((p.predictedLufs ?? 0) - (p.target ?? 0)) > 0.01)
+    (p.predictedLufs === null || missesTarget(p.predictedLufs))
   )
     return false;
   if (
@@ -222,9 +245,15 @@ export function validProcessProgress(
       "channelMask",
       "operation",
       "target",
+      "truePeakCeiling",
       "phaseCount",
     ] as const)
       if (p[field] !== previous[field]) return false;
+    if (
+      previous.gainResolved &&
+      (p.truePeak !== previous.truePeak || p.ceilingLimited !== previous.ceilingLimited)
+    )
+      return false;
     if (
       p.totalFrames !== previous.totalFrames &&
       !(

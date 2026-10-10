@@ -65,6 +65,7 @@ const progress: ProcessJobResult = {
   inputLufs: null,
   predictedLufs: null,
   outputLufs: null,
+  truePeak: null,
   planningSteps: 0,
   gainDb: 6,
   processedFrames: 1,
@@ -533,6 +534,7 @@ describe("KernelClient", () => {
       gainDb: -2,
       inputLufs: -21,
       predictedLufs: -23,
+      truePeak: 0.4,
     };
     vi.advanceTimersByTime(60);
     worker.emit({ kind: "process.progress", id: 1, progress: processing });

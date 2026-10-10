@@ -40,7 +40,13 @@ func TestProcessJobWireGolden(t *testing.T) {
 	lufs.PlanningSteps, lufs.InputPeak = 2, 0.25
 	input, predicted, output, target := -18.0, -23.0, -23.0000001, -23.0
 	lufs.InputLUFS, lufs.PredictedLUFS, lufs.OutputLUFS, lufs.Target = &input, &predicted, &output, &target
-	assertWireGolden(t, processWireGolden, []protocol.ProcessJobResult{base, peak, lufs})
+	truePeak := 0.2
+	lufs.TruePeak = &truePeak
+	limited := lufs
+	ceiling, limitedPeak, limitedLUFS := -1.0, 0.8912509, -24.5
+	limited.TruePeakCeiling, limited.TruePeak, limited.CeilingLimited = &ceiling, &limitedPeak, true
+	limited.GainDB, limited.PredictedLUFS, limited.OutputLUFS = -6.5, &limitedLUFS, &limitedLUFS
+	assertWireGolden(t, processWireGolden, []protocol.ProcessJobResult{base, peak, lufs, limited})
 }
 
 // assertWireGolden compares Go's encoding of value with a golden file that the
