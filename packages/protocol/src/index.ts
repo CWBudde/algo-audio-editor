@@ -349,7 +349,6 @@ export interface ProcessCandidate extends SelectionRange {
   frames: number;
 }
 
-/** Metadata accompanying planar little-endian float32 window-handoff bytes. */
 /** A new silent document; frames may be zero and an empty name becomes "Untitled". */
 export interface DocumentNewParams {
   name?: string;
@@ -358,6 +357,7 @@ export interface DocumentNewParams {
   frames: number;
 }
 
+/** Metadata accompanying planar little-endian float32 window-handoff bytes. */
 export interface BinaryDocumentParams {
   name: string;
   tags: Record<string, string>;
