@@ -6,6 +6,16 @@ All notable changes to this project are documented here, and the project uses
 Commits on `main`; do not edit them by hand. The pre-release section below
 summarizes development before the first release (`v0.1.0`).
 
+## 1.0.0 (2026-10-10)
+
+
+### Features
+
+* **editor:** dirty-open prompt in the browser, Help shortcut list and copy diagnostics ([#6](https://github.com/CWBudde/algo-audio-editor/issues/6)) ([d20ebe8](https://github.com/CWBudde/algo-audio-editor/commit/d20ebe8c8f7013a0b5c30a2dfbb4dc1e1be3d56c))
+* finish Phase 30 with File → New, Preferences, TPDF by default and true-peak checks ([#7](https://github.com/CWBudde/algo-audio-editor/issues/7)) ([9c62fcd](https://github.com/CWBudde/algo-audio-editor/commit/9c62fcd29a3a3fc77719494d8a6424c86698874f))
+* generate speech with go-pocket-tts ([#5](https://github.com/CWBudde/algo-audio-editor/issues/5)) ([ca52470](https://github.com/CWBudde/algo-audio-editor/commit/ca524700d0a9bd1efc02b64a5bf97cb3c3db36c8))
+* restore green main, add release-please releases and Phase 29 gates ([#3](https://github.com/CWBudde/algo-audio-editor/issues/3)) ([10e9af4](https://github.com/CWBudde/algo-audio-editor/commit/10e9af41a88eadfb8d428bcd3a65cfe8e07c272b))
+
 ## [Pre-release] Development history before release automation
 
 ### Added
