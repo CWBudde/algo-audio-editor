@@ -49,19 +49,27 @@ test("File → New asks before replacing unsaved changes", async ({ page }) => {
   await expect(page.getByTestId("document-save-status")).toHaveText("Unsaved changes");
   const name = await page.getByTestId("document-name").textContent();
 
+  // Answer the confirm from a handler registered before the click: the click
+  // does not return while the dialog blocks the page, so awaiting it first
+  // deadlocks whenever the prompt opens before the click settles.
+  const answer = (accept: boolean) =>
+    new Promise<string>((resolve) => {
+      page.once("dialog", (prompt) => {
+        resolve(prompt.message());
+        void (accept ? prompt.accept() : prompt.dismiss());
+      });
+    });
   let dialog = await newDocument(page);
-  let prompt = page.waitForEvent("dialog");
+  const declined = answer(false);
   await dialog.getByRole("button", { name: "Create" }).click();
-  const declined = await prompt;
-  expect(declined.message()).toContain(`Discard changes to ${name}?`);
-  await declined.dismiss();
+  expect(await declined).toContain(`Discard changes to ${name}?`);
   await expect(page.getByTestId("document-save-status")).toHaveText("Unsaved changes");
   await expect(page.getByTestId("document-name")).toHaveText(name ?? "");
 
   dialog = await newDocument(page);
-  prompt = page.waitForEvent("dialog");
+  const accepted = answer(true);
   await dialog.getByRole("button", { name: "Create" }).click();
-  await (await prompt).accept();
+  expect(await accepted).toContain(`Discard changes to ${name}?`);
   await expect(page.getByTestId("document-name")).toHaveText("Untitled");
   await expect(page.getByTestId("document-save-status")).toHaveText("Saved");
 });
