@@ -135,7 +135,8 @@ are separate opt-in checks; a successful local gate does not claim those passed.
 Keep commits focused, with bodies describing the behavior and meaningful
 validation. Contributor PRs should have a green `CI` workflow before merging;
 follow an explicit user instruction to commit directly to `main` when provided.
-Never push onto a red `main`: fix it forward first. Never skip hooks
+Branch protection requires the `CI` checks on `main`, so a direct push goes out as
+the `CWBudde` admin ([releasing](docs/releasing.md)). Never push onto a red `main`: fix it forward first. Never skip hooks
 (`--no-verify`, `LEFTHOOK=0`) to commit or push on `main`; `just install` sets up
 the pre-commit/pre-push hooks and `just check` warns when they are missing.
 Interactive design and polish sessions work on a branch that merges only when CI
