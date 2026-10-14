@@ -38,10 +38,20 @@ PRs, pull requests labeled `e2e` and manual `workflow_dispatch` runs; run
 successful push-run commit; a manual Pages deployment also checks CI for its
 commit. `release.yml` gates and publishes releases (see [Releases](#releases));
 `build-desktop.yml` can also be dispatched manually for unsigned, unpublished
-artifacts. These workflow gates do not establish required checks for merging to
-`main`.
-Required branch checks remain an open repository-setting task (PLAN Phase 29); the branch
-protection API reported `Branch not protected` during the 2026-10-05 audit.
+artifacts.
+
+Branch protection on `main` (since 2026-10-14) requires the nine `CI` checks
+that run on every pull request, from GitHub Actions, on a branch that is up to
+date with `main`: `Format / treefmt…`, `Lint / Go…`, `Lint / Web…`,
+`Unit / Go (race, coverage)`, `Unit / Go native (macos-latest)`,
+`Unit / Go native (windows-latest)`, `Unit / Go under js/wasm…`, `Unit / Vitest`
+and `Fuzz / Codec fuzz smoke…`. `E2E` is not required: a skipped run reports as
+`E2E` but a real one as `E2E / …`, so requiring it would block every PR that runs
+it. Force pushes and deleting `main` are refused. Admins are not enforced, which
+is the bypass for an explicitly requested direct push: it goes out as the
+`CWBudde` admin (for example `git push https://CWBudde@github.com/CWBudde/algo-audio-editor.git HEAD:main`),
+because pushes from write collaborators are rejected. Renaming a required job
+changes its check name, so update the protection in the same PR.
 
 External workflow actions are pinned to verified commits with release comments;
 update the SHA and comment together. `test-lint.yml` pins golangci-lint to
