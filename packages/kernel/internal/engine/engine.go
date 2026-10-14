@@ -43,6 +43,7 @@ type Engine struct {
 	jobs         jobSubsystem
 	analysis     analysisSubsystem
 	effectsState effectsSubsystem
+	autosave     autosaveSubsystem
 }
 
 // New returns an engine configured for 48 kHz stereo.

@@ -33,7 +33,7 @@ func (e *Engine) retainedStorage() int64 {
 	} else {
 		stats = audiobuf.CountMemoryWithWindows(documents, e.doc.clipboard.Windows()...)
 	}
-	bytes := stats.SampleBytes + stats.PeakBytes + int64(stats.UniqueBlocks)*128 + int64(stats.BlockReferences)*16 + e.effectsState.impulseBytes + int64(cap(e.bulkData))
+	bytes := stats.SampleBytes + stats.PeakBytes + int64(stats.UniqueBlocks)*128 + int64(stats.BlockReferences)*16 + e.effectsState.impulseBytes + e.autosave.stagedBytes + int64(cap(e.bulkData))
 	if job := e.jobs.processJob; job != nil {
 		// This reservation includes future blocks as well as partial/ready
 		// output. Counting its actual blocks again would double-charge them.

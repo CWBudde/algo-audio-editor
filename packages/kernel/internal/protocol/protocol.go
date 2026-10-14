@@ -10,7 +10,7 @@ import "encoding/json"
 
 // Version is the ABI version. The frontend refuses to talk to a kernel whose
 // Version differs from the one it was built against.
-const Version = 20
+const Version = 21
 
 // Method names accepted by the kernel's call entry point.
 const (
@@ -78,6 +78,11 @@ const (
 	MethodEffectsApply           = "effects.apply"
 	MethodEffectsIRLoad          = "effects.ir.load"
 	MethodEffectsIRRemove        = "effects.ir.remove"
+	MethodAutosaveDelta          = "autosave.delta"
+	MethodRecoveryBegin          = "recovery.begin"
+	MethodRecoveryBlocks         = "recovery.blocks"
+	MethodRecoveryFinish         = "recovery.finish"
+	MethodRecoveryAbort          = "recovery.abort"
 )
 
 // Response is the envelope every call returns, serialized as JSON.
@@ -431,6 +436,55 @@ type BinaryDocumentParams struct {
 type BinaryDocumentInfo struct {
 	BinaryDocumentParams
 	DataBytes int `json:"dataBytes"`
+}
+
+// AutosaveDeltaParams bounds the sample records of one autosave delta.
+// MaxBytes 0 selects the kernel default.
+type AutosaveDeltaParams struct {
+	MaxBytes int `json:"maxBytes"`
+}
+
+// AutosaveChunk is preserved opaque container metadata. JSON carries its bytes
+// as base64; `data` is reserved for transferred buffers.
+type AutosaveChunk struct {
+	ID   string `json:"id"`
+	Data []byte `json:"base64"`
+}
+
+// AutosaveDocument is the non-sample state that crash recovery restores. The
+// block layout travels separately as binary data.
+type AutosaveDocument struct {
+	BinaryDocumentParams
+	Chunks         []AutosaveChunk `json:"chunks"`
+	SourceFormat   string          `json:"sourceFormat"`
+	SourceBitDepth int             `json:"sourceBitDepth"`
+	SourceFloat    bool            `json:"sourceFloat"`
+	Selection      SelectionRange  `json:"selection"`
+	Dirty          bool            `json:"dirty"`
+}
+
+// AutosaveDeltaResult describes one binary delta. The data holds the freed
+// block IDs, the layout when Complete, then the new block records. A new
+// Generation means a different document: earlier blocks no longer apply.
+type AutosaveDeltaResult struct {
+	Generation int64            `json:"generation"`
+	Complete   bool             `json:"complete"`
+	Blocks     int              `json:"blocks"`
+	Freed      int              `json:"freed"`
+	Pending    int              `json:"pending"`
+	Document   AutosaveDocument `json:"document"`
+	DataBytes  int              `json:"dataBytes"`
+}
+
+// RecoveryBeginParams continues block IDs after every ID the store has seen.
+type RecoveryBeginParams struct {
+	NextBlockID int64 `json:"nextBlockId"`
+}
+
+// RecoveryResult reports the blocks staged for recovery.finish.
+type RecoveryResult struct {
+	Blocks int   `json:"blocks"`
+	Bytes  int64 `json:"bytes"`
 }
 
 // PCMReadParams requires a current history state and explicit source geometry.

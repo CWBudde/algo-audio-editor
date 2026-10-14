@@ -335,3 +335,37 @@ func TestHistoryExactUndoRedoSampleBits(t *testing.T) {
 	}
 	assertBits(redo.document, []float32{values[0], values[4], values[5]})
 }
+
+func TestHistoryRetainsReferencedBlocks(t *testing.T) {
+	initial := makeSnapshot(t, 1)
+	h := newHistory(t, initial, Limits{MaxEntries: 1, MaxBytes: 1 << 20})
+	blocks := func(value snapshot) []*audiobuf.Block {
+		channel, err := value.document.Channel(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result []*audiobuf.Block
+		channel.Blocks(func(block *audiobuf.Block) bool {
+			result = append(result, block)
+			return true
+		})
+		return result
+	}
+	original := blocks(initial)[0]
+	if !h.Retains(original) {
+		t.Fatal("initial block is not retained")
+	}
+	edited := makeSnapshot(t, 2)
+	if err := h.Push("Edit", initial, edited); err != nil {
+		t.Fatal(err)
+	}
+	if !h.Retains(original) || !h.Retains(blocks(edited)[0]) {
+		t.Fatal("undo and current states must retain their blocks")
+	}
+	if err := h.Push("Edit", edited, makeSnapshot(t, 3)); err != nil {
+		t.Fatal(err)
+	}
+	if h.Retains(original) {
+		t.Fatal("block of a pruned state is still retained")
+	}
+}

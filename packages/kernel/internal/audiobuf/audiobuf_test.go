@@ -425,3 +425,28 @@ func BenchmarkChannelSlice(b *testing.B) {
 		}
 	}
 }
+
+func TestChannelBlocksVisitsTimelineOrder(t *testing.T) {
+	first, second := newBlock(testSamples(3)), newBlock(testSamples(5))
+	channel := channelFromBlocks([]*Block{first, second, first})
+	var visited []*Block
+	channel.Blocks(func(block *Block) bool {
+		visited = append(visited, block)
+		return true
+	})
+	if !slices.Equal(visited, []*Block{first, second, first}) {
+		t.Fatalf("visited %v, want shared blocks in timeline order", visited)
+	}
+	visited = nil
+	channel.Blocks(func(block *Block) bool {
+		visited = append(visited, block)
+		return false
+	})
+	if len(visited) != 1 {
+		t.Fatalf("visited %d blocks after stop, want 1", len(visited))
+	}
+	Channel{}.Blocks(func(*Block) bool {
+		t.Fatal("empty channel visited a block")
+		return false
+	})
+}
