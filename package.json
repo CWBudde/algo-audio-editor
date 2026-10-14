@@ -1,6 +1,7 @@
 {
   "name": "algo-audio-editor",
   "private": true,
+  "packageManager": "bun@1.4.2",
   "version": "0.0.0",
   "workspaces": [
     "apps/*",
