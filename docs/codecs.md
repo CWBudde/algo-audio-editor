@@ -33,7 +33,7 @@ The archived MP3 decoder is sufficient for the initial import path; no MP3 fork 
 
 Frontend tests verify magic/ID3 routing, original rates, binary planar ownership, failed/stale browser imports, output extensions and FLAC format limits. `codecs.spec.ts` imports FLAC/AIFF/MP3/Vorbis/Opus/AAC through the production UI and exports/reopens lossless copies. `mp3_test.go` checks mono, Xing frame counts, protected frames, gapless intervals and malformed metadata against independent PCM fixtures. Desktop tests cover the actual launch/open/save path and existing capability/dirty-close guards.
 
-WAV metadata editing is implemented below. ID3/Vorbis comment mapping remains Phase 17; project files, autosave and application-owned recent-file persistence remain Phase 18.
+WAV metadata editing is implemented below. ID3/Vorbis comment mapping remains Phase 17; project files and application-owned recent-file persistence remain Phase 18.
 
 ## Lossy export
 

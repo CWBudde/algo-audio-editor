@@ -60,8 +60,10 @@ acknowledgement; cancelled or failed saves keep the window open. Active document
 operations and previews must finish or cancel before closing. Extracted-channel
 windows get the same native services and independent close protection.
 
-Installers advertise WAV, FLAC, AIFF/AIFC and MP3 associations. `.aaep` associations wait for Phase 18 project support. Browser-dependent codec formats are available through Open without advertising installer associations. Projects and crash recovery remain Phase 18;
-the close guard does not provide autosave.
+Installers advertise WAV, FLAC, AIFF/AIFC and MP3 associations. `.aaep` associations wait for Phase 18 project support. Browser-dependent codec formats are available through Open without advertising installer associations. Projects remain Phase 18.
+Autosave and crash recovery work as in the browser ([README](../README.md#autosave-and-crash-recovery)):
+the autosave lives in the `app://editor` origin's private file system under `userData`,
+and a killed process is offered for recovery at the next start.
 
 ## Speech models
 
