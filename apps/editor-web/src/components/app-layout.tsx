@@ -8,6 +8,7 @@ import { IconAction } from "@/components/icon-action";
 import { LivePlaybackMeters } from "@/components/live-playback-meters";
 import { NewDocumentDialog } from "@/components/new-document-dialog";
 import { PreferencesDialog } from "@/components/preferences-dialog";
+import { RecoveryDialog } from "@/components/recovery-dialog";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
 import { SpectrumPanel } from "@/components/spectrum-panel";
 import { StatusBar } from "@/components/status-bar";
@@ -103,6 +104,12 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
     newDocumentOpen,
     setNewDocumentOpen,
     createDocument,
+    autosave,
+    recoveryOpen,
+    recoveryProgress,
+    recoverSession,
+    discardSession,
+    closeRecovery,
     preferencesOpen,
     setPreferencesOpen,
     silenceValue,
@@ -130,6 +137,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
       <div
         className="editor-shell flex h-dvh flex-col bg-background text-foreground"
         data-kernel-state={kernel.status}
+        data-autosave={autosave.checked ? "ready" : "pending"}
       >
         <header className="editor-header flex h-9 shrink-0 min-w-0 items-center gap-2 border-b px-3">
           <img
@@ -368,6 +376,7 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
         <StatusBar
           info={doc.info}
           dirty={history.history?.dirty}
+          autosave={{ savedAt: autosave.status?.savedAt, failure: autosave.failure }}
           onInformation={information}
           informationDisabled={
             paletteOpen || !commands.find((command) => command.id === "help.about")?.enabled
@@ -427,6 +436,15 @@ export function AppLayout({ controller }: { controller: ReturnType<typeof useApp
         onClose={closeNewDocument}
       />
       <PreferencesDialog open={preferencesOpen} onClose={closePreferences} />
+      <RecoveryDialog
+        sessions={autosave.recoverable}
+        open={recoveryOpen}
+        progress={recoveryProgress}
+        busy={recoveryProgress !== undefined}
+        onRecover={recoverSession}
+        onDiscard={discardSession}
+        onClose={closeRecovery}
+      />
       {paletteOpen && (
         <Suspense fallback={<p role="status">Opening…</p>}>
           <CommandPalette

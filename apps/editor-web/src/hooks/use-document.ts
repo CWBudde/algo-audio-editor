@@ -139,6 +139,25 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     [latest, mayReplace, run],
   );
 
+  /** Restores a crashed window's autosave; true once it is the open document. */
+  const recover = useCallback(
+    async (sessionId: string, onProgress?: (done: number, total: number) => void) => {
+      let recovered = false;
+      await run("Could not recover the autosaved document", async (target, active) => {
+        if (currentInfo.current && !(await mayReplace(target, active))) return;
+        await latest.current.options.beforeOpen();
+        if (!active()) return;
+        const { info } = await target.recover(sessionId, onProgress);
+        if (!active()) return;
+        currentInfo.current = info;
+        setSnapshot({ client: target, info });
+        recovered = true;
+      });
+      return recovered;
+    },
+    [latest, mayReplace, run],
+  );
+
   const openFile = useCallback(
     (file: File) => {
       void run("Could not open audio", (target, active) => importFile(target, active, file));
@@ -311,6 +330,7 @@ export function useDocument(client: KernelClient | undefined, options: DocumentO
     openFile,
     openDemo,
     create,
+    recover,
     openNativeFile,
     save,
     saveAndWait,

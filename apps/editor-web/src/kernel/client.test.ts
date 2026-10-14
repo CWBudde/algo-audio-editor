@@ -609,3 +609,50 @@ describe("KernelClient", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe("KernelClient autosave", () => {
+  it("publishes unsolicited status to current and late listeners", () => {
+    const worker = new FakeWorker();
+    const client = new KernelClient(worker);
+    const early = vi.fn();
+    const unsubscribe = client.onAutosaveStatus(early);
+    worker.emit({
+      kind: "autosave.status",
+      status: { state: "saved", sessionId: "s1", savedAt: 5 },
+    });
+    expect(early).toHaveBeenCalledWith({ state: "saved", sessionId: "s1", savedAt: 5 });
+    unsubscribe();
+    worker.emit({ kind: "autosave.status", status: { state: "saving", sessionId: "s1" } });
+    expect(early).toHaveBeenCalledOnce();
+    const late = vi.fn();
+    client.onAutosaveStatus(late);
+    expect(late).toHaveBeenCalledWith({ state: "saving", sessionId: "s1" });
+  });
+
+  it("reports recovery progress and extends the inactivity timeout", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const client = new KernelClient(worker);
+    const progress = vi.fn();
+    const recovered = client.recover("s2", progress);
+    const request = worker.sent[0] as WorkerRequest & { op: "autosave.recover" };
+    expect(request).toMatchObject({ op: "autosave.recover", sessionId: "s2" });
+    for (let done = 1; done <= 3; done++) {
+      await vi.advanceTimersByTimeAsync(50_000);
+      worker.emit({ kind: "autosave.progress", id: request.id, done, total: 3 });
+    }
+    expect(progress).toHaveBeenLastCalledWith(3, 3);
+    const info = { documentId: "doc-9" } as DocumentInfoResult;
+    worker.emit({ kind: "reply", id: request.id, ok: true, result: { info, sessionId: "s2" } });
+    await expect(recovered).resolves.toEqual({ info, sessionId: "s2" });
+  });
+
+  it("times out a recovery without progress", async () => {
+    vi.useFakeTimers();
+    const client = new KernelClient(new FakeWorker());
+    const recovered = client.recover("s3");
+    const settled = expect(recovered).rejects.toBeInstanceOf(KernelTimeoutError);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await settled;
+  });
+});

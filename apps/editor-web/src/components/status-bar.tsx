@@ -6,6 +6,8 @@ import { Info } from "@/lib/icons";
 interface StatusBarProps {
   info?: DocumentInfoResult;
   dirty?: boolean;
+  /** The last autosave of unsaved changes, or why autosave is not working. */
+  autosave?: { savedAt?: number; failure?: string };
   onInformation(): void;
   informationDisabled?: boolean;
   informationRef?: Ref<HTMLButtonElement>;
@@ -13,6 +15,7 @@ interface StatusBarProps {
 export function StatusBar({
   info,
   dirty,
+  autosave,
   onInformation,
   informationDisabled,
   informationRef,
@@ -57,6 +60,29 @@ export function StatusBar({
           <span className="text-muted-foreground">No document open</span>
         )}
       </div>
+      {autosave?.failure ? (
+        <span
+          className="max-w-[40%] shrink truncate text-destructive"
+          data-testid="autosave-status"
+          data-state="error"
+          role="status"
+          title={autosave.failure}
+        >
+          Autosave unavailable: {autosave.failure}
+        </span>
+      ) : (
+        info &&
+        dirty &&
+        autosave?.savedAt !== undefined && (
+          <span
+            className="shrink-0 text-muted-foreground tabular-nums"
+            data-testid="autosave-status"
+            data-state="saved"
+          >
+            Autosaved {new Date(autosave.savedAt).toLocaleTimeString()}
+          </span>
+        )
+      )}
       <Button
         ref={informationRef}
         variant="ghost"

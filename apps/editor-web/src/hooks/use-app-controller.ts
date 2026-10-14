@@ -15,6 +15,7 @@ import type { PlaybackFollow, TransportBarHandle } from "@/components/transport-
 import type { WaveformViewHandle } from "@/components/waveform-view";
 import { useAnalysisDialog } from "@/hooks/use-analysis-dialog";
 import { useAutomation } from "@/hooks/use-automation";
+import { useAutosave } from "@/hooks/use-autosave";
 import { useBatch } from "@/hooks/use-batch";
 import { useCommands } from "@/hooks/use-commands";
 import { useDesktop } from "@/hooks/use-desktop";
@@ -34,6 +35,7 @@ import { DEFAULT_SPECTRAL_SETTINGS, type SpectralSettings } from "@/lib/analysis
 import { copyDiagnostics } from "@/lib/diagnostics";
 import {
   cancelExtractionWindow,
+  isExtractionWindow,
   openExtractedChannel,
   prepareExtractionWindow,
 } from "@/lib/extraction-window";
@@ -115,6 +117,12 @@ export function useAppController() {
       void engine?.dispose().catch(reportError("Could not release audio resources"));
     };
   }, [engine]);
+
+  const [autosaveEnabled] = useState(() => !isExtractionWindow());
+  const autosave = useAutosave(client, autosaveEnabled);
+  const [recoveryDismissed, setRecoveryDismissed] = useState(false);
+  const [recoveryProgress, setRecoveryProgress] = useState<number>();
+  const recoveryOpen = autosave.recoverable.length > 0 && !recoveryDismissed;
 
   const doc = useDocument(client, {
     async beforeOpen() {
@@ -490,6 +498,7 @@ export function useAppController() {
           informationOpen ||
           shortcutsOpen ||
           newDocumentOpen ||
+          recoveryOpen ||
           preferencesOpen ||
           metadata.view ||
           analysis.view,
@@ -677,6 +686,30 @@ export function useAppController() {
   const dirty = Boolean(
     doc.info && (history.history?.documentId !== doc.info.documentId || history.history.dirty),
   );
+  const { recover: recoverDocument } = doc;
+  const { forget: forgetRecoverable, discard: discardRecoverable } = autosave;
+  const recoverSession = useCallback(
+    (sessionId: string) => {
+      setRecoveryProgress(0);
+      void recoverDocument(sessionId, (done, total) =>
+        setRecoveryProgress(total ? done / total : 1),
+      )
+        .then((recovered) => {
+          if (!recovered) return;
+          forgetRecoverable(sessionId);
+          setRecoveryDismissed(true);
+        })
+        .finally(() => setRecoveryProgress(undefined));
+    },
+    [recoverDocument, forgetRecoverable],
+  );
+  const discardSession = useCallback(
+    (sessionId: string) => {
+      void discardRecoverable(sessionId).catch(reportError("Could not discard the autosave"));
+    },
+    [discardRecoverable],
+  );
+  const closeRecovery = useCallback(() => setRecoveryDismissed(true), []);
   useUnsavedChangesGuard(dirty);
   const desktop = useDesktop({
     commands,
@@ -784,6 +817,12 @@ export function useAppController() {
     newDocumentOpen,
     setNewDocumentOpen,
     createDocument,
+    autosave,
+    recoveryOpen,
+    recoveryProgress,
+    recoverSession,
+    discardSession,
+    closeRecovery,
     preferencesOpen,
     setPreferencesOpen,
     setLoop,
