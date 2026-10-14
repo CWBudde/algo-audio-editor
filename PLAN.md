@@ -19,7 +19,7 @@
 
 **Product shape:** a waveform editor first, in the spirit of ocenaudio, Sound Forge or Audition's waveform view. Multitrack (Phase 26) builds on the same block-based document model.
 
-**How to read this plan:** Phases 0–15 are complete for their stated scope; their summaries describe what exists today. Every unfinished item lives in the open phases 16–35 (Phase 22 moved to *Deferred*); work them in the **critical-path order** below, not by number. Feature guides live in [`docs/`](docs/); dated measurements and validation scope live in [`docs/benchmarks/`](docs/benchmarks/README.md). The [historical roadmap at `9de516f`](https://github.com/cwbudde/algo-audio-editor/blob/9de516f/PLAN.md) keeps the full implementation narrative. Testing strategy is in [docs/testing.md](docs/testing.md); release rules are in [docs/releasing.md](docs/releasing.md). The latest whole-repository review is [docs/REVIEW-2026-10-07.md](docs/REVIEW-2026-10-07.md); Phases 29–33 and the changed acceptance criteria below come from it.
+**How to read this plan:** Phases 0–15 are complete for their stated scope; their summaries describe what exists today. Every unfinished item lives in the open phases 16–36 (Phase 22 moved to *Deferred*); work them in the **critical-path order** below, not by number. Feature guides live in [`docs/`](docs/); dated measurements and validation scope live in [`docs/benchmarks/`](docs/benchmarks/README.md). The [historical roadmap at `9de516f`](https://github.com/cwbudde/algo-audio-editor/blob/9de516f/PLAN.md) keeps the full implementation narrative. Testing strategy is in [docs/testing.md](docs/testing.md); release rules are in [docs/releasing.md](docs/releasing.md). The latest whole-repository review is [docs/REVIEW-2026-10-07.md](docs/REVIEW-2026-10-07.md); Phases 29–33 and the changed acceptance criteria below come from it.
 
 ---
 
@@ -63,7 +63,7 @@ Original phase numbers are noted per phase; dated reports in `docs/benchmarks/` 
 6. **Phase 31**: kernel and playback robustness.
 7. **Phase 28**: flakes fixed or quarantined, then tag `v0.1.0`.
 
-After the tag: Phases 32, 33, 34, 35 and 16, then 19 (1.0 gate), 24, 25, 26, with 20, 21 and 23 as non-blocking acceptance work.
+After the tag: Phases 32, 33, 34, 35, 36 and 16, then 19 (1.0 gate), 24, 25, 26, with 20, 21 and 23 as non-blocking acceptance work.
 
 ### Phase 29: Green Main & Gate Discipline
 
@@ -208,6 +208,64 @@ After the tag: Phases 32, 33, 34, 35 and 16, then 19 (1.0 gate), 24, 25, 26, wit
 - [ ] 35.3 `transcription-dialog` — Add Transcription to the Analysis dialog (`components/analysis-dialog.tsx`, `hooks/use-analysis-dialog.ts`, `kernel/analysis-runner.ts` including `validAnalysisProgress`, `lib/analysis-settings.ts`). Settings for every option with the basic-pitch defaults and persisted like other analysis settings; progress and cancel through the existing analysis queue, which keeps a ready transcription instead of cancelling it in its `finally` (today only clipping survives, `kernel/analysis-queue.ts`) and releases it with `analysis.cancel` once the result is discarded, replaced or stale; after the job is ready, changing thresholds re-notes live through `transcription.notes` without re-running inference. Show a note table (time, note name, duration, velocity) and a compact piano-roll preview drawn from the kernel's note table (draw only, no sample processing in JS). Actions: Export MIDI… and Export CSV… through the platform save path (browser download and Electron native dialog), and Add notes as regions, which records an `analysis.transcribe` step with the current options while a macro is recording (its runners come from 35.2). Register the commands in `lib/commands.ts` (palette and menu). Tests: Vitest for the binary note-table decoding, the settings and the queue retention and release, Playwright e2e (`just e2e`) that transcribes a generated chord, re-thresholds, exports MIDI and adds regions with undo.
 - [ ] 35.4 `piano-roll-overlay` — Draw the transcription as a piano-roll overlay on the waveform and spectrogram views: notes as rectangles on a pitch axis (shared with the frequency ruler where the spectrogram is shown) with velocity shading and pitch-bend curves, synchronized with zoom, scroll and vertical zoom, with a hover tooltip (note name, start, duration, velocity). A View-menu toggle persisted in preferences; the overlay follows the current transcription result and clears when it becomes stale. Canvas drawing only, from the kernel's note table; no allocation per frame in the draw loop. Follow `docs/visual-design.md` for colours in light and dark themes. Tests: Vitest for coordinate mapping, Playwright e2e for the toggle, zoom sync and tooltip, plus screenshots for the visual check in the PR body.
 - [ ] 35.5 `transcription-docs` — Close the phase out. Write `docs/transcription.md` (usage in the editor, CLI and MCP; options and their effect; accuracy caveats such as polyphony density, drums and resampling differences from the Python reference; Spotify Apache-2.0 credit), link it from README and `docs/mcp.md`, confirm `just check-licenses` and `just check-license-policy` (the inventory was regenerated in 35.1; rerun `just licenses` only if dependencies changed since), measure the browser realtime factor on the reference laptop (Chromium and Firefox, with and without playback running) into `docs/benchmarks/transcription-<date>.md`, update the AGENTS.md layout table if new packages appeared, and collapse Phase 35 into the Completed table once every item and the acceptance criteria are met.
+
+### Phase 36: Stem Separation
+
+*New (2026-10-14).* **Process → Separate stems…** splits the selection into drums, bass, other and vocals with a pure-Go port of Meta's [Demucs](https://github.com/facebookresearch/demucs) v4 (`htdemucs`) from [algo-separate](https://github.com/cwbudde/algo-separate) (MIT). Two modes:
+- **Isolate** replaces the selection with one stem, as one undoable process job like generated speech.
+- **Remove** keeps the sum of the other three stems (karaoke), the definition of upstream's `--two-stems`.
+
+**Export stems…** writes every stem as a file, and the native CLI and MCP server return all stems.
+
+Multitrack (Phase 26) and multiple open documents (Deferred) are not prerequisites. The 84 MB of float16 weights are downloaded at run time from a pinned mirror and verified by SHA-256, never shipped. Meta's own URL sends no CORS headers.
+
+Prerequisites, released upstream first:
+- algo-tensor v0.6.0: its Phase 3 adds GroupNorm, exact GELU/GLU, cross-attention and `safetensors`.
+- algo-separate v0.1.0.
+- The user's licence decision on the weights: MIT code, but trained on MUSDB18-HQ plus 800 songs, recorded in algo-separate's `docs/weights-licence.md` and checked against the Phase 27 policy.
+
+Cost is about 168 GMAC per 7.8 s segment, or 29 GMAC per second of audio (algo-separate `docs/port-spec.md` §8). A single js/wasm worker may therefore run several times slower than realtime. algo-separate item 1.3 measures this before the port; its recommendation decides between one worker, parallel workers and native separation in Electron, and 36.3 follows it.
+
+The model never runs in `kernel.wasm`, which is near its 12 MiB budget and must keep rendering playback. It runs in a lazily loaded `separate.wasm` worker on the speech pattern; the kernel only reads and writes PCM.
+
+**Acceptance:**
+- Isolating and removing vocals on a reference song works in Chromium, Firefox and Electron with download consent, progress and cancel while playback keeps running.
+- A recorded macro replays to the same samples on the same platform, and the editor's output matches `aae separate` sample for sample there.
+- The realtime factor and peak memory on the reference laptop are in `docs/benchmarks/`.
+- `just check-license-policy` passes with the weights' decision recorded.
+
+- [ ] 36.1 `separate-kernel` — Let the kernel accept stem PCM.
+  - **Audio generator.** Extend the `audio` generator of `process.start` from mono to planar multi-channel binary input: a `sourceChannels` field, 1 or the number of selected channels, validated against the byte length (`internal/process/audio.go` `prepareAudio`, `operation.go`). Mono input keeps today's behaviour of writing to every selected channel. Planar input maps channel by channel and is resampled per channel to the document rate.
+  - **Chain method.** Add the operation-chain method `separate.stem` with params defined like `speech.generate`: selection, `model`, `stem` (`drums|bass|other|vocals`), `mode` (`isolate|remove`), `overlap` and `shifts` with `seed`, the last two optional, with pointer and `omitempty`.
+  - **One ABI commit.** Protocol, Go and TypeScript land together: `packages/kernel/internal/protocol`, `packages/protocol/src/index.ts`, the `protocol.Version`/`PROTOCOL_VERSION` bump, and `internal/protocol/testdata/schema-hash.json` re-pinned with `go test ./internal/protocol -run '^TestSchemaHashPinsVersion$' -update-schema-hash`.
+  - **Reading PCM.** Selection PCM leaves the kernel through the existing paged `doc.readPCM` (`PCMReadParams`, bound to a `stateId`, as `lib/lossy-export.ts` uses it), so no new read method is needed. Confirm the page size and stale-state handling suit a multi-minute selection.
+  - **Tests.** Table-driven engine tests for planar audio input (1 and 2 channels, wrong byte counts, rate conversion, insert versus replace), the js/wasm bridge test and protocol parity.
+- [ ] 36.2 `separate-cli-mcp` — Expose separation natively on algo-separate's `htdemucs.Job` and `catalog` package.
+  - **CLI.** `aae separate <input> --out-dir <dir> [--stems vocals,drums…] [--mode all|isolate|remove] [--stem …] [--overlap …] [--shifts … --seed …]` writes one WAV per stem in the export format of `aae` (`internal/automation`). Add `aae separate list|download` and a `--separate-models <dir>` flag for `aae` and `aae-mcp`, mirroring `speech_cli.go` and its tests.
+  - **Chain step.** Run `separate.stem` in both validators and runners (`internal/automation/runner.go`, `apps/editor-web/src/lib/operation-chain.ts`, `apps/editor-web/src/kernel/chain-runner.ts`) as a process job with the audio generator, like `synthesize()` does for speech. On the web runner the step dynamically imports the separation runtime of 36.3.
+  - **MCP tools** in `internal/mcpserver`:
+    - `separate_stems` returns each requested stem as a new session document within `maxDocuments` (8), or writes files under the write-root policy, with dry-run support and an error when the document limit would be exceeded.
+    - `list_separation_models`.
+  - **Tests** in the style of the speech tools; opt-in model tests through `AAE_SEPARATE_MODELS`. Native CLI, MCP and the editor's chain replay must produce byte-identical WAVs for the same input and options. Update `docs/mcp.md` (tool list, chain step) and the CLI help.
+- [ ] 36.3 `separate-worker` — Run algo-separate in the browser and Electron on the speech pattern.
+  - **Go side.** `packages/kernel/cmd/separate` (`js && wasm`) installs `globalThis.AAESeparate` (`catalog`, `load`, `separate(params, pcm, onProgress)`, `cancel`, `unload`). It steps `htdemucs.Job` in goroutines with a progress callback that yields so cancel arrives, holds one model at a time, and sets `debug.SetMemoryLimit`.
+  - **Web side.** `apps/editor-web/src/separate/` gets the worker, client, `runtime.ts` and `model-source.ts`, reusing the speech code rather than copying it: reference-counted hold, idle termination after 5 minutes to free WASM memory, fatal-error reset, and `fetchVerified` (streamed, size-capped, SHA-256). Move the shared parts into a common module if that is cleaner.
+  - **Electron.** Generalise `apps/desktop/src/speech-models.ts` and `speech-model-paths.ts` into one model-download module with per-catalog roots and caps, served through `app-protocol.ts` like speech, so the renderer CSP keeps `connect-src 'self'`.
+  - **Build.** Write `separate-catalog.json` (`aae separate catalog`) in `scripts/build-wasm.mjs`, give `separate.wasm` a content hash in `vite.config.ts`, add a raw/gzip budget in `scripts/check-web-budget.mjs`, and include `./cmd/separate` in `scripts/licenses-go.mjs`.
+  - **Memory.** The worker keeps only the accumulators the requested output needs: one stem, or one sum for remove. It refuses above a stated duration cap with a clear error. If algo-separate item 1.3 recommended parallel workers or native separation in Electron, implement that here and record the measured memory.
+  - **Tests.** Vitest for the client, runtime and model source; `just test-go-wasm` for the bridge.
+- [ ] 36.4 `separate-dialog` — Add **Process → Separate stems…**.
+  - **Controls.** Stem (drums, bass, other, vocals), mode (isolate or remove) and a quality preset mapping to overlap and shifts, persisted like other process settings.
+  - **Download.** Consent shows the model size, the source and the licence credit, as in the speech dialog.
+  - **Running.** Download and separation progress and cancel; then Preview/Apply through the process job with one undo entry. The worker reads PCM by `doc.readPCM` pages and returns stem PCM for the 36.1 audio generator. No sample math happens in JS; JS only moves buffers.
+  - **Export stems…** Run one separation with all four stems, then write each stem through a fresh isolated engine per file (the `kernel/batch-runner.ts` pattern: `doc.openPCM`, then `doc.export` with the current export preferences) via the platform save path (browser downloads, Electron folder dialog).
+  - **Macros.** Record `separate.stem` while a macro is recording, and register the commands in `lib/commands.ts`.
+  - **Tests.** Vitest for settings and validation. Playwright e2e (`just e2e`) on a short generated mix with a small test catalog entry or stub worker: isolate, undo, remove, export, cancel during download and separation.
+- [ ] 36.5 `separate-docs` — Close the phase out.
+  - Write `docs/separation.md`: usage in the editor, CLI and MCP; modes and quality presets; speed and memory expectations; quality caveats such as bleed, the 44.1 kHz model rate with resampling, and mono input duplicated to stereo; and Meta/Demucs credit with the weights' licence decision. Link it from README and `docs/mcp.md`.
+  - Confirm `just check-licenses` and `just check-license-policy`.
+  - Measure the realtime factor and peak memory on the reference laptop (Chromium, Firefox and Electron, with and without playback running, and natively) into `docs/benchmarks/separation-<date>.md`.
+  - Update the AGENTS.md layout table (`cmd/separate`, `src/separate`), then collapse Phase 36 into the Completed table once every item and the acceptance criteria are met.
 
 ### Phase 19: Desktop Release & Installed Platform Acceptance (1.0 gate)
 
