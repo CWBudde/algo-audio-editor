@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "inputs": {
     "bun.lock": "30dc18e93ff7aef17d232111061b18eee3257419f15c2958cdcd64f8aa99a6fa",
-    "package.json": "7f2e51c890870ef1e94a577af366ac86e823dfc903455dd180f0eee911027e8d",
+    "package.json": "931ac27b8199191abc116510458ee9a4f401e0eb6612a85afe03e8e9c377a06f",
     "apps/editor-web/package.json": "d10e16a05f6558dbfc6793678e2e1ed3edab88e8851b1c407a406fdd6620bf82",
     "apps/desktop/package.json": "ec0cd1c34f3a65ad91fbd559b891ee98094c144154e6bdb7dfb2ec29533f2aa9",
     "packages/protocol/package.json": "dd482e57c1c5c66f2d26e7c06fdc101e23f8ecc6f5ba5b8fdb74db774391dc85",
