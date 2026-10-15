@@ -16,6 +16,7 @@ import {
 } from "@aae/protocol";
 import type { RingBufferInit, RingBufferStats } from "@/audio/ring-buffer";
 import { validAnalysisProgress } from "./analysis-runner";
+import type { AutosaveStatus, RecoverableSession } from "./autosave/types";
 import type { WorkerOp, WorkerReply, WorkerRequest } from "./messages";
 import { validProcessProgress } from "./process-runner";
 
@@ -50,6 +51,7 @@ interface Pending {
     progress?: ProcessJobResult;
     listener?: (progress: ProcessJobResult) => void;
   };
+  recovery?: (done: number, total: number) => void;
 }
 
 type CallArgs<M extends KernelMethod> = ParamsOf<M> extends undefined ? [] : [ParamsOf<M>];
@@ -67,6 +69,8 @@ export class KernelClient {
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
   private readonly fatalListeners = new Set<(error: string) => void>();
+  private readonly autosaveListeners = new Set<(status: AutosaveStatus) => void>();
+  private autosaveStatus: AutosaveStatus | undefined;
   private fatal: string | undefined;
   private readonly worker: WorkerLike;
   private readonly timeoutMs: number;
@@ -230,6 +234,47 @@ export class KernelClient {
     ).finally(() => signal?.removeEventListener("abort", abort));
   }
 
+  /** Starts this window's autosave and resolves to its session ID. */
+  enableAutosave(): Promise<string> {
+    return this.request({ op: "autosave.enable" }, 30_000) as Promise<string>;
+  }
+
+  /** Recoverable sessions; `closed` sessions and clean snapshots are deleted. */
+  listRecoverable(
+    closed: string[],
+  ): Promise<{ sessions: RecoverableSession[]; removed: string[] }> {
+    return this.request({ op: "autosave.list", closed }, 30_000) as Promise<{
+      sessions: RecoverableSession[];
+      removed: string[];
+    }>;
+  }
+
+  /** Progress extends the inactivity timeout, as for processing. */
+  recover(
+    sessionId: string,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<{ info: DocumentInfoResult; sessionId: string }> {
+    return this.request(
+      { op: "autosave.recover", sessionId },
+      60_000,
+      undefined,
+      undefined,
+      undefined,
+      onProgress ?? (() => {}),
+    ) as Promise<{ info: DocumentInfoResult; sessionId: string }>;
+  }
+
+  discardRecoverable(sessionId: string): Promise<void> {
+    return this.request({ op: "autosave.discard", sessionId }, 30_000) as Promise<void>;
+  }
+
+  /** Reports the latest autosave state now, if known, and on every change. */
+  onAutosaveStatus(listener: (status: AutosaveStatus) => void): () => void {
+    if (this.autosaveStatus) listener(this.autosaveStatus);
+    this.autosaveListeners.add(listener);
+    return () => this.autosaveListeners.delete(listener);
+  }
+
   /** Called once if the kernel dies; also immediately if it already has. */
   onFatal(listener: (error: string) => void): () => void {
     if (this.fatal !== undefined) listener(this.fatal);
@@ -249,6 +294,7 @@ export class KernelClient {
     transfer?: Transferable[],
     process?: Pending["process"],
     analysis?: Pending["analysis"],
+    recovery?: Pending["recovery"],
   ): Promise<unknown> {
     if (this.fatal !== undefined) {
       return Promise.reject(new KernelError(`kernel unavailable: ${this.fatal}`));
@@ -276,7 +322,7 @@ export class KernelClient {
         this.pending.delete(id);
         reject(new KernelTimeoutError(`${describe(op)} timed out after ${timeoutMs} ms`));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer, process, analysis });
+      this.pending.set(id, { resolve, reject, timer, process, analysis, recovery });
       try {
         this.worker.postMessage({ id, ...op }, transfer);
       } catch (err) {
@@ -294,8 +340,35 @@ export class KernelClient {
       return;
     }
 
+    if (msg.kind === "autosave.status") {
+      this.autosaveStatus = msg.status;
+      for (const listener of this.autosaveListeners) {
+        try {
+          listener(msg.status);
+        } catch {
+          /* Observers do not own the worker lifecycle. */
+        }
+      }
+      return;
+    }
+
     const entry = this.pending.get(msg.id);
     if (!entry) return; // already timed out
+    if (msg.kind === "autosave.progress") {
+      const recovery = entry.recovery;
+      if (!recovery) return;
+      clearTimeout(entry.timer);
+      entry.timer = setTimeout(() => {
+        this.pending.delete(msg.id);
+        entry.reject(new KernelTimeoutError("autosave.recover inactive for 60000 ms"));
+      }, 60_000);
+      try {
+        recovery(msg.done, msg.total);
+      } catch {
+        /* Observers do not own the RPC lifecycle. */
+      }
+      return;
+    }
     if (msg.kind === "analysis.progress") {
       const analysis = entry.analysis;
       if (!analysis || !validAnalysisProgress(msg.progress, analysis, analysis.progress)) return;

@@ -7,7 +7,7 @@
  */
 
 /** Must equal protocol.Version in the Go kernel. */
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 
 /** Envelope returned by every `AAEKernel.call`. */
 export type KernelResponse<T> = { ok: true; result: T } | { ok: false; error: string };
@@ -371,6 +371,53 @@ export interface BinaryDocumentParams {
 export interface BinaryDocumentResult extends BinaryDocumentParams {
   dataBytes: number;
   data: ArrayBuffer;
+}
+
+/** Bounds one autosave delta's sample records; 0 selects the kernel default. */
+export interface AutosaveDeltaParams {
+  maxBytes: number;
+}
+
+/** Preserved opaque container metadata. */
+export interface AutosaveChunk {
+  id: string;
+  base64: string;
+}
+
+/** Non-sample document state that crash recovery restores. */
+export interface AutosaveDocument extends BinaryDocumentParams {
+  chunks: AutosaveChunk[];
+  sourceFormat: string;
+  sourceBitDepth: number;
+  sourceFloat: boolean;
+  selection: SelectionRange;
+  dirty: boolean;
+}
+
+/**
+ * One autosave delta. `data` holds the freed block IDs, the layout when
+ * `complete`, then the new block records (see engine/autosave.go). A new
+ * `generation` means a different document: earlier blocks no longer apply.
+ */
+export interface AutosaveDeltaResult {
+  generation: number;
+  complete: boolean;
+  blocks: number;
+  freed: number;
+  pending: number;
+  document: AutosaveDocument;
+  dataBytes: number;
+  data: ArrayBuffer;
+}
+
+/** New block IDs continue at `nextBlockId`, after every ID the store has seen. */
+export interface RecoveryBeginParams {
+  nextBlockId: number;
+}
+
+export interface RecoveryResult {
+  blocks: number;
+  bytes: number;
 }
 
 export interface ProcessJobParams {
@@ -812,6 +859,14 @@ export interface KernelMethods {
   "doc.openPCM": { params: BinaryDocumentParams; result: DocumentInfoResult };
   "doc.new": { params: DocumentNewParams; result: DocumentInfoResult };
   "doc.importBinary": { params: BinaryDocumentParams; result: DocumentInfoResult };
+  /** Binary: freed IDs, the layout when complete, and new block records. */
+  "autosave.delta": { params: AutosaveDeltaParams; result: AutosaveDeltaResult };
+  "recovery.begin": { params: RecoveryBeginParams; result: RecoveryResult };
+  /** Input: concatenated block records. */
+  "recovery.blocks": { params: undefined; result: RecoveryResult };
+  /** Input: the block layout. Installs an unsaved document with fresh history. */
+  "recovery.finish": { params: AutosaveDocument; result: DocumentInfoResult };
+  "recovery.abort": { params: undefined; result: RecoveryResult };
 }
 
 export type KernelMethod = keyof KernelMethods;

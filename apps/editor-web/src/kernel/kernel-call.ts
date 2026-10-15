@@ -13,13 +13,13 @@ export function callKernel(
   bridge: KernelBridge,
   method: KernelMethod,
   params: unknown,
-  input?: ArrayBuffer,
+  input?: ArrayBuffer | Uint8Array,
 ): WorkerResult {
   const response = JSON.parse(
     bridge.call(
       method,
       params === undefined ? undefined : JSON.stringify(params),
-      input === undefined ? undefined : new Uint8Array(input),
+      input === undefined || input instanceof Uint8Array ? input : new Uint8Array(input),
     ),
   ) as KernelResponse<unknown>;
   if (!response.ok) throw new Error(response.error);

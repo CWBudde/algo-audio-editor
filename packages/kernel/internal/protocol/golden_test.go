@@ -62,7 +62,32 @@ func TestDocumentWireGolden(t *testing.T) {
 		DocumentID: "doc-1", StateID: "state-2", Tags: map[string]string{"title": "Take"},
 		PreservedBytes: 64, Chunks: []string{"bext"},
 	}
+	// Autosave state of a complete delta and of the empty editor; WAV chunk
+	// data travels as base64.
+	autosave := protocol.AutosaveDeltaResult{
+		Generation: 3, Complete: true, Blocks: 2, Freed: 1,
+		Document: protocol.AutosaveDocument{
+			BinaryDocumentParams: protocol.BinaryDocumentParams{
+				Name: "take.wav", Tags: map[string]string{"title": "Take"}, SampleRate: 48000, Channels: 2, Frames: 96000,
+				NextAnchorID: 3, Markers: timeline.Markers, Regions: timeline.Regions,
+			},
+			Chunks:       []protocol.AutosaveChunk{{ID: "bext", Data: []byte{1, 2, 3}}},
+			SourceFormat: "wav", SourceBitDepth: 24,
+			Selection: protocol.SelectionRange{Start: 480, End: 9600, ChannelMask: 3}, Dirty: true,
+		},
+		DataBytes: 1072,
+	}
+	emptyAutosave := protocol.AutosaveDeltaResult{
+		Generation: 0, Complete: true,
+		Document: protocol.AutosaveDocument{
+			BinaryDocumentParams: protocol.BinaryDocumentParams{Tags: map[string]string{}, Markers: []protocol.TimelineMarker{}, Regions: []protocol.TimelineRegion{}},
+			Chunks:               []protocol.AutosaveChunk{},
+		},
+		DataBytes: 12,
+	}
 	assertWireGolden(t, documentWireGolden, map[string]any{
+		"AutosaveDeltaResult":    []protocol.AutosaveDeltaResult{autosave, emptyAutosave},
+		"RecoveryResult":         []protocol.RecoveryResult{{Blocks: 8, Bytes: 2101248}},
 		"DocumentInfoResult":     []protocol.DocumentInfoResult{document, handoff},
 		"EditResult":             []protocol.EditResult{edit},
 		"TimelineMutationResult": []protocol.TimelineMutationResult{unchanged},

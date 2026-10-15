@@ -38,7 +38,7 @@ to `apps/editor-web/`.
 | `internal/protocol` | ABI method names, payloads and response envelope |
 | `packages/protocol` | TypeScript ABI mirror (consumed via path alias, no build) |
 | `apps/editor-web` | Vite + React 19 + Tailwind v4 + shadcn (Base UI) |
-| `src/kernel` | Kernel worker, RPC client, runtime singleton and operation-chain runner |
+| `src/kernel` | Kernel worker, RPC client, runtime singleton, operation-chain runner and the OPFS autosave store (`autosave/`) |
 | `src/speech` | Speech worker, client, lazy runtime and verified model downloads |
 | `src/audio` | SAB ring buffer, playback worklet and AudioEngine |
 | `src/components/ui` | shadcn-generated components; leave as generated, add via `just --command bunx shadcn add` |

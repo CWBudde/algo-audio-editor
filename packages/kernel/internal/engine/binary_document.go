@@ -25,17 +25,7 @@ func (e *Engine) exportCandidate(p protocol.ProcessJobParams) (protocol.BinaryDo
 	if frames > e.exportStorageLimit()/4/int64(channels) {
 		return protocol.BinaryDocumentInfo{}, fmt.Errorf("%s: transfer exceeds output budget", method)
 	}
-	metadata := document.Metadata()
-	if metadata.Tags == nil {
-		metadata.Tags = map[string]string{}
-	}
-	info := protocol.BinaryDocumentInfo{BinaryDocumentParams: protocol.BinaryDocumentParams{Name: metadata.Name, Tags: metadata.Tags, SampleRate: document.SampleRate(), Channels: channels, Frames: frames, NextAnchorID: metadata.Timeline.NextID, Markers: make([]protocol.TimelineMarker, len(metadata.Timeline.Markers)), Regions: make([]protocol.TimelineRegion, len(metadata.Timeline.Regions))}, DataBytes: int(frames) * channels * 4}
-	for i, m := range metadata.Timeline.Markers {
-		info.Markers[i] = protocol.TimelineMarker{ID: m.ID, Frame: m.Frame, Name: m.Name, Color: m.Color}
-	}
-	for i, r := range metadata.Timeline.Regions {
-		info.Regions[i] = protocol.TimelineRegion{ID: r.ID, Start: r.Start, End: r.End, Name: r.Name, Color: r.Color}
-	}
+	info := protocol.BinaryDocumentInfo{BinaryDocumentParams: binaryDocumentParams(document), DataBytes: int(frames) * channels * 4}
 	data := make([]byte, info.DataBytes)
 	scratch := make([]float32, audiobuf.BlockFrames)
 	for channel := range channels {
@@ -76,14 +66,8 @@ func (e *Engine) importBinaryDocumentMode(p protocol.BinaryDocumentParams, data 
 	if err := e.checkDecodedStorage(p.Frames, p.Channels, audiobuf.BlockFrames, len(data)); err != nil {
 		return protocol.DocumentInfoResult{}, err
 	}
-	timeline := audiobuf.Timeline{NextID: p.NextAnchorID, Markers: make([]audiobuf.Marker, len(p.Markers)), Regions: make([]audiobuf.Region, len(p.Regions))}
-	for i, m := range p.Markers {
-		timeline.Markers[i] = audiobuf.Marker{ID: m.ID, Frame: m.Frame, Name: m.Name, Color: m.Color}
-	}
-	for i, r := range p.Regions {
-		timeline.Regions[i] = audiobuf.Region{ID: r.ID, Start: r.Start, End: r.End, Name: r.Name, Color: r.Color}
-	}
-	if err := timeline.Validate(p.Frames); err != nil {
+	timeline, err := timelineFromParams(p)
+	if err != nil {
 		return protocol.DocumentInfoResult{}, fmt.Errorf("%s: timeline: %w", method, err)
 	}
 	channels := make([]audiobuf.Channel, p.Channels)
@@ -124,6 +108,7 @@ func (e *Engine) importBinaryDocumentMode(p protocol.BinaryDocumentParams, data 
 	e.doc.documentSequence++
 	e.doc.sourceBitDepth, e.doc.sourceFloat = 32, true
 	e.doc.sourceFormat = "wav"
+	e.resetAutosave()
 	e.playback.transport, e.playback.source = nil, sourceStopped
 	e.effectsState.impulseResponses = nil
 	e.effectsState.impulseBytes = 0

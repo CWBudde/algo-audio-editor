@@ -120,5 +120,91 @@
       },
       "changed": false
     }
+  ],
+  "AutosaveDeltaResult": [
+    {
+      "generation": 3,
+      "complete": true,
+      "blocks": 2,
+      "freed": 1,
+      "pending": 0,
+      "document": {
+        "name": "take.wav",
+        "tags": {
+          "title": "Take"
+        },
+        "sampleRate": 48000,
+        "channels": 2,
+        "frames": 96000,
+        "nextAnchorId": 3,
+        "markers": [
+          {
+            "id": 1,
+            "frame": 4800,
+            "name": "Intro",
+            "color": "#f59e0b"
+          }
+        ],
+        "regions": [
+          {
+            "id": 2,
+            "start": 9600,
+            "end": 19200,
+            "name": "Chorus",
+            "color": ""
+          }
+        ],
+        "chunks": [
+          {
+            "id": "bext",
+            "base64": "AQID"
+          }
+        ],
+        "sourceFormat": "wav",
+        "sourceBitDepth": 24,
+        "sourceFloat": false,
+        "selection": {
+          "start": 480,
+          "end": 9600,
+          "channelMask": 3
+        },
+        "dirty": true
+      },
+      "dataBytes": 1072
+    },
+    {
+      "generation": 0,
+      "complete": true,
+      "blocks": 0,
+      "freed": 0,
+      "pending": 0,
+      "document": {
+        "name": "",
+        "tags": {},
+        "sampleRate": 0,
+        "channels": 0,
+        "frames": 0,
+        "nextAnchorId": 0,
+        "markers": [],
+        "regions": [],
+        "chunks": [],
+        "sourceFormat": "",
+        "sourceBitDepth": 0,
+        "sourceFloat": false,
+        "selection": {
+          "start": 0,
+          "end": 0,
+          "channelMask": 0
+        },
+        "dirty": false
+      },
+      "dataBytes": 12
+    }
+  ],
+  "RecoveryResult": [
+    {
+      "blocks": 8,
+      "bytes": 2101248
+    }
   ]
 }

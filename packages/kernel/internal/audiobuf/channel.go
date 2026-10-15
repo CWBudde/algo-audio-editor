@@ -50,6 +50,16 @@ func channelFromBlocks(blocks []*Block) Channel {
 	return Channel{blocks: blocks, offsets: offsets}
 }
 
+// Blocks visits the channel's blocks in timeline order, including repeated
+// references to a shared block. Returning false stops iteration.
+func (c Channel) Blocks(yield func(*Block) bool) {
+	for _, block := range c.blocks {
+		if !yield(block) {
+			return
+		}
+	}
+}
+
 // Frames returns the channel's total frame count.
 func (c Channel) Frames() int64 {
 	if len(c.offsets) == 0 {

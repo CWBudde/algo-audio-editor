@@ -67,7 +67,8 @@ just desktop-package  # local installers, no publishing
 
 Desktop menus, file dialogs, close protection and packaging are described in
 [docs/desktop.md](docs/desktop.md). WAV, FLAC, AIFF/AIFC and MP3 associations are
-enabled; editor projects and crash recovery remain [Phase 18 work](PLAN.md).
+enabled; unsaved work is [autosaved](#autosave-and-crash-recovery), and editor
+projects remain [Phase 18 work](PLAN.md).
 
 `just native-build` builds the headless `aae` CLI and `aae-mcp` stdio server.
 They share the kernel's processing and undo history, with explicit output
@@ -331,8 +332,30 @@ so New, Open, drag-and-drop and the demo ask
 before discarding unsaved changes (a native dialog in Electron, the browser's
 confirm prompt otherwise). Electron protects dirty documents with Save, Discard
 or Cancel when closing; cancelled or failed saves keep the window open. Browser
-tabs show the browser's leave-page warning instead. Projects, autosave and crash
-recovery remain Phase 18.
+tabs show the browser's leave-page warning instead. Projects remain Phase 18.
+
+### Autosave and crash recovery
+
+Each editor window autosaves its document to the origin-private file system
+(OPFS) while you work: in the browser profile on the web, in Electron's
+`userData` on the desktop. The kernel worker writes only blocks it has not
+written before, so an edit costs the changed blocks, not the whole file. An edit
+is on disk a few seconds later (debounced by one second, never delayed by more
+than two, plus the write). Opening a long file first copies it in
+the background, so that later edits are protected too; the disk use is roughly
+the document's size as 32-bit float, plus blocks that undo still needs.
+
+If a window or the browser or Electron process dies, the next start offers its
+unsaved changes under **Recover unsaved work**. A recovered document opens with
+unsaved changes and fresh undo history; markers, regions, tags, preserved WAV
+chunks, the source format and the selection are kept. **Decide later** keeps the
+autosave for the next start, and **Discard** deletes it after a second
+confirmation. Closing a window normally, or leaving the page after the browser's
+warning, discards its autosave, and so does saving or opening another document.
+Two windows never share an autosave. Extracted-channel windows are not
+autosaved. A private browser window loses its storage when it closes. If
+autosave cannot run, for example without OPFS or when the disk is full, the
+status bar says so.
 
 ## Commands and shortcuts
 

@@ -141,6 +141,12 @@ func (h *History[T]) Documents() []audiobuf.Document {
 	return documents
 }
 
+// Retains reports whether any retained state references block.
+func (h *History[T]) Retains(block *audiobuf.Block) bool {
+	_, retained := h.owners[block]
+	return retained
+}
+
 func (h *History[T]) addInventory(inventory audiobuf.BlockInventory) {
 	h.references += inventory.MemoryStats().BlockReferences
 	for block, bytes := range inventory.Blocks {

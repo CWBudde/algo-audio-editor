@@ -235,6 +235,11 @@ test-flac-hour-browser fixture: build
     [[ '{{fixture}}' == /* && -f '{{fixture}}' ]]
     AAE_HOUR_FLAC_FIXTURE='{{fixture}}' bun run --bun --cwd {{web}} e2e e2e/flac-hour.spec.ts --workers=1
 
+# Phase 18 recovery gate: kill the browser after autosaving the one-hour fixture, then time Recover (≤10 s).
+test-autosave-hour fixture: build
+    [[ '{{fixture}}' == /* && -f '{{fixture}}' ]]
+    AAE_HOUR_FLAC_FIXTURE='{{fixture}}' bun run --bun --cwd {{web}} e2e e2e/autosave-hour.spec.ts --workers=1
+
 # One-hour JSON analysis round-trip comparison (shared repeated source, no codec import).
 bench-analysis-hour:
     cd {{kernel}} && AAE_ANALYSIS_HOUR_BENCHMARK=1 go test ./internal/engine -run '^$' \

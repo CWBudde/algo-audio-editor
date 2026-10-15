@@ -4,6 +4,11 @@ import { startKernel } from "@/kernel/runtime";
 
 const parameter = "extract";
 const timeoutMs = 60_000;
+/** An extraction child window edits a handed-off channel, not a session of its own. */
+export function isExtractionWindow(): boolean {
+  return new URL(window.location.href).searchParams.has(parameter);
+}
+
 interface Reservation {
   child: Window;
   port: Promise<MessagePort>;

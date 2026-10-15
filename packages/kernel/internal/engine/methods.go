@@ -96,7 +96,17 @@ var methodRegistry = map[string]methodSpec{
 	protocol.MethodEditRedo: typedMethod(0, func(e *Engine, p protocol.HistoryListParams) (protocol.EditResult, error) {
 		return e.navigateHistory(protocol.MethodEditRedo, p.DocumentID, "")
 	}),
-	protocol.MethodMarkSaved:              typedMethod(0, (*Engine).markSaved),
+	protocol.MethodMarkSaved:     typedMethod(0, (*Engine).markSaved),
+	protocol.MethodAutosaveDelta: typedMethod(allowBoth, (*Engine).autosaveDelta),
+	protocol.MethodRecoveryBegin: typedMethod(0, (*Engine).beginRecovery),
+	protocol.MethodRecoveryBlocks: binaryMethod(0, func(e *Engine, _ struct{}, input []byte) (protocol.RecoveryResult, error) {
+		return e.stageRecoveryBlocks(input)
+	}),
+	protocol.MethodRecoveryFinish: binaryMethod(0, (*Engine).finishRecovery),
+	protocol.MethodRecoveryAbort: noParams(allowBoth, func(e *Engine) (protocol.RecoveryResult, error) {
+		e.abortRecovery()
+		return protocol.RecoveryResult{}, nil
+	}),
 	protocol.MethodProcessStart:           binaryMethod(allowProcessing, (*Engine).startProcess),
 	protocol.MethodProcessStep:            typedMethod(allowProcessing, (*Engine).stepProcess),
 	protocol.MethodProcessStepBatch:       typedMethod(allowProcessing, (*Engine).stepProcessBatch),

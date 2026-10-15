@@ -80,6 +80,7 @@ func (e *Engine) installDocument(document audiobuf.Document, depth int, isFloat 
 	e.doc.documentSequence++
 	e.doc.sourceFormat = format
 	e.doc.editor, e.historyState.history = editor, history
+	e.resetAutosave()
 	e.playback.transport, e.playback.source = nil, sourceStopped
 	e.effectsState.impulseResponses = nil
 	e.effectsState.impulseBytes = 0

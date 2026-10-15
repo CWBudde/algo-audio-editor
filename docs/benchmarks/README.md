@@ -23,6 +23,7 @@ was implemented. Historical temporary logs are not durable raw artifacts.
 | [Visual palette, 2026-10-06](visual-palette-2026-10-06.md) | Closer icon colors, shared plot/control roles, representative rendered contrast and vertical waveform magnification | Local view regressions; user feedback and installed platform/scale acceptance remain open |
 | [Spectrogram scales/readouts, 2026-10-06](spectrogram-readout-2026-10-06.md) | Actual Nyquist/DC frequency gutters, pointer coordinates, below-image status and bounded selection geometry | Local browser/Linux Electron checks; hardware timing and broader Phase 23 acceptance remain separate |
 | [True-peak normalization, 2026-10-10](true-peak-normalization-2026-10-10.md) | Native and js/wasm cost of the true-peak pass in ten-minute stereo normalization, before and after | Within Phase 16's throughput gate; the upstream meter speed-up remains open in Phase 16 |
+| [Autosave and crash recovery, 2026-10-15](autosave-recovery-2026-10-15.md) | Browser/tab/Electron kill-and-recover suites and one-hour stereo recovery timing (median 2.92 s) | Phase 18's autosave gates met locally; the reference laptop (Phase 16), installed builds and `.aaep` projects remain open |
 
 R.5 additionally retains [analysis tool-output transcription](r5-analysis-2026-10-05.txt)
 and [production browser JSON](r5-browser-2026-10-05.json). Earlier reports are

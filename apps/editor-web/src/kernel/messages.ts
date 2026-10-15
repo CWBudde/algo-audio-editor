@@ -5,6 +5,7 @@ import type {
   ProcessJobResult,
 } from "@aae/protocol";
 import type { RingBufferInit } from "../audio/ring-buffer.ts";
+import type { AutosaveStatus } from "./autosave/types.ts";
 
 /**
  * Main thread ↔ kernel worker messages. Every request carries an id and gets
@@ -22,7 +23,13 @@ export type WorkerOp =
   | { op: "stream.attach"; ring: RingBufferInit }
   /** Fills the requested preview horizon, or the whole ring for normal playback. */
   | { op: "stream.start"; maxBufferedFrames?: number }
-  | { op: "stream.stop" };
+  | { op: "stream.stop" }
+  /** Starts this window's autosave session; resolves to its ID. */
+  | { op: "autosave.enable" }
+  /** Sessions in `closed` belonged to windows that closed normally. */
+  | { op: "autosave.list"; closed: string[] }
+  | { op: "autosave.recover"; sessionId: string }
+  | { op: "autosave.discard"; sessionId: string };
 
 export type WorkerRequest = { id: number } & WorkerOp;
 
@@ -35,6 +42,9 @@ export interface WorkerResult {
 export type WorkerReply =
   | { kind: "analysis.progress"; id: number; progress: AnalysisJobResult }
   | { kind: "process.progress"; id: number; progress: ProcessJobResult }
+  | { kind: "autosave.progress"; id: number; done: number; total: number }
+  /** Unsolicited: the autosave's latest state. */
+  | { kind: "autosave.status"; status: AutosaveStatus }
   | { kind: "reply"; id: number; ok: true; result: unknown }
   | { kind: "reply"; id: number; ok: false; error: string }
   | { kind: "fatal"; error: string };

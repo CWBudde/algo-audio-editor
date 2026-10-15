@@ -7,6 +7,8 @@ import type { KernelBridge } from "@aae/protocol";
 import { MeterPublisher } from "@/audio/meter-data";
 import { FrameRingBuffer } from "@/audio/ring-buffer";
 import { runAnalysisJob } from "./analysis-runner";
+import { autosaveRoot } from "./autosave/storage";
+import { WorkerAutosave } from "./autosave/worker-autosave";
 import { callKernel } from "./kernel-call";
 import { runLiveSpectrum } from "./live-spectrum-runner";
 import type { WorkerReply, WorkerRequest, WorkerResult } from "./messages";
@@ -37,6 +39,7 @@ let meterPublisher: MeterPublisher | undefined;
 const analyses = new Set<string>();
 const spectra = new Set<number>();
 const taskYield = createTaskYield();
+let autosave: WorkerAutosave | undefined;
 
 function post(msg: WorkerReply, transfer: Transferable[] = []) {
   self.postMessage(msg, transfer);
@@ -139,6 +142,7 @@ async function handle(req: WorkerRequest): Promise<WorkerResult> {
         callKernel(requireKernel(), req.method, req.params, req.data),
       );
       meterPublisher?.publish((target) => requireKernel().copyMeters(target));
+      autosave?.touch(req.method);
       return result;
     }
     case "spectrum.run":
@@ -213,6 +217,35 @@ async function handle(req: WorkerRequest): Promise<WorkerResult> {
       return { result: ring.stats() };
     case "stream.stop":
       stopPump();
+      return { result: undefined };
+    case "autosave.enable":
+      autosave ??= new WorkerAutosave({
+        call: (method, params, input) =>
+          withStreamRefill(method, pumpTimer === undefined ? undefined : pump, () =>
+            callKernel(requireKernel(), method, params, input),
+          ).result,
+        yieldTask: taskYield.yieldTask,
+        playing: () => pumpTimer !== undefined,
+        publish: (status) => post({ kind: "autosave.status", status }),
+        root: autosaveRoot,
+        locks: navigator.locks,
+        now: Date.now,
+        randomId: () => crypto.randomUUID(),
+      });
+      return { result: await autosave.enable() };
+    case "autosave.list":
+      if (!autosave) throw new Error("autosave is not enabled");
+      return { result: await autosave.list(req.closed) };
+    case "autosave.recover":
+      if (!autosave) throw new Error("autosave is not enabled");
+      return {
+        result: await autosave.recover(req.sessionId, (done, total) =>
+          post({ kind: "autosave.progress", id: req.id, done, total }),
+        ),
+      };
+    case "autosave.discard":
+      if (!autosave) throw new Error("autosave is not enabled");
+      await autosave.discard(req.sessionId);
       return { result: undefined };
   }
 }

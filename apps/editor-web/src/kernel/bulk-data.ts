@@ -13,4 +13,5 @@ export const BULK_DATA_METHODS: Partial<
   "analysis.spectrum": { optional: true, refill: true },
   "analysis.start": { optional: true, refill: true },
   "analysis.step": { optional: true, refill: true },
+  "autosave.delta": { optional: false, refill: true },
 };

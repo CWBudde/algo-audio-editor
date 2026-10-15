@@ -57,7 +57,7 @@ Original phase numbers are noted per phase; dated reports in `docs/benchmarks/` 
 
 1. **Phase 29**: green `main` and gate discipline (stop-the-line).
 2. ~~**Phase 30**: data safety and v0.1 basics.~~ Done 2026-10-10 (see Completed).
-3. **Phase 18**: autosave and crash recovery (`.aaep` may follow the tag).
+3. **Phase 18**: autosave and crash recovery (done 2026-10-15; `.aaep` may follow the tag).
 4. **Phase 17**: MP3 and FLAC metadata.
 5. **Phase 27**: property-based license policy passing.
 6. **Phase 31**: kernel and playback robustness.
@@ -125,10 +125,11 @@ After the tag: Phases 32, 33, 34, 35, 36 and 16, then 19 (1.0 gate), 24, 25, 26,
 
 *Originally Phase 17.* **Acceptance:** after a killed tab or Electron process, edits older than 5 s survive, and recovering a one-hour stereo document takes ≤10 s. Autosave and recovery are part of `v0.1.0`; the `.aaep` container and its association may follow the tag.
 
-- [ ] OPFS-backed incremental autosave of dirty documents (only new blocks written) and crash recovery on startup.
+- [x] OPFS-backed incremental autosave of dirty documents (only new blocks written) and crash recovery on startup. (2026-10-15) — ABI 21's `autosave.delta` gives the document's immutable blocks session IDs and returns only unwritten blocks plus the layout; `recovery.begin/blocks/finish` rebuild a document in batches. The kernel worker appends block records to OPFS segment files and swaps a manifest atomically, one Web-Locked session per window. Open files are copied in 32 MiB steps; edits are written ≤2 s after the change. At startup, dirty sessions of crashed windows are offered under Recover unsaved work (normally closed windows are not), and the recovered session continues incrementally. Evidence: Go and Vitest suites; `autosave.spec.ts` kills the browser (`Browser.crash`) and a tab and recovers 5 s old edits sample-exact (5/5, 15/15 repeated); the Electron spec SIGKILLs the app and recovers (1/1); one-hour stereo recovery took 2.89–2.94 s to the painted waveform (`just test-autosave-hour`). [Report](docs/benchmarks/autosave-recovery-2026-10-15.md), [README](README.md#autosave-and-crash-recovery).
 - [ ] `.aaep` project: a zip-like container of the autosave block store, optional history, markers and view state.
 - [ ] Application-owned recent files (browser: OPFS handles; desktop: native paths). OS recent-document acknowledgement already exists.
 - [ ] `.aaep` desktop file association.
+- [ ] Autosave extracted-channel windows too. They edit a handed-off channel in their own kernel and are currently excluded, so a crash loses their unsaved changes.
 
 ### Phase 31: Kernel & Playback Robustness
 
@@ -370,7 +371,7 @@ Plans: [Go replacements](docs/licenses/go-replacements.md), [npm replacements](d
 - [ ] **Allocation flake:** `internal/effects/stream_test.go` (`AllocsPerRun`, "prepared auto-wah render+reset allocate 1") failed in 1 of 6 local `-race` runs. Find the stray allocation or make the measurement robust before it reddens CI. Later isolated and full-catalogue repetitions passed; process-global allocation counters are a suspected, unconfirmed source. [Evidence](docs/benchmarks/r1-ci-2026-10-05.md#allocation-flake).
 - [ ] **Short-file EOF snapshot flake:** one parallel `transport.spec.ts` run reported frame 13 instead of 31. Repetitions with passive DOM/output-clock/shared-counter diagnostics pass; the cause is open. Keep the exact 31-frame, zero-underrun and replay assertions. [Evidence](docs/benchmarks/r1-ci-2026-10-05.md#short-file-eof-flake).
 - [ ] **Electron security-spec timeout:** on macOS, 2026-10-08, `security.spec.ts` "only app audio permission and explicit external links are allowed" hit the 30 s test timeout and then a worker teardown timeout in one full `just e2e-desktop` run. The rerun was green, and the spec was unchanged.
-- [ ] **File → New prompt flake:** `new-document.spec.ts` "File → New asks before replacing unsaved changes" failed on unmodified `main` (9c62fcd) in a full macOS `just e2e` run: after dismissing the discard prompt, `document-save-status` read `""` instead of "Unsaved changes". Run alone with `--repeat-each 5`, one repetition hit the 30 s test timeout instead. It passed in the next full run. Find the race in `use-document`'s `create`/`mayReplace` path or in the spec; keep the assertions.
+- [ ] **File → New prompt flake:** `new-document.spec.ts` "File → New asks before replacing unsaved changes" failed on unmodified `main` (9c62fcd) in a full macOS `just e2e` run: after dismissing the discard prompt, `document-save-status` read `""` instead of "Unsaved changes". Run alone with `--repeat-each 5`, one repetition hit the 30 s test timeout instead. It passed in the next full run. Find the race in `use-document`'s `create`/`mayReplace` path or in the spec; keep the assertions. (2026-10-15) — the race is in the spec: it awaited the Create click before answering the confirm, but the click waits for navigations that cannot finish while the dialog blocks the page. Autosave's worker traffic raised it to 5 in 10 locally. A dialog handler registered before the click fixes it with unchanged assertions (30/30 with `--repeat-each 15`, green in the full local `just e2e`); tick once hosted E2E agrees.
 - [ ] **Electron spectrogram timeout:** the `d1c8caf` CI run failed `analysis…progressive spectrogram` with a 5 s predicate timeout. Decide whether it is a flake or a regression once Phase 29 lets e2e run again.
 - [ ] Add `govulncheck` and Dependabot (or Renovate) for Go modules, npm and GitHub Actions; `dep-drift.yml` only covers the `algo-*` family.
 - [ ] Machine-generated evidence over 200 KB goes to CI artifacts or release assets, with only a summary `.md` in `docs/benchmarks/`. Example: the 2.4 MB `go-math-reach-2026-10-06.json`. Benchmark reports hold evidence, not open checkboxes, so move the open items in `processing-2026-10-03.md` here or to Phase 16.

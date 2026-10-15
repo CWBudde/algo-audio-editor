@@ -95,6 +95,16 @@ vi.mock("@/hooks/use-document", () => {
   return { useDocument: () => doc };
 });
 vi.mock("@/hooks/use-document-memory", () => ({ useDocumentMemory: () => undefined }));
+vi.mock("@/hooks/use-autosave", () => ({
+  useAutosave: () => ({
+    status: undefined,
+    failure: undefined,
+    recoverable: [],
+    checked: true,
+    forget: vi.fn(),
+    discard: vi.fn(),
+  }),
+}));
 vi.mock("@/hooks/use-edit", () => ({
   useEdit: () => ({ busy: false, clipboard: undefined, run: fake.edit }),
 }));

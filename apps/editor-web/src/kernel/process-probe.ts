@@ -86,6 +86,7 @@ export function installProcessProbe() {
           options.onError?.(new Error(reply.error));
           return;
         }
+        if (reply.kind === "autosave.status") return;
         const call = calls.get(reply.id);
         if (!call) return;
         if (reply.kind === "process.progress" && call.method === "process.run") {
