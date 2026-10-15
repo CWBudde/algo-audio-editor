@@ -45,11 +45,8 @@ test("a killed Electron process keeps edits older than 5 s and recovers them", a
       await recoverOffered(page);
       expect(await snapshot(page)).toEqual(before);
       await expect(page.getByTestId("history-dirty")).toHaveText("Unsaved changes");
-      expect(
-        await second.evaluate(({ BrowserWindow }) =>
-          BrowserWindow.getAllWindows()[0].isDocumentEdited(),
-        ),
-      ).toBe(true);
+      // The title marks unsaved changes on every platform; isDocumentEdited is macOS-only.
+      await expect(page).toHaveTitle(/^\* edit-48000\.wav — /);
     } finally {
       await closeEditor(second);
     }

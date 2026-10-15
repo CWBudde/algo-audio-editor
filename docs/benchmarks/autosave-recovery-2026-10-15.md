@@ -36,7 +36,7 @@ rest of that prefill.
   recovered document, a second crash recovers the newer state from the adopted session.
 - `Page.crash` of one tab: the next tab in the same browser recovers it.
 - SIGKILL of the Electron main process: the relaunch on the same `userData` recovers it, and the
-  window reports edited.
+  window title marks unsaved changes.
 - Not offered: the session of a window that is still open, a clean document, and a tab closed
   normally. Discard needs a second confirmation.
 
